@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scmgen"
+version = "0.1.0"
+description = "Synthetic supply-chain OLTP database generator (MySQL) with a DuckDB analytics replica"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "SQLAlchemy>=2.0,<2.1",
+    "PyMySQL[rsa]>=1.1,<2",      # [rsa] = cryptography, needed for caching_sha2_password logins
+    "PyYAML>=6.0,<7",
+    "python-dotenv>=1.0,<2",
+    "typer>=0.12,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+]
+
+[project.scripts]
+scmgen = "scmgen.cli.main:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "integration: needs the local MySQL server configured in .env",
+]

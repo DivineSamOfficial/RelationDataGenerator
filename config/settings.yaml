@@ -1,0 +1,10 @@
+# Application settings. Business rules and generation volumes are added in Phase 3.
+
+logging:
+  level: INFO                 # DEBUG / INFO / WARNING / ERROR
+  file: logs/scmgen.log       # JSON lines, one object per log record
+  console: true               # human-readable output on stderr
+
+paths:
+  data_dir: data              # DuckDB files and reports (gitignored)
+  logs_dir: logs

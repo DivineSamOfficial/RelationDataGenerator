@@ -1,0 +1,21 @@
+# Pinned versions verified with Python 3.12.9 on 2026-11-08 (Phase 2 step 2.1).
+# Install the project itself with: pip install -e ".[dev]"
+annotated-doc==0.0.5
+cffi==2.1.1
+cryptography==50.0.2
+iniconfig==2.3.1
+markdown-it-py==4.2.0
+mdurl==0.1.2
+packaging==26.3
+pluggy==1.7.0
+pycparser==3.12
+Pygments==2.21.0
+PyMySQL==1.2.3
+pytest==8.4.2
+python-dotenv==1.2.4
+PyYAML==6.0.3
+rich==15.0.0
+shellingham==1.5.4
+SQLAlchemy==2.0.57
+typer==0.28.0
+typing_extensions==4.16.0

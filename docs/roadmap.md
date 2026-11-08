@@ -6,8 +6,8 @@ Last updated: 2026-11-08
 
 | Phase | Scope | Status |
 |---|---|---|
-| 1 | Architecture & database design | **Design complete, awaiting owner approval** (see Part 1H §8) |
-| 2 | Database implementation (MySQL schema, constraints, indexes, workspace management) | Not started — needs approval |
+| 1 | Architecture & database design | **Done — approved by owner 2026-11-08** (incl. interpretations I1–I6, Part 1H §4) |
+| 2 | Database implementation (MySQL schema, constraints, indexes, workspace management) | **In progress** — approved 2026-11-08 |
 | 3 | Data generation engine (master data, transactions, industry packs, scenarios, historical + continuous, progress reporting) | Not started |
 | 4 | DuckDB loader (full, incremental, metadata, reconciliation) | Not started |
 | 5 | Control Panel UI (Streamlit) | Not started |
@@ -26,6 +26,19 @@ Last updated: 2026-11-08
 | 1F | ERD by module: overview, 12 module diagrams, journal-source diagram, traceability flow (Mermaid, 16 diagrams, all parsed and validated); table index of all 92 tables | **Done** — `docs/design/phase1_part1f_erd.md` |
 | 1G | Daily generation engine (historical + continuous, determinism, restart safety), workspaces/re-runs, system tables + `scm_control.workspaces` (all 92 tables now designed), DuckDB loader (full/append/merge, keyset watermarks, metadata, reconciliation, recovery), per-table load strategy, CDC and anomaly architecture, code structure, CLI; decisions D64–D77; resolved Q4, Q5; refines A2 (day-transaction rollback D64, per-day seeds D65) | **Done** — `docs/design/phase1_part1g_generation_loader_cdc_architecture.md` |
 | 1H | Design review: requirements traceability, fixes F1–F5 applied (D78–D81: cash-flow category, tax-inclusive B2C pricing, composite FKs on snapshot columns, FK declaration), deferrals, interpretations I1–I6 for owner confirmation, MySQL assumptions to prove in Phase 2, risks, Phase 2 scope proposal | **Done** — `docs/design/phase1_part1h_design_review.md` |
+
+## Phase 2 steps (scope from Part 1H §8)
+
+| Step | Content | Status |
+|---|---|---|
+| 2.1 | Project skeleton: `pyproject.toml`, package layout, settings + `.env`, logging, pytest, MySQL connectivity check | **Done** — `scmgen db check` passes on MySQL 26.10.0; 25 tests pass (22 unit, 3 integration) |
+
+| 2.2 | MySQL users/privileges (`scm_app`, `scm_reader`, `scm_anomaly`), `scm_control.workspaces` | Next |
+| 2.3 | Assumption tests A1–A7 on the installed MySQL | |
+| 2.4 | DDL for all 92 tables + `v_general_ledger` | |
+| 2.5 | Workspace commands (`db init`, `workspace create/list/delete`) | |
+| 2.6 | Constraint test suite | |
+| 2.7 | Schema-vs-design check | |
 
 ## Open questions
 
@@ -50,7 +63,7 @@ R22 purchase returns / debit notes (1A); R23 GST cess, R24 TDS, R25 multi-GSTIN 
 ## Environment checklist (owner)
 
 - [ ] Git, VS Code, Claude Code extension
-- [ ] Python 3.11+
-- [ ] MySQL 8.0.16+ installed natively and running
+- [x] MySQL installed natively (Homebrew) and running — server 26.10.0, InnoDB, utf8mb4_0900_ai_ci, strict mode, binlog ROW (checked 2026-11-08)
+- [x] Python 3.11+ — 3.12.9 in `.venv`
 - [x] Paste the full master prompt into `docs/master_prompt.md`
 - [ ] Optional: DBeaver or MySQL Workbench for browsing data

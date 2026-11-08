@@ -1,0 +1,18 @@
+# MySQL connection and schema naming. Non-secret values only.
+# Credentials come from .env (see .env.example). Environment variables
+# MYSQL_HOST / MYSQL_PORT override host and port below.
+
+mysql:
+  host: 127.0.0.1
+  port: 3306
+  charset: utf8mb4
+  collation: utf8mb4_0900_ai_ci
+  connect_timeout_seconds: 10
+  # Every session runs in IST so DEFAULT CURRENT_TIMESTAMP values match D77.
+  session_time_zone: "+05:30"
+  # Lowest server version the design supports (CHECK constraints enforced, Part 1A D8).
+  min_server_version: "8.0.16"
+
+schemas:
+  control_schema: scm_control        # workspace registry (Part 1G §5.4)
+  workspace_prefix: scm_             # scm_<code>_oltp / scm_<code>_sim (D13)
