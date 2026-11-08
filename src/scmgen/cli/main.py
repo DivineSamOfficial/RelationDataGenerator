@@ -13,7 +13,8 @@ import typer
 from scmgen import __version__
 from scmgen.core.errors import ScmgenError
 from scmgen.core.logging_setup import setup_logging
-from scmgen.core.settings import Settings, load_settings
+from scmgen.core.settings import ALL_ROLES, DEFAULT_ENV_FILE, Settings, load_settings
+from scmgen.db.bootstrap import init_database
 from scmgen.db.connection import create_mysql_engine, verify_connection
 from scmgen.db.server_check import evaluate_server, fetch_server_info
 
@@ -42,11 +43,11 @@ def version() -> None:
 
 @db_app.command("check")
 def db_check(
-    role: Annotated[str, typer.Option("--as", help="Login to use: admin or app.")] = "admin",
+    role: Annotated[str, typer.Option("--as", help="Login to use: admin, app, reader or anomaly.")] = "admin",
 ) -> None:
     """Connect to MySQL and verify the server meets the design requirements."""
-    if role not in ("admin", "app"):
-        typer.secho("--as must be 'admin' or 'app'", fg=typer.colors.RED, err=True)
+    if role not in ALL_ROLES:
+        typer.secho(f"--as must be one of: {', '.join(ALL_ROLES)}", fg=typer.colors.RED, err=True)
         raise typer.Exit(2)
     settings = _bootstrap()
     try:
@@ -81,6 +82,24 @@ def db_check(
     engine.dispose()
     if blocking_failures:
         raise typer.Exit(1)
+
+
+@db_app.command("init")
+def db_init() -> None:
+    """Create the service accounts, grant privileges and create the control schema.
+
+    Uses the admin login. Safe to run repeatedly.
+    """
+    settings = _bootstrap()
+    try:
+        report = init_database(settings, DEFAULT_ENV_FILE)
+    except ScmgenError as exc:
+        log.error("database init failed", extra={"event": "db.init.error"})
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(2) from exc
+    # Each action was already printed by the console log handler as it happened.
+    typer.secho(f"Database initialised ({len(report.actions)} actions).", fg=typer.colors.GREEN)
+    typer.echo("Verify with: scmgen db check --as app")
 
 
 if __name__ == "__main__":  # pragma: no cover

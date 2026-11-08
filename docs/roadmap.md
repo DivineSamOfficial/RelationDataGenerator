@@ -33,8 +33,8 @@ Last updated: 2026-11-08
 |---|---|---|
 | 2.1 | Project skeleton: `pyproject.toml`, package layout, settings + `.env`, logging, pytest, MySQL connectivity check | **Done** — `scmgen db check` passes on MySQL 26.10.0; 25 tests pass (22 unit, 3 integration) |
 
-| 2.2 | MySQL users/privileges (`scm_app`, `scm_reader`, `scm_anomaly`), `scm_control.workspaces` | Next |
-| 2.3 | Assumption tests A1–A7 on the installed MySQL | |
+| 2.2 | MySQL users/privileges (`scm_app`, `scm_reader`, `scm_anomaly`), `scm_control.workspaces` | **Done** — `scmgen db init` (idempotent); wildcard grants verified on MySQL 26.10 by a throwaway-user probe; privilege matrix proven both ways by tests; 60 tests pass. Finding: PyMySQL %-formats statements even via `exec_driver_sql`, so SQL containing `%` runs through `execute_raw` (no parameters) |
+| 2.3 | Assumption tests A1–A7 on the installed MySQL (A1/A2 already seen working on `workspaces`: CHECK + `REGEXP_LIKE` enforced) | Next |
 | 2.4 | DDL for all 92 tables + `v_general_ledger` | |
 | 2.5 | Workspace commands (`db init`, `workspace create/list/delete`) | |
 | 2.6 | Constraint test suite | |

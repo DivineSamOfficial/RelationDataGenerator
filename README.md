@@ -32,6 +32,12 @@ Python 3.11+, MySQL 8.0.16+, DuckDB, SQLAlchemy/PyMySQL, Faker, YAML config, Typ
    scmgen db check
    ```
    Expected: every line `[PASS]`, exit code 0. Exit code 1 means a blocking requirement failed (e.g. MySQL too old or strict mode off); 2 means a configuration or connection problem.
+5. **Create the service accounts and control schema** (safe to re-run):
+   ```bash
+   scmgen db init
+   scmgen db check --as app        # also: --as reader, --as anomaly
+   ```
+   `db init` creates `scm_app` (all work, schemas `scm_*`), `scm_reader` (read-only) and `scm_anomaly` (read-only on clean `*_oltp` schemas, write on `*_sim`). Their passwords are generated and saved to `.env`. Re-running re-applies those passwords and grants.
 
 ## Tests
 

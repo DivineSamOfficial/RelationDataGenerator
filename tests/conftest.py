@@ -16,6 +16,11 @@ mysql:
 schemas:
   control_schema: scm_control
   workspace_prefix: scm_
+users:
+  host: localhost
+  app: scm_app
+  reader: scm_reader
+  anomaly: scm_anomaly
 """
 
 SETTINGS_YAML = """

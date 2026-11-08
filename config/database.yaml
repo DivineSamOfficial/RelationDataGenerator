@@ -16,3 +16,11 @@ mysql:
 schemas:
   control_schema: scm_control        # workspace registry (Part 1G §5.4)
   workspace_prefix: scm_             # scm_<code>_oltp / scm_<code>_sim (D13)
+
+# MySQL accounts created by `scmgen db init` (Part 1G §4, D8, D73).
+# Passwords are generated on first init and stored only in .env.
+users:
+  host: localhost                    # also matches TCP connections to 127.0.0.1
+  app: scm_app                       # ALL on scm_%
+  reader: scm_reader                 # SELECT, SHOW VIEW on scm_%
+  anomaly: scm_anomaly               # SELECT on scm_%_oltp + control; ALL on scm_%_sim

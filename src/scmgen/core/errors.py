@@ -12,3 +12,7 @@ class ConfigError(ScmgenError):
 
 class DatabaseConnectionError(ScmgenError):
     """MySQL could not be reached or rejected the login."""
+
+
+class ServerRequirementError(ScmgenError):
+    """The MySQL server fails a blocking requirement (version, strict mode, ...)."""
