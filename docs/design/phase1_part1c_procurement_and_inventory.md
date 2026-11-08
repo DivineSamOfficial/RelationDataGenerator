@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phase 2
-**Last updated:** 2026-11-08
+**Last updated:** 2026-11-08 (amended by Part 1D: D38 tax document numbers, D41 RTO movement, ledger volume)
 **Builds on:** Part 1A (entities, D1–D14), Part 1B (master data, D15–D24, conventions §2)
 
 ---
@@ -82,6 +82,8 @@ These apply to every document table from this part onwards (procurement, invento
 
 `<PREFIX>/<STATE>/<FY>/<SEQ6>`, e.g. `PO/KA/2026-27/000123`. The counter is held per document type × issuing GSTIN × financial year in `document_sequences` (R20, designed in 1G). `STATE` is the `state_code` of the issuing GSTIN, which is the warehouse's for warehouse documents and the HQ's for central ones. Each number is UNIQUE.
 
+**Exception: GST tax documents (D38, Part 1D).** GST law caps tax-document numbers at 16 characters, so tax invoices, credit notes and stock-transfer tax invoices use `<STATE><FY4>-<T><SEQ6>`, e.g. `KA2627-T000045`.
+
 | Document | Prefix | Issuing GSTIN |
 |---|---|---|
 | RFQ | `RFQ` | Delivery warehouse |
@@ -92,7 +94,7 @@ These apply to every document table from this part onwards (procurement, invento
 | Supplier payment | `SPAY` | HQ (principal GSTIN) |
 | Stock adjustment | `ADJ` | Warehouse |
 | Stock transfer | `STO` | Source warehouse |
-| Transfer tax invoice (inter-GSTIN only) | `STI` | Source warehouse |
+| Transfer tax invoice (inter-GSTIN only) | `T` in the D38 compact format (`KA2627-T000045`) | Source warehouse |
 
 ### 2.2 Status-history tables (standard structure)
 
@@ -478,6 +480,7 @@ Notation for one `inventory` row (warehouse W × product P): `Q` = on-hand quant
 | `TRANSFER_IN` | + | SELLABLE or DEFECTIVE | `stock_transfer_line_item_id` | Transfer received (damaged in transit → DEFECTIVE) |
 | `ADJUSTMENT` | ± | any | `stock_adjustment_line_item_id` | Cycle count, damage reclass, shrinkage, found stock, expiry write-off, opening stock |
 | `DEFECTIVE_DISPOSITION` | − (or −D / +S for repair) | DEFECTIVE | `defective_stock_id` | Scrap, return to supplier, repair (register designed in 1D) |
+| `RTO_RECEIPT` | + | SELLABLE | `shipment_line_item_id` | Undelivered shipment returned to origin, at the original issue cost (D41, Part 1D) |
 
 Reservations are **not** movements. They change `inventory.qty_reserved` only (§5 `inventory_reservations`).
 
@@ -645,7 +648,7 @@ Inter-warehouse transfer. For transfers between GSTINs it's also the tax invoice
 | `source_warehouse_id` | `SMALLINT UNSIGNED` | ✓ | FK → `warehouses` |
 | `destination_warehouse_id` | `SMALLINT UNSIGNED` | ✓ | FK → `warehouses` |
 | `is_inter_gstin` | `BOOLEAN` | ✓ | Snapshot: source and destination GSTINs differ (⇒ inter-state ⇒ IGST) |
-| `tax_invoice_number` | `VARCHAR(30)` | | UNIQUE (`STI/...`). Inter-GSTIN only |
+| `tax_invoice_number` | `VARCHAR(16)` | | UNIQUE (`KA2627-T000045`, D38). Inter-GSTIN only |
 | `eway_bill_number` | `CHAR(12)` | | Above the e-way bill threshold |
 | `shipping_carrier_id` | `SMALLINT UNSIGNED` | | FK → `shipping_carriers`; NULL = own vehicle |
 | `requested_date` | `DATE` | ✓ | |
@@ -753,7 +756,7 @@ All FKs are `RESTRICT` (D15). "C" = composite FK. *(1D)* / *(1E)* / *(1G)* = tar
 | Supplier invoices / lines | ~6,300 / ~23,000 |
 | Supplier payments | ~3,500 |
 | `inventory` | ~10,000 |
-| `inventory_transactions` | ~1.5–2 million (dominated by sales issues) |
+| `inventory_transactions` | ~250,000 (≈140k sales issues + receipts, transfers, returns, adjustments). Large preset ≈ 1.2M. Corrected in Part 1D |
 | Stock adjustments / lines | ~250 / ~6,000 |
 | Stock transfers / lines | ~1,200 / ~15,000 |
 

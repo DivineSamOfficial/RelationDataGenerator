@@ -21,8 +21,8 @@ Last updated: 2026-11-08
 | 1A | Business overview, entity inventory, decisions, addenda A1 (attribution, stores, industry packs, UI) and A2 (workspaces, re-run behaviour) | **Done** — `docs/design/phase1_part1a_business_and_entities.md` |
 | 1B | Master data + accounting master tables (31 tables): full column definitions, keys, constraints, relationships, population order and sources, default COA, validation rules; decisions D15–D24 | **Done** — `docs/design/phase1_part1b_master_data_and_accounting_master.md` |
 | 1C | Procurement (16) + inventory (8) tables: columns, keys, constraints, flows, moving-average valuation rules, validation rules; decisions D25–D35; resolved Q1, Q2 (inventory), Q7, Q8; `inventory` grain changed to warehouse × product (D26, supersedes 1A §5 D); 1B amended for configurable currency (D25) | **Done** — `docs/design/phase1_part1c_procurement_and_inventory.md` |
-| 1D | Sales, shipping, invoicing, returns tables (incl. `defective_stock` and the FKs forward-referenced by 1C); Q6 (product price history) | Next |
-| 1E | Expenses, accounting transactions, AR/AP, tax; double-entry posting rules per business event; Q3 | |
+| 1D | Sales (4), shipping (5), invoicing (4), returns/refunds/defective (5) tables: columns, keys, constraints, order-to-cash and returns flows, validation rules; decisions D37–D48; resolved Q6; amended 1C (compact GST document numbers D38, RTO movement D41, ledger volume) | **Done** — `docs/design/phase1_part1d_sales_shipping_invoicing_returns.md` |
+| 1E | Expenses, accounting transactions, AR/AP, tax; double-entry posting rules per business event; Q2 (journals), Q3 | Next |
 | 1F | ERD by module | |
 | 1G | Historical/continuous generation, workspaces, DuckDB loader, CDC & anomaly architecture; Q4, Q5 | |
 | 1H | Full design review: gaps, risks | |
@@ -36,7 +36,7 @@ Last updated: 2026-11-08
 | Q3 | AP open items referencing a supplier invoice or an expense | 1E |
 | Q4 | Simulated clock vs `updated_at` and watermarks (D21 is provisional until this is settled) | 1G |
 | Q5 | Append-only vs mutable vs full-reload tables | 1G |
-| Q6 | Product list-price history table or in-place price updates | 1D |
+| Q6 | Product list-price history table or in-place price updates | **Resolved** 1D (D37: in place; history via dbt snapshots/CDC) |
 | Q7 | GST treatment and documents for stock transfers between different GSTINs | **Resolved** 1C (D29) |
 | Q8 | Per-warehouse reorder level/quantity | **Resolved** 1C (D26) |
 | Q9 | Guaranteeing generated GSTINs are never real ones (master prompt §3) | **Resolved**: Option A, D36 (fixed `ZZX` PAN prefix) |

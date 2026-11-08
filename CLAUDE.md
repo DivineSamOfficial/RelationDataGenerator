@@ -65,6 +65,18 @@ Priorities: correct architecture, relational integrity, realistic business proce
 | D34 | Opening stock is an `OPENING_STOCK` stock adjustment |
 | D35 | Stock valued at PO price; supplier-invoice price differences go to Purchase Price Variance |
 | D36 | All generated PANs start with the fixed synthetic prefix `ZZX`; GSTINs remain fully valid (format + check digit) |
+| D37 | No product price history table; order lines snapshot list and charged price (history via dbt snapshots/CDC) |
+| D38 | GST tax documents (invoice, credit note, transfer invoice) use ≤16-char numbers `<STATE><FY4>-<T><SEQ6>` |
+| D39 | Orders carry total GST only; CGST/SGST vs IGST split is decided per invoice |
+| D40 | Invoices can be cancelled only within 24 h and before in-transit; otherwise credit notes |
+| D41 | Return to origin: `RTO_RECEIPT` stock movement + RTO credit note |
+| D42 | Shipping charge billed once as a `SHIPPING_CHARGE` invoice line at the invoice's highest goods GST rate |
+| D43 | COD: carrier collects cash → `customer_payments` row with carrier and remittance `settlement_date` |
+| D44 | Return credit notes issued after final inspection for all received qty; refunds pay out credit notes |
+| D45 | `defective_stock` register, one row per defect event, exactly-one source FK, whole-row disposition |
+| D46 | e-invoice IRN on invoices/credit notes to GST-registered customers |
+| D47 | B2B credit hold (`ON_HOLD`) on credit-limit or overdue breach |
+| D48 | Line chain: shipment line N:1 order line; invoice line 1:1 shipment line (or order line for handover); return/credit lines N:1 invoice line |
 
 ## Database standards
 
