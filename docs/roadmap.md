@@ -23,8 +23,8 @@ Last updated: 2026-11-08
 | 1C | Procurement (16) + inventory (8) tables: columns, keys, constraints, flows, moving-average valuation rules, validation rules; decisions D25–D35; resolved Q1, Q2 (inventory), Q7, Q8; `inventory` grain changed to warehouse × product (D26, supersedes 1A §5 D); 1B amended for configurable currency (D25) | **Done** — `docs/design/phase1_part1c_procurement_and_inventory.md` |
 | 1D | Sales (4), shipping (5), invoicing (4), returns/refunds/defective (5) tables: columns, keys, constraints, order-to-cash and returns flows, validation rules; decisions D37–D48; resolved Q6; amended 1C (compact GST document numbers D38, RTO movement D41, ledger volume) | **Done** — `docs/design/phase1_part1d_sales_shipping_invoicing_returns.md` |
 | 1E | Expenses (4), journals/ledger (3 + view), bank (2), AR (2), AP (2), tax (3) tables; posting rules P01–P25 for every event; reconciliations; decisions D49–D63; resolved Q2 (journals) and Q3; AR/AP refined to open items incl. payments (D49, refines 1A §5 J); amended 1D (D60, D63) | **Done** — `docs/design/phase1_part1e_expenses_accounting_ar_ap_tax.md` |
-| 1F | ERD by module | Next |
-| 1G | Historical/continuous generation, workspaces, DuckDB loader, CDC & anomaly architecture; Q4, Q5 | |
+| 1F | ERD by module: overview, 12 module diagrams, journal-source diagram, traceability flow (Mermaid, 16 diagrams, all parsed and validated); table index of all 92 tables | **Done** — `docs/design/phase1_part1f_erd.md` |
+| 1G | Historical/continuous generation, workspaces, DuckDB loader, CDC & anomaly architecture; system tables (`document_sequences`, `generation_runs`, `generation_run_steps`); Q4, Q5 | Next |
 | 1H | Full design review: gaps, risks | |
 
 ## Open questions
