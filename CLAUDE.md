@@ -92,6 +92,20 @@ Priorities: correct architecture, relational integrity, realistic business proce
 | D61 | Posted journals are immutable; corrections via REVERSAL journals |
 | D62 | Engine refuses unbalanced journals; header debit = credit CHECK; lines re-summed in validation |
 | D63 | `customer_payments.settlement_bank_transaction_id` links clearing receipts to their bank settlement |
+| D64 | Engine simulates one business day per MySQL transaction; failure rolls back only that day |
+| D65 | RNG streams keyed by (base seed, simulated date, stream) → identical data however runs are split |
+| D66 | Daily state-machine engine; state lives in OLTP documents, no hidden event queue |
+| D67 | Audit timestamps = simulated recording time (monotonic); `generation_runs.committed_through` is the loader's upper bound; watermark = (updated_at, PK) |
+| D68 | Continue advances to today by default; `--days N`, future dates need `--allow-future` |
+| D69 | Loader strategies per table in `config/loader/tables.yaml`: FULL / APPEND / MERGE; generic, schema from information_schema |
+| D70 | DuckDB file per workspace per source (`<code>.duckdb`, `<code>_sim.duckdb`); schemas `raw` + `etl_meta` |
+| D71 | Extraction: Python keyset-paginated streaming → Arrow → DuckDB; batch + watermark committed together |
+| D72 | CDC = application-level change events into `_sim.change_event_log` when enabled; binlog CDC optional later |
+| D73 | Anomaly tooling uses MySQL user `scm_anomaly` (read-only on `_oltp`); anomaly registry lists expected failing checks |
+| D74 | System tables use wall-clock timing columns; loader FULL-loads them |
+| D75 | Document numbers allocated inside the day transaction → gap-free tax document series |
+| D76 | Every run ends with validation; a failed clean run flags the workspace and blocks Continue/load without `--force` |
+| D77 | All timestamps naive IST (Asia/Kolkata) |
 
 ## Database standards
 

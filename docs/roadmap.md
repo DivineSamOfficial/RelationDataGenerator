@@ -24,8 +24,8 @@ Last updated: 2026-11-08
 | 1D | Sales (4), shipping (5), invoicing (4), returns/refunds/defective (5) tables: columns, keys, constraints, order-to-cash and returns flows, validation rules; decisions D37–D48; resolved Q6; amended 1C (compact GST document numbers D38, RTO movement D41, ledger volume) | **Done** — `docs/design/phase1_part1d_sales_shipping_invoicing_returns.md` |
 | 1E | Expenses (4), journals/ledger (3 + view), bank (2), AR (2), AP (2), tax (3) tables; posting rules P01–P25 for every event; reconciliations; decisions D49–D63; resolved Q2 (journals) and Q3; AR/AP refined to open items incl. payments (D49, refines 1A §5 J); amended 1D (D60, D63) | **Done** — `docs/design/phase1_part1e_expenses_accounting_ar_ap_tax.md` |
 | 1F | ERD by module: overview, 12 module diagrams, journal-source diagram, traceability flow (Mermaid, 16 diagrams, all parsed and validated); table index of all 92 tables | **Done** — `docs/design/phase1_part1f_erd.md` |
-| 1G | Historical/continuous generation, workspaces, DuckDB loader, CDC & anomaly architecture; system tables (`document_sequences`, `generation_runs`, `generation_run_steps`); Q4, Q5 | Next |
-| 1H | Full design review: gaps, risks | |
+| 1G | Daily generation engine (historical + continuous, determinism, restart safety), workspaces/re-runs, system tables + `scm_control.workspaces` (all 92 tables now designed), DuckDB loader (full/append/merge, keyset watermarks, metadata, reconciliation, recovery), per-table load strategy, CDC and anomaly architecture, code structure, CLI; decisions D64–D77; resolved Q4, Q5; refines A2 (day-transaction rollback D64, per-day seeds D65) | **Done** — `docs/design/phase1_part1g_generation_loader_cdc_architecture.md` |
+| 1H | Full design review: gaps, risks; Phase 1 summary for approval | Next |
 
 ## Open questions
 
@@ -34,8 +34,8 @@ Last updated: 2026-11-08
 | Q1 | Where moving-average cost is stored | **Resolved** 1C (D26/D27) |
 | Q2 | Linking journal entries / inventory transactions to source documents | **Resolved**: inventory 1C (D28), journals 1E (D50) |
 | Q3 | AP open items referencing a supplier invoice or an expense | **Resolved** 1E (D51) |
-| Q4 | Simulated clock vs `updated_at` and watermarks (D21 is provisional until this is settled) | 1G |
-| Q5 | Append-only vs mutable vs full-reload tables | 1G |
+| Q4 | Simulated clock vs `updated_at` and watermarks | **Resolved** 1G (D67; confirms D21) |
+| Q5 | Append-only vs mutable vs full-reload tables | **Resolved** 1G §7 (D69: 24 FULL / 21 APPEND / 47 MERGE) |
 | Q6 | Product list-price history table or in-place price updates | **Resolved** 1D (D37: in place; history via dbt snapshots/CDC) |
 | Q7 | GST treatment and documents for stock transfers between different GSTINs | **Resolved** 1C (D29) |
 | Q8 | Per-warehouse reorder level/quantity | **Resolved** 1C (D26) |
