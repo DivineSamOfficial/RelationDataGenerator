@@ -119,6 +119,8 @@ These aren't defects. They're places where the master prompt could be read more 
 
 Phase 2 writes one test per item against the installed MySQL version and records the outcome in the roadmap. Any failure is redesigned through the change process before continuing.
 
+**Outcome (Phase 2 step 2.3, MySQL 26.10.0, 2026-11-08):** A1–A7 all **confirmed** by `tests/integration/test_mysql_assumptions.py` (17 tests). Two facts found along the way change *how* the DDL and engine are written, not the design: (1) plain `REGEXP` is case-insensitive under `utf8mb4_0900_ai_ci`, so format CHECKs use `REGEXP_LIKE(…, 'c')` (1B §2.3 updated); (2) `DECIMAL` silently rounds extra fractional digits (half away from zero, Note 1265 only, even in strict mode), so the engine must quantize every amount itself. Also observed: explicit `ON DELETE RESTRICT` plus a CHECK on the same column is accepted on this server; D81 is kept for portability to 8.0.x. No design identifier is a MySQL reserved word (808 names checked against `information_schema.KEYWORDS`). A8 and A9 are tested in Phases 3 and 4.
+
 | # | Assumption | Used by |
 |---|---|---|
 | A1 | `CHECK` constraints are enforced (MySQL ≥ 8.0.16) | Everywhere |

@@ -118,6 +118,9 @@ Priorities: correct architecture, relational integrity, realistic business proce
 - Explicit FK constraints always. Indexes on FKs and frequent filters.
 - Money `DECIMAL(18,2)`, unit prices/costs `DECIMAL(18,4)`, quantities `DECIMAL(18,3)`, rates `DECIMAL(7,4)`. Never FLOAT for money.
 - Status columns `VARCHAR(30)` + `CHECK`.
+- Format CHECKs use `REGEXP_LIKE(col, pattern, 'c')`, never plain `REGEXP` (case-insensitive under our collation; proven in step 2.3).
+- MySQL silently rounds excess DECIMAL digits: the engine must quantize every amount itself (Python `Decimal`, half-up) before insert.
+- Any SQL containing `%` runs through `scmgen.db.sql_files.execute_raw` (PyMySQL %-formats statements otherwise).
 - `created_at`, `updated_at` `DATETIME(6)` on every table; `deleted_at` on soft-deletable master data.
 - Business dates (`order_date`, `invoice_date`…) are separate from audit timestamps.
 - `journal_entry_lines` is the only accounting source of truth; general ledger is derived.

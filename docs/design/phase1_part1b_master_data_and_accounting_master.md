@@ -99,7 +99,9 @@ Indexes on `updated_at` are added in Phase 2 for every table the loader reads in
 - Status / type columns are `VARCHAR(30)` + `CHECK (col IN (...))`.
 - Codes are upper-case, fixed patterns, `UNIQUE` (e.g. `CUST-000123`).
 
-### 2.3 Reusable format checks (CHECK with `REGEXP`)
+### 2.3 Reusable format checks (CHECK with `REGEXP_LIKE(col, pattern, 'c')`)
+
+**Implementation rule (proven in Phase 2 step 2.3):** under our case-insensitive collation `utf8mb4_0900_ai_ci`, the plain `col REGEXP '^[A-Z]…'` operator also matches lower case (`'abc' REGEXP '^[A-Z]+$'` is true). Every format CHECK is therefore written `REGEXP_LIKE(col, '<pattern>', 'c')`, where `'c'` forces case-sensitive matching. The patterns below are unchanged.
 
 | Name | Pattern | Example (fictional) |
 |---|---|---|
