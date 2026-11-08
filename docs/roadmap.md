@@ -39,7 +39,7 @@ Last updated: 2026-11-08
 | Q6 | Product list-price history table or in-place price updates | 1D |
 | Q7 | GST treatment and documents for stock transfers between different GSTINs | **Resolved** 1C (D29) |
 | Q8 | Per-warehouse reorder level/quantity | **Resolved** 1C (D26) |
-| Q9 | Guaranteeing generated GSTINs are never real ones (master prompt §3) — options A/B/C in 1C §1.4 | **Owner decision needed** |
+| Q9 | Guaranteeing generated GSTINs are never real ones (master prompt §3) | **Resolved**: Option A, D36 (fixed `ZZX` PAN prefix) |
 
 Details: Part 1A §7 (Q1–Q5), Part 1B §1.3 (Q6–Q8), Part 1C §1.4 (Q9).
 

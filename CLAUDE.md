@@ -64,6 +64,7 @@ Priorities: correct architecture, relational integrity, realistic business proce
 | D33 | `inventory_transactions` is append-only; corrections are reversal rows |
 | D34 | Opening stock is an `OPENING_STOCK` stock adjustment |
 | D35 | Stock valued at PO price; supplier-invoice price differences go to Purchase Price Variance |
+| D36 | All generated PANs start with the fixed synthetic prefix `ZZX`; GSTINs remain fully valid (format + check digit) |
 
 ## Database standards
 

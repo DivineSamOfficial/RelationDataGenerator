@@ -112,7 +112,7 @@ Indexes on `updated_at` are added in Phase 2 for every table the loader reads in
 | Mobile | `^[6-9][0-9]{9}$` (10 digits, no +91) | `9845012345` |
 | HSN | `^[0-9]{4}([0-9]{2}){0,2}$` (4, 6 or 8 digits) | `85044030` |
 
-GSTINs are generated with a valid structure and a correctly computed check digit, from randomly generated fictional PANs. They are never derived from real entities. MySQL's support for `REGEXP` inside `CHECK` will be confirmed by a test in Phase 2, not assumed.
+GSTINs are generated with a valid structure and a correctly computed check digit, from randomly generated fictional PANs. They are never derived from real entities. **Every generated PAN (company, customer, supplier) starts with the fixed synthetic prefix `ZZX`** (config `synthetic_identifiers.pan_prefix`), so the GSTINs built from them share it at positions 3–5 (D36, Part 1C). This makes synthetic identifiers easy to recognise and lowers, but doesn't eliminate, the chance of matching a real registration. The examples in the table above predate D36; real generated values look like `29ZZXCK4821M1Z7`. MySQL's support for `REGEXP` inside `CHECK` will be confirmed by a test in Phase 2, not assumed.
 
 ### 2.4 Two constraint techniques used repeatedly
 
@@ -1018,7 +1018,7 @@ These become automated tests in Phase 3 (business-rule tests) and checks on the 
 | ID | Rule |
 |---|---|
 | V-MD-01 | Every master code (`*_code`, `sku`) follows its configured pattern |
-| V-MD-02 | All GSTINs have a valid check digit; company GSTINs all embed the company PAN |
+| V-MD-02 | All GSTINs have a valid check digit; company GSTINs all embed the company PAN; every PAN starts with the configured synthetic prefix (D36) |
 | V-MD-03 | Every GSTIN's first two digits equal the `gst_state_code` of its state (company registrations) or its registered/billing address state (suppliers/customers) |
 | V-MD-04 | Exactly one company row per workspace; its `company_code` equals the workspace code; every `bank_accounts.currency_code` equals `companies.base_currency_code` |
 | V-MD-05 | Exactly one employee has `manager_employee_id IS NULL`; there are no cycles in the employee hierarchy |

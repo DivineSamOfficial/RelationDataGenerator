@@ -40,6 +40,7 @@ This part defines **24 tables**: 16 procurement and 8 inventory. It covers colum
 | D32 | Stored totals and counters | Header totals are stored on commercial and legal documents (quotation, PO, supplier invoice, transfer). Running quantity counters are stored on PO lines (received / accepted / rejected / invoiced / cancelled) and on reservations. Every stored total or counter has a reconciliation check against its source rows | A PO or invoice total is the agreed document amount, not just a sum. "Open PO quantity" is queried constantly by the replenishment engine. The checks stop these copies from drifting |
 | D33 | Ledger immutability | `inventory_transactions` is **append-only**. A correction is a new row with `reversal_of_inventory_transaction_id` pointing at the original, followed by the correct row | Real ledgers work like this. It also gives clean insert-only incremental loads (Q5) and realistic "correction" events for CDC practice |
 | D34 | Opening stock | Posted through a `stock_adjustments` document of type `OPENING_STOCK` on the first day of history, valued at each product's preferred-supplier reference cost | Every stock movement keeps a source document (D28). Matches D22 (opening balances only through documents and journals) |
+| D36 | Synthetic identifiers (Q9) | Every generated PAN starts with the fixed prefix `ZZX` (configurable); GSTINs stay fully valid (structure + check digit). Residual collision risk accepted and documented | Owner chose Option A: realistic, validatable identifiers that are easy to recognise as synthetic |
 | D35 | Supplier-invoice price differences | Stock is valued at the **PO price** when received. If the supplier invoice price differs, the difference goes to Purchase Price Variance (posting rules in 1E). It does **not** revalue stock after receipt | Revaluing stock that has already been partly sold is complex and error-prone. PPV is a standard, auditable ERP approach and makes a good analytics topic |
 
 ### 1.2 Why the `inventory` grain changes (D26)
@@ -59,7 +60,7 @@ The new grain fixes all three without adding a table. Each stock movement update
 | Item | 1B said | Now | Change made |
 |---|---|---|---|
 | Currency | `companies.base_currency_code` CHECK `= 'INR'`; R26 "always INR" | Configurable per workspace (D25); CHECK becomes the format `^[A-Z]{3}$` | 1B §4.1 and R26 updated in the same commit |
-| Real GSTINs (master prompt §3: "never use … actual GSTINs") | Valid-format GSTINs with correct check digits, from random fictional PANs | Not changed yet. **New open question Q9** (§1.4): a random valid GSTIN can't be *guaranteed* not to exist | Owner decision needed |
+| Real GSTINs (master prompt §3: "never use … actual GSTINs") | Valid-format GSTINs with correct check digits, from random fictional PANs | Option A chosen (D36): fixed synthetic PAN prefix `ZZX`, fully valid format and check digit | 1B §2.3 and V-MD-02 updated |
 
 ### 1.4 Open questions
 
@@ -69,7 +70,7 @@ The new grain fixes all three without adding a table. Each stock movement update
 | Q2 | Linking movements and journals to source documents | **Resolved for inventory:** D28. Journals confirmed in 1E |
 | Q7 | GST on stock transfers between GSTINs | **Resolved:** D29 |
 | Q8 | Per-warehouse reorder policy | **Resolved:** columns on `inventory` (D26) |
-| Q9 | **Real-GSTIN guarantee.** About 15 million GSTINs are registered in India. ~1,500 random, structurally valid GSTINs carry a small but real chance (order of 10%) that at least one matches a real registration. **Option A (recommended):** keep everything valid (structure + check digit) but build every synthetic PAN from a fixed 3-letter prefix such as `ZZX` and document it, which lowers the risk without removing it. **Option B:** use a character that real GSTINs never contain in one fixed position (e.g. position 14 ≠ `Z`), which guarantees fiction but makes every GSTIN fail a strict format check. **Option C:** use a deliberately wrong check digit, which also guarantees fiction but fails checksum validation | Open, owner to decide |
+| Q9 | **Real-GSTIN guarantee.** About 15 million GSTINs are registered in India. ~1,500 random, structurally valid GSTINs carry a small but real chance (order of 10%) that at least one matches a real registration. **Option A (recommended):** keep everything valid (structure + check digit) but build every synthetic PAN from a fixed 3-letter prefix such as `ZZX` and document it, which lowers the risk without removing it. **Option B:** use a character that real GSTINs never contain in one fixed position (e.g. position 14 ≠ `Z`), which guarantees fiction but makes every GSTIN fail a strict format check. **Option C:** use a deliberately wrong check digit, which also guarantees fiction but fails checksum validation | **Resolved: Option A** (D36, owner decision 2026-11-08) |
 
 ---
 
