@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phase 2
-**Last updated:** 2026-11-08
+**Last updated:** 2026-11-08 (amended by Part 1E: D60 repair cost memo, D63 settlement link)
 **Builds on:** Part 1A (D1–D14, A1 attribution / stores), Part 1B (master data, D15–D24), Part 1C (procurement / inventory, D25–D36, document conventions §2)
 
 ---
@@ -172,6 +172,7 @@ Every payment attempt and receipt from a customer (D5). Allocation to invoices i
 | `failure_reason` | `VARCHAR(40)` | | `INSUFFICIENT_FUNDS` / `BANK_DECLINED` / `TIMEOUT` / `AUTH_FAILED` / `CHEQUE_BOUNCED` |
 | `completed_at` | `DATETIME(6)` | | When SUCCESS/FAILED was decided |
 | `settlement_date` | `DATE` | | Date the money reaches the bank (method lag, or carrier remittance for COD) |
+| `settlement_bank_transaction_id` | `BIGINT UNSIGNED` | | FK → `bank_transactions`. The settlement / remittance line that paid out this clearing-method receipt (D63, Part 1E) |
 | `reversed_at` | `DATETIME(6)` | | Chargeback / bounce after success |
 | `reversal_reason` | `VARCHAR(40)` | | |
 
@@ -503,7 +504,7 @@ Register of defective quantities: reason, origin and disposition (D45).
 | `disposed_at` | `DATETIME(6)` | | |
 | `disposed_by_employee_id` | `BIGINT UNSIGNED` | | FK → `employees` |
 | `supplier_id` | `BIGINT UNSIGNED` | | FK → `suppliers`. RETURN_TO_SUPPLIER only (no debit note in v1, R22) |
-| `repair_cost_amount` | `DECIMAL(18,2)` | | REPAIR only (→ repairs expense, 1E) |
+| `repair_cost_amount` | `DECIMAL(18,2)` | | REPAIR only. Memo estimate of internal repair cost, not posted (D60, Part 1E) |
 
 - **Constraints:** CHECK `quantity > 0`; **exactly one source** CHECK over the three source FKs; CHECK lists; CHECK `(disposition = 'PENDING') = (disposition_status = 'PENDING')`; CHECK `(disposition_status = 'COMPLETED') = (disposed_at IS NOT NULL AND disposed_by_employee_id IS NOT NULL)`; CHECK `(disposition = 'RETURN_TO_SUPPLIER') = (supplier_id IS NOT NULL)`; CHECK `(disposition = 'REPAIR') = (repair_cost_amount IS NOT NULL)`.
 - **Rules:** Quantity = the defective quantity produced by the source event. Ledger `DEFECTIVE_DISPOSITION` at completion: SCRAP / RETURN_TO_SUPPLIER = −quantity DEFECTIVE (write-off); REPAIR = −DEFECTIVE / +SELLABLE (V-RT-05). The supplier is an approved supplier of the product.

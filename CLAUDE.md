@@ -77,6 +77,21 @@ Priorities: correct architecture, relational integrity, realistic business proce
 | D46 | e-invoice IRN on invoices/credit notes to GST-registered customers |
 | D47 | B2B credit hold (`ON_HOLD`) on credit-limit or overdue breach |
 | D48 | Line chain: shipment line N:1 order line; invoice line 1:1 shipment line (or order line for handover); return/credit lines N:1 invoice line |
+| D49 | AR/AP are open-item subledgers incl. payments (and refunds); allocations clear items and post no journal |
+| D50 | `journal_entries`: one nullable FK per source + `journal_source` + generated UNIQUE `posting_key` (no double posting) |
+| D51 | AP item = exactly one of supplier invoice / expense / supplier payment; payee supplier or employee |
+| D52 | COGS posted inside the sales invoice journal |
+| D53 | UPI/card/net-banking/COD receipts go to Payment Clearing; bank settlement lines post Bank + gateway fees |
+| D54 | No year-end closing journal; P&L reset and retained earnings handled in `gl_period_balances` |
+| D55 | Inter-GSTIN transfer: one journal Dr Input IGST (dest) / Cr Output IGST (source), no branch accounts |
+| D56 | Monthly PAYROLL expense → Salaries Payable; statutory deductions deferred (R27) |
+| D57 | All non-payroll expenses (incl. petty cash, employee claims) go through AP |
+| D58 | GSTR-1 and GSTR-3B per GSTIN per month; 3B filing posts the settlement with legal ITC set-off order |
+| D59 | Posting date = event date if its period is open, else first day of earliest open period |
+| D60 | `defective_stock.repair_cost_amount` is a memo; not posted |
+| D61 | Posted journals are immutable; corrections via REVERSAL journals |
+| D62 | Engine refuses unbalanced journals; header debit = credit CHECK; lines re-summed in validation |
+| D63 | `customer_payments.settlement_bank_transaction_id` links clearing receipts to their bank settlement |
 
 ## Database standards
 
