@@ -43,6 +43,16 @@ Priorities: correct architecture, relational integrity, realistic business proce
 | D11 | Industry packs (YAML) drive catalogue, pricing, GST slabs, seasonality, channel mix |
 | D12 | Streamlit control panel; generation runs as background job, progress in `generation_run_steps` |
 | D14 | Re-run actions: Continue (append forward in time), Rebuild (drop + regenerate, same seed = same data), New workspace |
+| D15 | All FKs `ON DELETE/UPDATE RESTRICT`; master data never hard-deleted (status or `deleted_at`) |
+| D16 | No account codes in Python: accounts found via `chart_of_accounts.system_role`, `business_units` (revenue/returns/COGS), `tax_accounts`, `expense_categories`, `bank_accounts` |
+| D17 | GST rate effective-dated per product (`product_tax_rates`); default schedule includes the 22 Sep 2025 rate change |
+| D18 | One base UoM per product for all transactions (v1) |
+| D19 | No circular FKs (no department head / warehouse manager columns) |
+| D20 | Generator assigns surrogate IDs deterministically |
+| D21 | `created_at`/`updated_at` set from the simulated clock; no `ON UPDATE CURRENT_TIMESTAMP` (provisional, Q4) |
+| D22 | Opening balances only via an opening journal entry, never on master tables |
+| D23 | D2's 80/20 B2B/B2C mix applies to net sales value, not customer counts |
+| D24 | Generated emails/websites use the `.example` domain; bank names and IFSC prefixes are invented |
 
 ## Database standards
 
