@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phase 2
-**Last updated:** 2026-11-08
+**Last updated:** 2026-11-08 (amended by Part 1C: D25 currency)
 **Builds on:** Part 1A (`phase1_part1a_business_and_entities.md`): decisions D1–D14, entity inventory §5, addenda A1/A2
 
 ---
@@ -53,7 +53,7 @@ The change-management rule is met: this part adds columns that 1A didn't list. T
 | R23 | GST compensation cess | No cess column in v1. Only matters for a few goods (aerated drinks, tobacco, motor vehicles), which the packs don't include |
 | R24 | TDS (tax deducted at source) on vendor payments (sections 194C/194I/194J) | Realistic for rent, professional fees and contractors, but adds a liability flow and its own returns. Candidate for a later addendum |
 | R25 | Multi-GSTIN B2B customers | One GSTIN per customer row. A chain with branches in several states is modelled as several customer rows |
-| R26 | Imports, foreign currency, reverse-charge mechanism (RCM) | All suppliers are domestic, all amounts are INR |
+| R26 | Imports, multi-currency transactions, reverse-charge mechanism (RCM) | All suppliers are domestic. Every amount is in the workspace's single base currency (default INR, configurable per D25 in Part 1C) |
 
 ### 1.3 New open questions
 
@@ -241,13 +241,13 @@ The legal entity that owns the workspace. Exactly one row per workspace (D13). T
 | `registered_city` | `VARCHAR(80)` | ✓ | |
 | `registered_pincode` | `CHAR(6)` | ✓ | |
 | `incorporation_date` | `DATE` | ✓ | Before the simulated history starts |
-| `base_currency_code` | `CHAR(3)` | ✓ | Default `INR` (R26: always INR in v1) |
+| `base_currency_code` | `CHAR(3)` | ✓ | Default `INR`. Workspace setting (D25, Part 1C); one currency per workspace |
 | `fy_start_month` | `TINYINT UNSIGNED` | ✓ | Default 4 (April, D7) |
 | `email` | `VARCHAR(150)` | ✓ | `.example` domain (D24) |
 | `phone` | `VARCHAR(10)` | ✓ | |
 | `website` | `VARCHAR(150)` | | `https://kaverinexus.example` |
 
-- **Constraints:** CIN, PAN, PIN, mobile format CHECKs (§2.3); CHECK `SUBSTRING(pan,4,1) = 'C'`; CHECK `fy_start_month BETWEEN 1 AND 12`; CHECK `base_currency_code = 'INR'`.
+- **Constraints:** CIN, PAN, PIN, mobile format CHECKs (§2.3); CHECK `SUBSTRING(pan,4,1) = 'C'`; CHECK `fy_start_month BETWEEN 1 AND 12`; CHECK `base_currency_code REGEXP '^[A-Z]{3}$'` (amended by D25, Part 1C).
 - **Relationships:** 1 : N `company_gst_registrations`.
 - **Populated:** Setup (company name, HQ state); CIN and PAN generated; HQ address via Faker. Static.
 
@@ -796,7 +796,7 @@ Company bank accounts and petty-cash floats; the FK target for every cash moveme
 | `branch_name` | `VARCHAR(100)` | | |
 | `ifsc_code` | `CHAR(11)` | | |
 | `account_number` | `VARCHAR(20)` | | UNIQUE, synthetic |
-| `currency_code` | `CHAR(3)` | ✓ | `INR` |
+| `currency_code` | `CHAR(3)` | ✓ | = `companies.base_currency_code` (V-MD-04) |
 | `overdraft_limit` | `DECIMAL(18,2)` | | Cash-credit facility limit |
 | `warehouse_id` | `SMALLINT UNSIGNED` | | FK → `warehouses`. Location of a petty-cash float |
 | `gl_account_id` | `INT UNSIGNED` | ✓ | FK → `chart_of_accounts`, UNIQUE (one GL account per bank account) |
@@ -1020,7 +1020,7 @@ These become automated tests in Phase 3 (business-rule tests) and checks on the 
 | V-MD-01 | Every master code (`*_code`, `sku`) follows its configured pattern |
 | V-MD-02 | All GSTINs have a valid check digit; company GSTINs all embed the company PAN |
 | V-MD-03 | Every GSTIN's first two digits equal the `gst_state_code` of its state (company registrations) or its registered/billing address state (suppliers/customers) |
-| V-MD-04 | Exactly one company row per workspace; its `company_code` equals the workspace code |
+| V-MD-04 | Exactly one company row per workspace; its `company_code` equals the workspace code; every `bank_accounts.currency_code` equals `companies.base_currency_code` |
 | V-MD-05 | Exactly one employee has `manager_employee_id IS NULL`; there are no cycles in the employee hierarchy |
 | V-MD-06 | Every employee referenced on a document was `ACTIVE` (hired, not terminated) on the document date and has an `approval_limit` ≥ the document value they approved |
 | V-MD-07 | Every warehouse state has exactly one ACTIVE GST registration and vice versa (D3) |

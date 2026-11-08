@@ -53,6 +53,17 @@ Priorities: correct architecture, relational integrity, realistic business proce
 | D22 | Opening balances only via an opening journal entry, never on master tables |
 | D23 | D2's 80/20 B2B/B2C mix applies to net sales value, not customer counts |
 | D24 | Generated emails/websites use the `.example` domain; bank names and IFSC prefixes are invented |
+| D25 | Base currency is a workspace setting (default INR, one currency per workspace); tax model is GST-only in v1 |
+| D26 | `inventory` = one row per warehouse × product with status quantity columns, reserved qty, stock value, reorder policy |
+| D27 | Moving-average cost per warehouse × product; stock value stored, MAC = value ÷ qty |
+| D28 | Ledger source linking: one nullable FK per source type + CHECK exactly one (no polymorphic source_type/source_id) |
+| D29 | Stock transfers between GSTINs are taxable (IGST at MAC value); the transfer doc is the tax invoice |
+| D30 | POs come from an RFQ award (line-level award, quotation FK) or a direct reorder to the preferred supplier |
+| D31 | Dock inspection: only accepted qty enters stock; rejected goods never create a movement |
+| D32 | Header totals and line counters are stored, and each has a reconciliation check |
+| D33 | `inventory_transactions` is append-only; corrections are reversal rows |
+| D34 | Opening stock is an `OPENING_STOCK` stock adjustment |
+| D35 | Stock valued at PO price; supplier-invoice price differences go to Purchase Price Variance |
 
 ## Database standards
 
