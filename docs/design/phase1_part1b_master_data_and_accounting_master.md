@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phase 2
-**Last updated:** 2026-11-08 (amended by Part 1C: D25 currency)
+**Last updated:** 2026-11-08 (amended by Part 1C: D25 currency; Part 1H: D78 cash-flow category, D81 FK declaration)
 **Builds on:** Part 1A (`phase1_part1a_business_and_entities.md`): decisions D1–D14, entity inventory §5, addenda A1/A2
 
 ---
@@ -35,7 +35,7 @@ The change-management rule is met: this part adds columns that 1A didn't list. T
 
 | # | Decision | Choice | Why |
 |---|---|---|---|
-| D15 | FK actions and deletion | Every FK is `ON DELETE RESTRICT ON UPDATE RESTRICT`. Master data is never hard-deleted. It's deactivated (status) or soft-deleted (`deleted_at`) | Cascading deletes would silently destroy transaction history. MySQL also forbids referential actions on columns used in `CHECK` constraints, so RESTRICT keeps all CHECKs legal |
+| D15 | FK actions and deletion | Every FK behaves as RESTRICT: declared **without** `ON DELETE` / `ON UPDATE` clauses, which InnoDB enforces as `NO ACTION` = RESTRICT (D81, Part 1H F4). Master data is never hard-deleted. It's deactivated (status) or soft-deleted (`deleted_at`) | Cascading deletes would silently destroy transaction history. MySQL also forbids referential actions on columns used in `CHECK` constraints, so RESTRICT keeps all CHECKs legal |
 | D16 | Account determination (how posting logic finds GL accounts) | No account codes hardcoded in Python. Accounts are found through master data: `chart_of_accounts.system_role` for singleton accounts (AR control, inventory, GRNI…), `business_units` for revenue / sales returns / COGS, `tax_accounts` per GSTIN for GST, `expense_categories.gl_account_id`, `bank_accounts.gl_account_id` | This is how real ERPs work ("account determination"). The COA can be renumbered in config without code changes, and P&L by business unit falls out naturally |
 | D17 | GST rates | Effective-dated **per product** in `product_tax_rates` (one row per product per validity period). Default rate schedule comes from the industry pack and includes the **22 Sep 2025 GST rate rationalisation** (most 12% → 5%, most 28% → 18%, 40% for select goods), switchable off in config | Gives real effective-dated master data (SCD practice) and invoices from both sides of a real rate change. Transaction lines still snapshot the rate (1A §3) |
 | D18 | Units of measure | One **base UoM per product**, used on every transaction in v1 (no purchase-pack ↔ base conversions) | Conversions add a lot of quantity-rounding complexity and little analytics value. `pack_size` is kept as information only |
@@ -850,6 +850,7 @@ GL accounts (hierarchical). Headers group accounts; only postable (leaf) account
 | `control_subledger` | `VARCHAR(20)` | | `AR` / `AP` / `INVENTORY` / `BANK` / `GST` |
 | `requires_cost_center` | `BOOLEAN` | ✓ | TRUE for postable P&L accounts; enforced when posting (Part 1E) |
 | `is_derived` | `BOOLEAN` | ✓ | TRUE if generated from master data (per-BU, per-bank, per-GSTIN) rather than the seed skeleton |
+| `cash_flow_category` | `VARCHAR(20)` | ✓ | `CASH` / `OPERATING` / `INVESTING` / `FINANCING` / `NOT_APPLICABLE`. Drives the cash-flow statement (D78, Part 1H F1). Seeded per account in the COA YAML |
 | `description` | `VARCHAR(255)` | | |
 | `is_active` | `BOOLEAN` | ✓ | |
 

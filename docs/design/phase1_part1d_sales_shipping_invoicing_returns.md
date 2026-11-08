@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phase 2
-**Last updated:** 2026-11-08 (amended by Part 1E: D60 repair cost memo, D63 settlement link)
+**Last updated:** 2026-11-08 (amended by Part 1E: D60, D63; Part 1H: D79 tax-inclusive B2C pricing, D80 composite FKs, F5)
 **Builds on:** Part 1A (D1–D14, A1 attribution / stores), Part 1B (master data, D15–D24), Part 1C (procurement / inventory, D25–D36, document conventions §2)
 
 ---
@@ -103,6 +103,7 @@ delivered line ─► return request ─► approved ─► goods received (QUAR
 | `items_taxable_amount` | `DECIMAL(18,2)` | ✓ | Σ line taxable |
 | `items_tax_amount` | `DECIMAL(18,2)` | ✓ | Σ line tax (total GST, D39) |
 | `shipping_charge_amount` | `DECIMAL(18,2)` | ✓ | Default 0. Excluding GST (D42) |
+| `prices_include_tax` | `BOOLEAN` | ✓ | TRUE for B2C (shelf / MRP prices include GST), FALSE for B2B (D79, Part 1H F2) |
 | `order_total_estimate` | `DECIMAL(18,2)` | ✓ | Items + tax + shipping (+ its GST). An estimate: invoices are authoritative |
 | `order_status` | `VARCHAR(30)` | ✓ | See transitions |
 | `hold_reason` | `VARCHAR(30)` | | `CREDIT_LIMIT` / `OVERDUE_BALANCE` |
@@ -112,6 +113,7 @@ delivered line ─► return request ─► approved ─► goods received (QUAR
 - **Statuses and transitions:** `PENDING_PAYMENT` (prepaid, awaiting payment) → `CONFIRMED`; `PENDING_CREDIT_CHECK` → `CONFIRMED` / `ON_HOLD`; `ON_HOLD` → `CONFIRMED` / `CANCELLED`; `CONFIRMED` ↔ `BACKORDERED`; `CONFIRMED` → `PARTIALLY_SHIPPED` → `SHIPPED` → `PARTIALLY_DELIVERED` → `DELIVERED` → `CLOSED` (return window over and fully invoiced); pre-dispatch states → `CANCELLED`. An order with some lines cancelled continues with the rest; the cancelled lines carry `quantity_cancelled`.
 - **Constraints:** CHECK lists; CHECK `(fulfilment_type = 'SHIP') = (shipping_address_id IS NOT NULL)`; CHECK `(fulfilment_type = 'SHIP') = (store_warehouse_id IS NULL)`; CHECK `fulfilment_type <> 'COUNTER_SALE' OR shipping_charge_amount = 0`; CHECK `(order_status = 'ON_HOLD') = (hold_reason IS NOT NULL)`; CHECK `(order_status = 'CANCELLED') = (cancelled_at IS NOT NULL)`; CHECK `cancelled_at IS NULL OR cancellation_reason IS NOT NULL`; CHECK `order_date = DATE(order_placed_at)`; amounts `>= 0`.
 - **Rules (validation):** Addresses belong to the customer and were live at `order_placed_at`. Sales channel allowed for the customer type. Campaign on the same marketing channel, with `order_date` inside its window (A1). `COUNTER_SALE` only through `RETAIL_STORE`. The store is a `RETAIL_STORE` warehouse. Header amounts = Σ lines (V-SO-01).
+- **Keys:** UNIQUE `(order_id, customer_id)`, the target of the composite FKs from `invoices` and `customer_payments` (D80).
 - **Indexes:** `(customer_id, order_date)`, `(order_status, order_date)`, `(order_date)`, `(sales_channel_id, order_date)`, `(marketing_campaign_id)`.
 - **Populated:** By the daily demand engine. Orders/day = base × monthly seasonality (pack) × weekday factor × trend × campaign uplift. B2B/B2C share by **value** (D23). Customers are chosen with a Pareto skew (a minority of B2B accounts drives most revenue) and B2C repeat-purchase probability. Products are chosen by popularity (Zipf within BU, only launched and not discontinued). Basket size and quantities by segment. Channel and attribution from the pack's mix for the customer type (A1 rules). Defaults: ~4% of orders cancelled, ~3% backordered, ~5% of B2B orders pass through `ON_HOLD`.
 
@@ -128,6 +130,7 @@ delivered line ─► return request ─► approved ─► goods received (QUAR
 | `unit_price` | `DECIMAL(18,4)` | ✓ | Price charged before discount. Usually = list price; B2B negotiated prices differ |
 | `discount_percent` | `DECIMAL(7,4)` | ✓ | Default 0 |
 | `discount_type` | `VARCHAR(30)` | | `VOLUME` / `SEGMENT` / `CAMPAIGN_PROMO` / `CLEARANCE` |
+| `inclusive_unit_price` | `DECIMAL(18,4)` | | Price per unit **including GST**, fixed at order time; set iff the order `prices_include_tax`. Then `taxable_amount = ROUND(qty × inclusive × (1 − disc/100) / (1 + rate/100), 2)` and `unit_price` = `inclusive / (1 + rate/100)` (D79) |
 | `taxable_amount` | `DECIMAL(18,2)` | ✓ | `ROUND(qty × unit_price × (1 − disc/100), 2)` |
 | `gst_rate` | `DECIMAL(7,4)` | ✓ | Product rate on `order_date` |
 | `tax_amount` | `DECIMAL(18,2)` | ✓ | `ROUND(taxable × rate/100, 2)`. Total GST, not split (D39) |
@@ -141,7 +144,7 @@ delivered line ─► return request ─► approved ─► goods received (QUAR
 | `quantity_returnable` | generated | | `quantity_delivered − quantity_return_requested` STORED |
 | `line_status` | `VARCHAR(30)` | ✓ | `OPEN` / `BACKORDERED` / `PARTIALLY_SHIPPED` / `SHIPPED` / `DELIVERED` / `CANCELLED` / `CLOSED` |
 
-- **Keys:** UNIQUE `(order_id, line_number)`; UNIQUE `(order_id, product_id)`.
+- **Keys:** UNIQUE `(order_id, line_number)`; UNIQUE `(order_id, product_id)`. UNIQUE `(order_line_item_id, product_id)`, the target of the composite FK from `invoice_line_items` (D80).
 - **Constraints:** CHECK `quantity_ordered > 0`; CHECK `unit_price > 0`; CHECK `discount_percent BETWEEN 0 AND 90`; CHECK `(discount_percent > 0) = (discount_type IS NOT NULL)`; CHECK `line_total = taxable_amount + tax_amount`; CHECK `quantity_shipped + quantity_cancelled <= quantity_ordered`; CHECK `quantity_delivered + quantity_rto <= quantity_shipped`; CHECK `quantity_invoiced <= quantity_shipped` (invoicing happens at dispatch / handover); CHECK `quantity_return_requested <= quantity_delivered` (**returns never exceed delivered**, enforced by the database); all quantities `>= 0`.
 - **Rules:** Counters reconcile to shipments, invoices, RTOs and returns (V-SO-03, D32). Selling price incl. GST ≤ MRP (V-MD-18 applied to the line).
 - **Indexes:** `(product_id)`, `(line_status)`.
@@ -176,7 +179,7 @@ Every payment attempt and receipt from a customer (D5). Allocation to invoices i
 | `reversed_at` | `DATETIME(6)` | | Chargeback / bounce after success |
 | `reversal_reason` | `VARCHAR(40)` | | |
 
-- **Keys:** UNIQUE `(order_id, attempt_number)` (multiple NULL `order_id`s allowed).
+- **Keys:** UNIQUE `(order_id, attempt_number)` (multiple NULL `order_id`s allowed). Composite FK `(order_id, customer_id)` → `orders (order_id, customer_id)`; not checked when `order_id` is NULL (D80).
 - **Constraints:** CHECK `amount > 0`; CHECK `gateway_fee_amount >= 0 AND gateway_fee_amount < amount`; CHECK lists; CHECK `(payment_status = 'FAILED') = (failure_reason IS NOT NULL)`; CHECK `payment_status = 'INITIATED' OR completed_at IS NOT NULL`; CHECK `(payment_status = 'REVERSED') = (reversed_at IS NOT NULL AND reversal_reason IS NOT NULL)`; CHECK `(payment_type = 'COD_COLLECTION') = (collected_by_shipping_carrier_id IS NOT NULL)`; CHECK `payment_status <> 'SUCCESS' OR settlement_date IS NOT NULL`; CHECK `payment_type IN ('INVOICE_PAYMENT','ADVANCE') OR order_id IS NOT NULL`.
 - **Rules:** Only `SUCCESS` payments are allocated (D5). Amount within method limits (e.g. cash < ₹2,00,000). `settlement_date ≥ payment_date`. A `REVERSED` payment's allocations are reversed (1E).
 - **Indexes:** `(customer_id, payment_date)`, `(payment_status, payment_date)`, `(settlement_date)`, `(order_id)`.
@@ -254,7 +257,7 @@ Carrier scan events from the carrier's feed (R12). High volume and external, so 
 | `event_code` | `VARCHAR(30)` | ✓ | `PICKED_UP` / `ARRIVED_AT_HUB` / `DEPARTED_HUB` / `IN_TRANSIT` / `OUT_FOR_DELIVERY` / `DELIVERY_ATTEMPTED` / `DELIVERED` / `RTO_INITIATED` / `RTO_IN_TRANSIT` / `RTO_DELIVERED` |
 | `event_description` | `VARCHAR(150)` | ✓ | Carrier text ("Arrived at Nagpur Hub") |
 | `event_at` | `DATETIME(6)` | ✓ | Scan time at the carrier |
-| `received_at` | `DATETIME(6)` | ✓ | When the event reached our system (feed lag) |
+| `received_at` | `DATETIME(6)` | ✓ | When the event reached our system (feed lag) |. The row's `created_at` = `received_at` (Part 1H F5)
 | `location_city` | `VARCHAR(80)` | | Hub city |
 | `state_id` | `SMALLINT UNSIGNED` | | FK → `states` |
 
@@ -317,6 +320,7 @@ Tax invoice: one per shipment at dispatch, or one per handover for store sales (
 | `cancelled_at` | `DATETIME(6)` | | D40 |
 | `cancellation_reason` | `VARCHAR(100)` | | |
 
+- **Keys:** Composite FK `(order_id, customer_id)` → `orders`; UNIQUE `(invoice_id, customer_id, company_gst_registration_id)`, the target of the composite FK from `credit_notes` (D80).
 - **Constraints:** GSTIN format; CHECK `due_date >= invoice_date`; CHECK `invoice_date = DATE(issued_at)`; CHECK `(irn IS NULL) = (irn_generated_at IS NULL)`; CHECK `customer_gstin IS NOT NULL OR irn IS NULL` (e-invoices only for registered buyers); CHECK `(invoice_status = 'CANCELLED') = (cancelled_at IS NOT NULL AND cancellation_reason IS NOT NULL)`; CHECK `cancelled_at IS NULL OR cancelled_at <= issued_at + INTERVAL 24 HOUR`.
 - **Rules:** The shipment belongs to the order. The issuing GSTIN is the warehouse's. Fulfilment `SHIP` ⇔ `shipment_id` set (V-IV-01). Snapshot values equal the customer master on `issued_at`. Payment status isn't stored here: it lives in `accounts_receivable` (1E).
 - **Indexes:** `(customer_id, invoice_date)`, `(invoice_date)`, `(company_gst_registration_id, invoice_date)` (GST returns), `(order_id)`, `(due_date)`.
@@ -337,7 +341,7 @@ Tax invoice: one per shipment at dispatch, or one per handover for store sales (
 | `quantity` | `DECIMAL(18,3)` | ✓ | 1 for SHIPPING_CHARGE |
 | `unit_price` … `line_total` | | ✓ | 1C §2.3. Price and discount copied from the order line |
 
-- **Keys:** UNIQUE `(invoice_id, line_number)`; UNIQUE `(shipment_line_item_id)`.
+- **Keys:** UNIQUE `(invoice_id, line_number)`; UNIQUE `(shipment_line_item_id)`. Composite FK `(order_line_item_id, product_id)` → `order_line_items` (the line's product is always the order line's); UNIQUE `(invoice_line_item_id, order_line_item_id)`, the target for return lines (D80). For tax-inclusive orders, the invoice recomputes the ex-GST price at the invoice-date rate so the inclusive price is unchanged (D79; amends V-IV-02).
 - **Constraints:** CHECK `(line_type = 'PRODUCT') = (order_line_item_id IS NOT NULL AND product_id IS NOT NULL)`; CHECK `line_type = 'PRODUCT' OR shipment_line_item_id IS NULL`; CHECK `quantity > 0`; amount CHECKs (1C §2.3).
 - **Rules:** Quantity = the shipment line quantity. Unit price, discount and rate = the order line's (the rate is re-checked against the product rate on the invoice date; if a GST change happened between order and dispatch, the **invoice-date rate** applies and the line differs from the order, which is correct GST behaviour). At most one SHIPPING_CHARGE line per order across its invoices. Product = order line product. A handover sale has exactly one invoice line per order line (V-IV-02).
 - **Indexes:** `(order_line_item_id)`, `(product_id)`, `(hsn_code)`.
@@ -362,6 +366,7 @@ GST credit note against one original invoice.
 | `approved_by_employee_id` | `BIGINT UNSIGNED` | ✓ | FK → `employees` |
 | `credit_note_status` | `VARCHAR(30)` | ✓ | `ISSUED` / `CANCELLED` |
 
+- **Keys:** Composite FK `(invoice_id, customer_id, company_gst_registration_id)` → `invoices`, so the customer and GSTIN always match the invoice (D80).
 - **Constraints:** CHECK `(reason = 'SALES_RETURN') = (sales_return_id IS NOT NULL)`; CHECK lists; CHECK `(irn IS NULL) = (irn_generated_at IS NULL)`.
 - **Rules:** `credit_note_date ≥ invoice_date` and ≤ 30 November after the end of the invoice's FY (GST time limit). Totals ≤ the invoice's remaining creditable amount (V-IV-03). `is_inter_state` and GSTIN match the invoice.
 - **Indexes:** `(invoice_id)`, `(customer_id, credit_note_date)`, `(company_gst_registration_id, credit_note_date)`.
@@ -431,7 +436,7 @@ Returned quantity per invoiced line, including physical receipt (R4 absorbs `ret
 | `receiving_location_id` | `BIGINT UNSIGNED` | | FK → `warehouse_locations` (zone RETURNS / QUARANTINE) |
 | `line_status` | `VARCHAR(30)` | ✓ | `REQUESTED` / `APPROVED` / `REJECTED` / `RECEIVED` / `INSPECTED` / `CREDITED` |
 
-- **Keys:** UNIQUE `(sales_return_id, line_number)`; UNIQUE `(sales_return_id, invoice_line_item_id)`.
+- **Keys:** UNIQUE `(sales_return_id, line_number)`; UNIQUE `(sales_return_id, invoice_line_item_id)`. Composite FK `(invoice_line_item_id, order_line_item_id)` → `invoice_line_items` (D80).
 - **Constraints:** CHECK `quantity_requested > 0`; CHECK `quantity_approved <= quantity_requested`; CHECK `quantity_received <= quantity_approved`; CHECK `(quantity_received > 0) = (received_at IS NOT NULL)`; CHECK lists.
 - **Rules:** The invoice line belongs to the order line, and the order line to the return's order. Σ approved per order line ≤ delivered (the DB counter CHECK on `order_line_items` enforces this; V-RT-02). Σ received per invoice line ≤ invoiced quantity. The ledger `RETURN_RECEIPT` = +received into QUARANTINE at the return warehouse, at the original issue cost (1C §4).
 

@@ -106,6 +106,10 @@ Priorities: correct architecture, relational integrity, realistic business proce
 | D75 | Document numbers allocated inside the day transaction → gap-free tax document series |
 | D76 | Every run ends with validation; a failed clean run flags the workspace and blocks Continue/load without `--force` |
 | D77 | All timestamps naive IST (Asia/Kolkata) |
+| D78 | `chart_of_accounts.cash_flow_category` (CASH/OPERATING/INVESTING/FINANCING/NOT_APPLICABLE) for the cash-flow statement |
+| D79 | B2C prices are GST-inclusive: `orders.prices_include_tax`, `order_line_items.inclusive_unit_price`; taxable back-calculated |
+| D80 | Snapshot columns duplicating a parent value are enforced with composite FKs (invoices, credit notes, supplier invoices, payments, invoice/return lines) |
+| D81 | FKs declared without ON DELETE/UPDATE clauses (InnoDB NO ACTION = RESTRICT); avoids MySQL's CHECK/FK-action conflict |
 
 ## Database standards
 

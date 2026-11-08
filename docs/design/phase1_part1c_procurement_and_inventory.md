@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phase 2
-**Last updated:** 2026-11-08 (amended by Part 1D: D38 tax document numbers, D41 RTO movement, ledger volume)
+**Last updated:** 2026-11-08 (amended by Part 1D: D38 tax document numbers, D41 RTO movement, ledger volume; Part 1H: D80 composite FKs)
 **Builds on:** Part 1A (entities, D1–D14), Part 1B (master data, D15–D24, conventions §2)
 
 ---
@@ -278,7 +278,7 @@ Standard structure (§2.2), FK `quotation_id`.
 | `approved_at` | `DATETIME(6)` | | |
 | `cancellation_reason` | `VARCHAR(255)` | | Also used for short-close reason |
 
-- **Keys:** UNIQUE `(quotation_id)`: one PO per awarded quotation (MySQL allows many NULLs, so direct reorders are unaffected). UNIQUE `(purchase_order_id, delivery_warehouse_id)`, the target of the composite FK from `goods_receipts`.
+- **Keys:** UNIQUE `(purchase_order_id, supplier_id)`, the target of the composite FK from `supplier_invoices` (D80). UNIQUE `(quotation_id)`: one PO per awarded quotation (MySQL allows many NULLs, so direct reorders are unaffected). UNIQUE `(purchase_order_id, delivery_warehouse_id)`, the target of the composite FK from `goods_receipts`.
 - **Constraints:** CHECK `(po_source = 'RFQ_AWARD') = (quotation_id IS NOT NULL)`; CHECK `(approved_by_employee_id IS NULL) = (approved_at IS NULL)`; CHECK `po_status IN ('DRAFT','PENDING_APPROVAL') OR approved_at IS NOT NULL` (anything past approval has been approved); CHECK `(po_status IN ('CANCELLED','SHORT_CLOSED')) = (cancellation_reason IS NOT NULL)`; CHECK `expected_delivery_date >= po_date`.
 - **Statuses and transitions:** `DRAFT` → `PENDING_APPROVAL` → `APPROVED` → `SENT` → `PARTIALLY_RECEIVED` → `RECEIVED` → `CLOSED` (fully received and invoiced). `DRAFT`/`PENDING_APPROVAL`/`APPROVED`/`SENT` → `CANCELLED` (before any receipt). `PARTIALLY_RECEIVED` → `SHORT_CLOSED` (supplier can't deliver the rest; that quantity is cancelled), then → `CLOSED` once invoicing is complete.
 - **Rules:** The PO supplier equals the quotation's supplier (V-PR-07). The supplier address belongs to the supplier and was valid on `po_date`. The approver was active on the approval date.
@@ -394,7 +394,7 @@ The supplier's tax invoice (bill), matched to the PO and receipts.
 | `approved_by_employee_id` | `BIGINT UNSIGNED` | | FK → `employees` (Finance) |
 | `approved_at` | `DATETIME(6)` | | |
 
-- **Keys:** UNIQUE `(supplier_id, supplier_invoice_number)`. The same supplier can't bill the same number twice; this is a duplicate-invoice guard for the clean schema, while anomaly mode may simulate duplicates in `scm_<code>_sim`.
+- **Keys:** Composite FK `(purchase_order_id, supplier_id)` → `purchase_order_headers (purchase_order_id, supplier_id)`, so the billing supplier is always the PO's supplier (D80, Part 1H F3). UNIQUE `(supplier_id, supplier_invoice_number)`. The same supplier can't bill the same number twice; this is a duplicate-invoice guard for the clean schema, while anomaly mode may simulate duplicates in `scm_<code>_sim`.
 - **Constraints:** GSTIN format; CHECK `received_date >= invoice_date`; CHECK `due_date >= invoice_date`; CHECK lists; CHECK `(invoice_status = 'APPROVED') = (approved_at IS NOT NULL)`; CHECK `match_status <> 'QUANTITY_HOLD' OR invoice_status <> 'APPROVED'`.
 - **Rules:** The PO's supplier is this supplier and its delivery warehouse's GSTIN is the bill-to GSTIN (V-PR-12). For unregistered or composition suppliers all tax amounts are 0. Paid status isn't stored here: it lives in `accounts_payable` (1E), so there's only one source of truth for outstanding amounts.
 - **Three-way match (per line, cumulative):** invoiced qty ≤ accepted qty not yet invoiced (otherwise `QUANTITY_HOLD`, held until goods arrive); unit price within tolerance of the PO price (otherwise `PRICE_VARIANCE`, approved with variance → PPV, D35).

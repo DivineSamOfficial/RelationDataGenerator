@@ -6,7 +6,7 @@ Last updated: 2026-11-08
 
 | Phase | Scope | Status |
 |---|---|---|
-| 1 | Architecture & database design | **In progress** |
+| 1 | Architecture & database design | **Design complete, awaiting owner approval** (see Part 1H §8) |
 | 2 | Database implementation (MySQL schema, constraints, indexes, workspace management) | Not started — needs approval |
 | 3 | Data generation engine (master data, transactions, industry packs, scenarios, historical + continuous, progress reporting) | Not started |
 | 4 | DuckDB loader (full, incremental, metadata, reconciliation) | Not started |
@@ -25,7 +25,7 @@ Last updated: 2026-11-08
 | 1E | Expenses (4), journals/ledger (3 + view), bank (2), AR (2), AP (2), tax (3) tables; posting rules P01–P25 for every event; reconciliations; decisions D49–D63; resolved Q2 (journals) and Q3; AR/AP refined to open items incl. payments (D49, refines 1A §5 J); amended 1D (D60, D63) | **Done** — `docs/design/phase1_part1e_expenses_accounting_ar_ap_tax.md` |
 | 1F | ERD by module: overview, 12 module diagrams, journal-source diagram, traceability flow (Mermaid, 16 diagrams, all parsed and validated); table index of all 92 tables | **Done** — `docs/design/phase1_part1f_erd.md` |
 | 1G | Daily generation engine (historical + continuous, determinism, restart safety), workspaces/re-runs, system tables + `scm_control.workspaces` (all 92 tables now designed), DuckDB loader (full/append/merge, keyset watermarks, metadata, reconciliation, recovery), per-table load strategy, CDC and anomaly architecture, code structure, CLI; decisions D64–D77; resolved Q4, Q5; refines A2 (day-transaction rollback D64, per-day seeds D65) | **Done** — `docs/design/phase1_part1g_generation_loader_cdc_architecture.md` |
-| 1H | Full design review: gaps, risks; Phase 1 summary for approval | Next |
+| 1H | Design review: requirements traceability, fixes F1–F5 applied (D78–D81: cash-flow category, tax-inclusive B2C pricing, composite FKs on snapshot columns, FK declaration), deferrals, interpretations I1–I6 for owner confirmation, MySQL assumptions to prove in Phase 2, risks, Phase 2 scope proposal | **Done** — `docs/design/phase1_part1h_design_review.md` |
 
 ## Open questions
 
@@ -45,7 +45,7 @@ Details: Part 1A §7 (Q1–Q5), Part 1B §1.3 (Q6–Q8), Part 1C §1.4 (Q9).
 
 ## Deferred scope (v1)
 
-R22 purchase returns / debit notes (1A); R23 GST cess, R24 TDS, R25 multi-GSTIN customers, R26 imports / multi-currency / reverse charge (1B §1.2); R27 payroll statutory deductions, R28 fixed-asset register (1E §1).
+R22 purchase returns / debit notes (1A); R23 GST cess, R24 TDS, R25 multi-GSTIN customers, R26 imports / multi-currency / reverse charge (1B §1.2); R27 payroll statutory deductions, R28 fixed-asset register (1E §1); R29 GST TCS on marketplace sales (1H §3).
 
 ## Environment checklist (owner)
 
