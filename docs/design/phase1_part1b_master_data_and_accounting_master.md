@@ -452,7 +452,7 @@ Billing and shipping addresses, versioned (1A §3 address history).
 | `default_billing_key` | generated | | `IF(is_default_billing AND deleted_at IS NULL, customer_id, NULL)` STORED |
 | `default_shipping_key` | generated | | Same pattern for shipping |
 
-- **Keys:** UNIQUE `(default_billing_key)`, UNIQUE `(default_shipping_key)` (§2.4b); UNIQUE `(previous_customer_address_id)` (a version is replaced at most once).
+- **Keys:** UNIQUE `(default_billing_key)`, UNIQUE `(default_shipping_key)` (§2.4b); UNIQUE `(previous_customer_address_id)` (a version is replaced at most once); UNIQUE `(customer_address_id, customer_id)`, the target of the order-address composite FKs (Phase 2 step 2.4, 1D §1.4).
 - **Constraints:** PIN format; CHECK `is_billing_address OR is_shipping_address`; CHECK `NOT is_default_billing OR is_billing_address`; CHECK `NOT is_default_shipping OR is_shipping_address`.
 - **Indexes:** `(customer_id, deleted_at)`, `(state_id)`, `(pincode)`.
 - **Relationships:** N : 1 `customers`, `states`; self-chain of versions. Later: orders and invoices reference the address row valid at the time.

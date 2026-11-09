@@ -40,18 +40,28 @@ PART_1C_INVENTORY_TABLES = {
     "inventory", "inventory_batches", "inventory_reservations", "stock_adjustments",
     "stock_adjustment_line_items", "stock_transfers", "stock_transfer_line_items", "inventory_transactions",
 }
-EXPECTED_TABLES = PART_1B_TABLES | PART_1C_PROCUREMENT_TABLES | PART_1C_INVENTORY_TABLES
+PART_1D_SALES_SHIPPING_TABLES = {
+    "orders", "order_line_items", "order_status_history", "customer_payments",
+    "shipments", "shipment_line_items", "shipment_status_history", "shipment_tracking", "delivery_attempts",
+}
+EXPECTED_TABLES = (PART_1B_TABLES | PART_1C_PROCUREMENT_TABLES | PART_1C_INVENTORY_TABLES
+                   | PART_1D_SALES_SHIPPING_TABLES)
 
 # *_id columns whose FK target table arrives in a later batch (added there by ALTER TABLE).
 # Each later batch removes its entries; after the last batch this set must be empty.
 DEFERRED_FOREIGN_KEYS = {
-    ("inventory_reservations", "order_line_item_id"),
-    ("inventory_transactions", "shipment_line_item_id"),
     ("inventory_transactions", "invoice_line_item_id"),
     ("inventory_transactions", "sales_return_line_item_id"),
     ("inventory_transactions", "return_inspection_id"),
     ("inventory_transactions", "defective_stock_id"),
     ("inventory_transactions", "generation_run_id"),
+    ("customer_payments", "settlement_bank_transaction_id"),
+}
+
+# *_id columns that hold an identifier issued by an EXTERNAL system, not a reference to one of our
+# tables, so they have no FK by design.
+EXTERNAL_ID_COLUMNS = {
+    ("shipment_tracking", "carrier_event_id"),  # the carrier's event id from its feed (dedupe key, 1D 4)
 }
 
 SOFT_DELETE_TABLES = {
@@ -147,7 +157,8 @@ def test_every_id_column_has_a_foreign_key_unless_deferred(conn) -> None:
     fk_columns = {(t, c) for t, c in _rows(conn, f"""
         SELECT table_name, column_name FROM information_schema.key_column_usage
         WHERE table_schema = '{SCHEMA}' AND referenced_table_name IS NOT NULL""")}
-    assert id_columns - fk_columns == DEFERRED_FOREIGN_KEYS
+    assert EXTERNAL_ID_COLUMNS <= id_columns  # the allow-list must not go stale
+    assert id_columns - fk_columns - EXTERNAL_ID_COLUMNS == DEFERRED_FOREIGN_KEYS
 
 
 def test_indexes_follow_naming_convention(conn) -> None:

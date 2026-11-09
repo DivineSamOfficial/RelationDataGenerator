@@ -248,6 +248,8 @@ CREATE TABLE customer_addresses (
     UNIQUE KEY uq_customer_addresses_default_billing (default_billing_key),
     UNIQUE KEY uq_customer_addresses_default_shipping (default_shipping_key),
     UNIQUE KEY uq_customer_addresses_previous (previous_customer_address_id),
+    -- Target of composite FKs that force an order's addresses to belong to the order's customer (D80).
+    UNIQUE KEY uq_customer_addresses_id_customer (customer_address_id, customer_id),
     KEY ix_customer_addresses_customer_deleted (customer_id, deleted_at),
     KEY ix_customer_addresses_pincode (pincode),
     CONSTRAINT fk_customer_addresses_customer FOREIGN KEY (customer_id) REFERENCES customers (customer_id),

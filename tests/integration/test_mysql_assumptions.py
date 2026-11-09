@@ -329,3 +329,37 @@ def test_a10_check_formulas_match_python_decimal(conn) -> None:
     finally:
         cursor.close()
     assert mismatches == []
+
+
+# --- A11: GST-inclusive (B2C) line formulas agree with Python Decimal (D79, D84) -------------
+
+def test_a11_inclusive_price_formulas_match_python_decimal(conn) -> None:
+    """B2C lines back-calculate taxable value from a GST-inclusive price, which involves a real
+    division. MySQL's DECIMAL division and Python's Decimal must still round identically."""
+    cent, four = Decimal("0.01"), Decimal("0.0001")
+    rng = random.Random(20261111)
+    slabs = ["0", "0.25", "3", "5", "12", "18", "28", "40"]
+    cursor = conn.connection.cursor()
+    try:
+        mismatches = []
+        for _ in range(1500):
+            qty = Decimal(rng.randint(1, 50_000)) / 1000
+            incl = Decimal(rng.choice([rng.randint(1, 5000) * 10000 - 10000 + 9900, rng.randint(1, 50_000_000)])) / 10000
+            disc = Decimal(rng.choice([0, 0, rng.randint(1, 900_000)])) / 10000
+            rate = Decimal(rng.choice(slabs))
+            taxable = (qty * incl * (1 - disc / 100) / (1 + rate / 100)).quantize(cent, ROUND_HALF_UP)
+            unit = (incl / (1 + rate / 100)).quantize(four, ROUND_HALF_UP)
+            tax = (taxable * rate / 100).quantize(cent, ROUND_HALF_UP)
+            cursor.execute(
+                "SELECT t, u, ROUND(t * r / 100, 2) FROM (SELECT"
+                " ROUND(CAST(%s AS DECIMAL(18,3)) * CAST(%s AS DECIMAL(18,4)) * (1 - CAST(%s AS DECIMAL(7,4)) / 100)"
+                "       / (1 + CAST(%s AS DECIMAL(7,4)) / 100), 2) AS t,"
+                " ROUND(CAST(%s AS DECIMAL(18,4)) / (1 + CAST(%s AS DECIMAL(7,4)) / 100), 4) AS u,"
+                " CAST(%s AS DECIMAL(7,4)) AS r) x",
+                (str(qty), str(incl), str(disc), str(rate), str(incl), str(rate), str(rate)),
+            )
+            if tuple(cursor.fetchone()) != (taxable, unit, tax):
+                mismatches.append((qty, incl, disc, rate))
+    finally:
+        cursor.close()
+    assert mismatches == []

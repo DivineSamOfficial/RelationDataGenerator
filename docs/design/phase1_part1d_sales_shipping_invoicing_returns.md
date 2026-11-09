@@ -49,6 +49,18 @@ This part covers **18 tables**: columns, keys, constraints, relationships and po
 | §5.0 movement map | New row `RTO_RECEIPT` (+, SELLABLE, source `shipment_line_item_id`) (D41) |
 | §7 volumes | `inventory_transactions` corrected from "1.5–2 million" to **~250,000** for the Medium preset. The earlier figure was wrong: at 50,000 orders (~140,000 issue rows) plus receipts, transfers and adjustments, the ledger is ~250k rows. Large preset ≈ 1.2M |
 
+### 1.4 Implementation refinements (Phase 2 step 2.4, batch 4)
+
+Enforced in the DDL; no tables or relationships added.
+
+| Refinement | Was | Now |
+|---|---|---|
+| Order addresses belong to the order's customer | Validation V-SO-02 | Composite FKs `orders (billing_address_id, customer_id)` and `(shipping_address_id, customer_id)` → `customer_addresses (customer_address_id, customer_id)` (new UNIQUE on `customer_addresses`, 1B). Same technique as D80 |
+| At most one successful delivery per shipment | Validation V-SH-04 | Generated `delivery_attempts.delivered_key` + UNIQUE (1B §2.4b technique) |
+| Tracking row recorded when the feed event arrives (Part 1H F5) | Rule | `CHECK (created_at = received_at)` on `shipment_tracking` |
+| Order-line amounts (D84 applied to D79) | Validation V-SO-01 | CHECKs: ex-GST lines `taxable = ROUND(qty × unit_price × (1 − disc/100), 2)`. GST-inclusive lines `unit_price = ROUND(inclusive / (1 + rate/100), 4)` and `taxable = ROUND(qty × inclusive × (1 − disc/100) / (1 + rate/100), 2)`. Both `tax_amount = ROUND(taxable × rate / 100, 2)` and `line_total = taxable + tax`. MySQL and Python `Decimal` agree on the inclusive division (3,000 random cases; permanent test A11) |
+| `shipment_tracking.carrier_event_id` | — | An external identifier (the carrier's), so it deliberately has no FK |
+
 ### 1.3 Open questions
 
 None new. Q6 is resolved by D37. Q3 (AP open items) remains for 1E.
