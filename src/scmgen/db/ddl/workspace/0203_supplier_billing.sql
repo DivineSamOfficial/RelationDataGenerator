@@ -31,6 +31,8 @@ CREATE TABLE supplier_invoices (
     UNIQUE KEY uq_supplier_invoices_reference (internal_reference),
     -- Duplicate-bill guard: a supplier never bills the same number twice.
     UNIQUE KEY uq_supplier_invoices_supplier_number (supplier_id, supplier_invoice_number),
+    -- Target of the composite FK from the AR/AP open-item subledger (same party, Part 1E batch).
+    UNIQUE KEY uq_supplier_invoices_id_supplier (supplier_invoice_id, supplier_id),
     KEY ix_supplier_invoices_registration_date (company_gst_registration_id, invoice_date),
     KEY ix_supplier_invoices_due (due_date),
     -- The billing supplier is always the PO's supplier (D80).
@@ -115,6 +117,8 @@ CREATE TABLE supplier_payments (
     updated_at                  DATETIME(6)      NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     PRIMARY KEY (supplier_payment_id),
     UNIQUE KEY uq_supplier_payments_number (payment_number),
+    -- Target of the composite FK from the AR/AP open-item subledger (same party, Part 1E batch).
+    UNIQUE KEY uq_supplier_payments_id_supplier (supplier_payment_id, supplier_id),
     KEY ix_supplier_payments_supplier_date (supplier_id, payment_date),
     KEY ix_supplier_payments_status (payment_status),
     CONSTRAINT fk_supplier_payments_supplier FOREIGN KEY (supplier_id) REFERENCES suppliers (supplier_id),

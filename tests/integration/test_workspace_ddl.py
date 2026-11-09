@@ -48,14 +48,21 @@ PART_1D_INVOICING_RETURNS_TABLES = {
     "invoices", "invoice_line_items", "credit_notes", "credit_note_line_items", "sales_returns",
     "sales_return_line_items", "return_inspections", "refunds", "defective_stock",
 }
+PART_1E_FINANCE_TABLES = {
+    "expenses", "expense_line_items", "expense_payments", "expense_attachments_metadata",
+    "journal_entries", "journal_entry_lines", "gl_period_balances", "bank_transactions", "bank_reconciliations",
+    "accounts_receivable", "customer_payment_allocations", "accounts_payable", "supplier_payment_allocations",
+    "tax_transactions", "gst_returns", "gst_return_line_items",
+}
 EXPECTED_TABLES = (PART_1B_TABLES | PART_1C_PROCUREMENT_TABLES | PART_1C_INVENTORY_TABLES
-                   | PART_1D_SALES_SHIPPING_TABLES | PART_1D_INVOICING_RETURNS_TABLES)
+                   | PART_1D_SALES_SHIPPING_TABLES | PART_1D_INVOICING_RETURNS_TABLES | PART_1E_FINANCE_TABLES)
+EXPECTED_VIEWS = {"v_general_ledger"}
 
 # *_id columns whose FK target table arrives in a later batch (added there by ALTER TABLE).
 # Each later batch removes its entries; after the last batch this set must be empty.
 DEFERRED_FOREIGN_KEYS = {
     ("inventory_transactions", "generation_run_id"),
-    ("customer_payments", "settlement_bank_transaction_id"),
+    ("journal_entries", "generation_run_id"),
 }
 
 # *_id columns that hold an identifier issued by an EXTERNAL system, not a reference to one of our
@@ -100,13 +107,17 @@ def test_ddl_files_are_ordered_and_numbered() -> None:
 
 
 def test_exactly_the_expected_tables_exist(conn) -> None:
-    tables = {r[0] for r in _rows(conn, f"SELECT table_name FROM information_schema.tables WHERE table_schema = '{SCHEMA}'")}
+    tables = {r[0] for r in _rows(conn, f"""SELECT table_name FROM information_schema.tables
+        WHERE table_schema = '{SCHEMA}' AND table_type = 'BASE TABLE'""")}
     assert tables == EXPECTED_TABLES
+    views = {r[0] for r in _rows(conn, f"""SELECT table_name FROM information_schema.tables
+        WHERE table_schema = '{SCHEMA}' AND table_type = 'VIEW'""")}
+    assert views == EXPECTED_VIEWS
 
 
 def test_every_table_is_innodb_utf8mb4_and_commented(conn) -> None:
     bad = _rows(conn, f"""SELECT table_name, engine, table_collation, table_comment FROM information_schema.tables
-        WHERE table_schema = '{SCHEMA}'
+        WHERE table_schema = '{SCHEMA}' AND table_type = 'BASE TABLE'
           AND (engine <> 'InnoDB' OR table_collation <> 'utf8mb4_0900_ai_ci' OR table_comment = '')""")
     assert bad == []
 
@@ -152,8 +163,9 @@ def test_every_id_column_has_a_foreign_key_unless_deferred(conn) -> None:
     """Every non-PK *_id column references another table, apart from the explicit deferred list."""
     id_columns = {(t, c) for t, c in _rows(conn, f"""
         SELECT c.table_name, c.column_name FROM information_schema.columns c
-        WHERE c.table_schema = '{SCHEMA}' AND c.column_name LIKE '%\\_id'
-          AND c.column_key <> 'PRI'""")}
+        JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+        WHERE c.table_schema = '{SCHEMA}' AND t.table_type = 'BASE TABLE'
+          AND c.column_name LIKE '%\\_id' AND c.column_key <> 'PRI'""")}
     fk_columns = {(t, c) for t, c in _rows(conn, f"""
         SELECT table_name, column_name FROM information_schema.key_column_usage
         WHERE table_schema = '{SCHEMA}' AND referenced_table_name IS NOT NULL""")}
@@ -201,3 +213,12 @@ def test_enumeration_checks_are_case_sensitive(conn) -> None:
         (account_type_code, account_type_name, normal_balance, financial_statement, code_prefix, display_order)
         VALUES ('ASSET', 'Assets', 'DEBIT', 'BALANCE_SHEET', '1', 1)""")
     execute_raw(conn, "ROLLBACK")
+
+
+def test_general_ledger_view_is_queryable(conn) -> None:
+    """The derived GL view (R6) compiles against the real tables and exposes the running balance."""
+    execute_raw(conn, f"USE `{SCHEMA}`")
+    columns = [r[0] for r in _rows(conn, f"""SELECT column_name FROM information_schema.columns
+        WHERE table_schema = '{SCHEMA}' AND table_name = 'v_general_ledger' ORDER BY ordinal_position""")]
+    assert {"journal_entry_line_id", "account_code", "debit_amount", "credit_amount", "running_balance"} <= set(columns)
+    assert _rows(conn, "SELECT COUNT(*) FROM v_general_ledger") == [(0,)]

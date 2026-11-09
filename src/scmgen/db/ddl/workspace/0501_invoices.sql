@@ -37,6 +37,8 @@ CREATE TABLE invoices (
     UNIQUE KEY uq_invoices_number (invoice_number),
     UNIQUE KEY uq_invoices_shipment (shipment_id),
     UNIQUE KEY uq_invoices_irn (irn),
+    -- Target of the composite FK from the AR/AP open-item subledger (same party, Part 1E batch).
+    UNIQUE KEY uq_invoices_id_customer (invoice_id, customer_id),
     -- Target of the composite FK from credit_notes (same customer and GSTIN, D80).
     UNIQUE KEY uq_invoices_id_customer_registration (invoice_id, customer_id, company_gst_registration_id),
     KEY ix_invoices_customer_date (customer_id, invoice_date),

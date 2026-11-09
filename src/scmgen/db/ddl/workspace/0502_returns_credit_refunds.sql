@@ -151,6 +151,8 @@ CREATE TABLE credit_notes (
     PRIMARY KEY (credit_note_id),
     UNIQUE KEY uq_credit_notes_number (credit_note_number),
     UNIQUE KEY uq_credit_notes_irn (irn),
+    -- Target of the composite FK from the AR/AP open-item subledger (same party, Part 1E batch).
+    UNIQUE KEY uq_credit_notes_id_customer (credit_note_id, customer_id),
     KEY ix_credit_notes_customer_date (customer_id, credit_note_date),
     KEY ix_credit_notes_registration_date (company_gst_registration_id, credit_note_date),
     -- Same customer and GSTIN as the credited invoice (D80).

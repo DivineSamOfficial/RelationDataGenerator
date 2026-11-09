@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phase 2
-**Last updated:** 2026-11-08
+**Last updated:** 2026-11-10 (Phase 2 step 2.4 batch 6: implementation refinements, §1.1)
 **Builds on:** Parts 1A–1D (D1–D48). Accounting master data (COA, system roles, periods, cost centres, tax accounts) is in 1B; document conventions in 1C §2
 
 ---
@@ -45,6 +45,20 @@ That brings the designed total to **89 of the 92 tables**. The remaining three a
 | D61 | Immutable journals | A POSTED journal is never edited or deleted. Corrections are a `REVERSAL` journal mirroring every line, followed by a new correct posting where needed. The original's status becomes `REVERSED` (the only update allowed) | Audit principle, and the master prompt asks for reversals and adjustments |
 | D62 | Balance enforcement | The posting engine builds the whole entry in memory and refuses to insert it unless Σ debits = Σ credits. The header stores `total_debit` / `total_credit` with CHECK equal; a validation re-sums lines | MySQL can't check a cross-row sum inside a transaction without triggers. This combination makes an unbalanced journal impossible from the engine and detectable if anything else writes one |
 | D63 | Settlement link (**amends 1D**) | `customer_payments` gets `settlement_bank_transaction_id` (FK → `bank_transactions`), linking each clearing-method payment to the bank settlement line that paid it out | Exact clearing-account reconciliation without fuzzy matching |
+
+### 1.1 Implementation refinements (Phase 2 step 2.4, batch 6)
+
+Enforced in the DDL. One column added (`tax_transactions.is_cancellation`); no tables or relationships added.
+
+| Refinement | Was | Now |
+|---|---|---|
+| Cheque deposits | §4 listed `CHEQUE_DEPOSIT` as bank-originated (own journal), contradicting P08 ("cheques post at clearance" from the payment) | Following P08: a `CHEQUE_DEPOSIT` bank line links its customer payment and posts nothing itself. §4 text corrected |
+| **New column** `tax_transactions.is_cancellation` | "UNIQUE per source line" conflicted with "a cancelled invoice gets negative mirror rows" | UNIQUE `(invoice_line_item_id, is_cancellation)`: one original and at most one cancellation mirror per line. Sign CHECK: credit notes and cancellations ≤ 0, everything else ≥ 0 |
+| Same party in AR / AP | Validation V-AR-01 / V-AP-01 | Composite FKs: AR item ↔ invoice / credit note / payment on `(id, customer_id)`; AP item ↔ supplier invoice / supplier payment on `(id, supplier_id)`, expense on `(id, supplier_id)` or `(id, employee_id)`. New UNIQUE keys on those source tables (1C, 1D) |
+| Journal integrity | Rules in §3 / §6 | CHECKs: `journal_type` ↔ `journal_source` (OPENING / RECURRING / MANUAL / REVERSAL); each `journal_source` links its own document FK (§6 table); sourceless journals link none |
+| Bank-line direction | Implied | CHECK: receipts are bank credits, payments/charges/GST are bank debits; type ↔ linked document; at most one document |
+| GST returns | §5 | CHECK `output_cgst = output_sgst`, `itc_cgst = itc_sgst`; settlement identity enforced only for a filed GSTR-3B (a GSTR-1 reports outputs but never pays) |
+| Attachment storage | D24 | CHECK `storage_uri` is on the fictional `.example` domain |
 
 **Deferred (adds to 1B §1.2):** R27 payroll statutory deductions; R28 fixed-asset register (fixed assets exist only as opening balances, with monthly straight-line depreciation posted as a system journal).
 
@@ -294,7 +308,7 @@ Bank statement lines (and petty-cash book lines), in the **bank's** sign convent
 | `bank_reconciliation_id` | `BIGINT UNSIGNED` | | FK → `bank_reconciliations`. Set when reconciled |
 
 - **Constraints:** CHECK `(credit_amount > 0 AND debit_amount = 0) OR (debit_amount > 0 AND credit_amount = 0)`; CHECK at most one document FK; CHECK type ↔ FK (e.g. `transaction_type <> 'SUPPLIER_PAYMENT' OR supplier_payment_id IS NOT NULL`); CHECK `(transaction_type = 'INTERNAL_TRANSFER') = (counter_bank_transaction_id IS NOT NULL)`; CHECK `(transaction_type = 'COD_REMITTANCE') = (shipping_carrier_id IS NOT NULL)`; CHECK `value_date >= statement_date - INTERVAL 3 DAY`.
-- **Who posts the journal:** a line created by one of our documents (payments, refunds, GST) is **not** posted again: the document already posted, and the bank line is what reconciliation matches against. Lines originating at the bank (`GATEWAY_SETTLEMENT`, `COD_REMITTANCE`, `CHEQUE_DEPOSIT`, `BANK_CHARGES`, `INTEREST_CREDIT`, `INTERNAL_TRANSFER` outgoing leg, `REVERSAL` of a bounced item) post their own journal with `bank_transaction_id` as the source (§6).
+- **Who posts the journal:** a line created by one of our documents (payments, refunds, GST) is **not** posted again: the document already posted, and the bank line is what reconciliation matches against. Lines originating at the bank (`GATEWAY_SETTLEMENT`, `COD_REMITTANCE`, `BANK_CHARGES`, `INTEREST_CREDIT`, `INTERNAL_TRANSFER` outgoing leg, `REVERSAL` of a bounced item) post their own journal with `bank_transaction_id` as the source (§6).
 - **Indexes:** `(bank_account_id, statement_date)`, `(bank_reconciliation_id)`, `(transaction_type, statement_date)`.
 - **Populated:** Generated from the bank's point of view after the documents exist. Direct receipts and payments land on `payment_date` (NEFT/RTGS/IMPS) or after clearing (cheques). One `GATEWAY_SETTLEMENT` per bank account per method per settlement day = Σ the day's UPI/card/net-banking receipts minus fees. One `COD_REMITTANCE` per carrier per week. Monthly bank charges and quarterly interest. Petty-cash top-ups when a float falls below its threshold. `balance_after` is computed in strict `(statement_date, id)` order per account.
 
@@ -441,7 +455,7 @@ GST per taxable document line and direction: the basis for GST reports and retur
 | `gstr1_section` | `VARCHAR(10)` | | `B2B` / `B2CL` / `B2CS` / `CDNR` / `CDNUR` (output only) |
 | `gst_return_id` | `BIGINT UNSIGNED` | | FK → the GSTR-1 (output) or GSTR-3B (input) return that included it |
 
-- **Keys:** UNIQUE per source FK + direction (`UNIQUE (stock_transfer_line_item_id, tax_direction)`, `UNIQUE (invoice_line_item_id)`, and so on).
+- **Keys:** UNIQUE per source FK + direction (`UNIQUE (stock_transfer_line_item_id, tax_direction)`, `UNIQUE (invoice_line_item_id, is_cancellation)`, and so on). `is_cancellation` (BOOLEAN, default FALSE) marks the one negative mirror row a cancelled invoice adds per line (§1.1).
 - **Constraints:** Exactly one source FK, consistent with `document_type` and direction; CHECK `(tax_direction = 'OUTPUT') = (itc_eligibility = 'NOT_APPLICABLE')`; CHECK `(tax_direction = 'OUTPUT') = (gstr1_section IS NOT NULL)`; 1C §2.3 split rules (with sign).
 - **GSTR-1 section rule:** `B2B` if the buyer is registered (including our own GSTINs for transfers); `B2CL` if unregistered, inter-state and invoice value > ₹1,00,000; else `B2CS`. Credit notes: `CDNR` or `CDNUR`. The threshold is config (the rule changed in 2024).
 - **Rules:** Amounts equal the source line's (V-TX-01). Σ per GSTIN per period per component per direction = the movement in that GSTIN's tax accounts in the GL (V-TX-02).

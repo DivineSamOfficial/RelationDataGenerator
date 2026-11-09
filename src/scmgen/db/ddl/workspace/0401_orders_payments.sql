@@ -194,6 +194,8 @@ CREATE TABLE customer_payments (
     PRIMARY KEY (customer_payment_id),
     UNIQUE KEY uq_customer_payments_number (payment_number),
     UNIQUE KEY uq_customer_payments_order_attempt (order_id, attempt_number),
+    -- Target of the composite FK from the AR/AP open-item subledger (same party, Part 1E batch).
+    UNIQUE KEY uq_customer_payments_id_customer (customer_payment_id, customer_id),
     KEY ix_customer_payments_customer_date (customer_id, payment_date),
     KEY ix_customer_payments_status_date (payment_status, payment_date),
     KEY ix_customer_payments_settlement_date (settlement_date),
