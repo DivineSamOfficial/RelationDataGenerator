@@ -122,9 +122,10 @@ CREATE TABLE accounts_payable (
     CONSTRAINT fk_accounts_payable_supplier_payment FOREIGN KEY (supplier_payment_id, supplier_id)
         REFERENCES supplier_payments (supplier_payment_id, supplier_id),
     -- An expense's payee is either its supplier or its claimant employee (partly-NULL pairs are not checked).
+    -- Exactly one payee is always set (ck_accounts_payable_payee), so one of these two always proves the
+    -- expense exists; a separate FK on expense_id alone is unnecessary (and would trip D85).
     CONSTRAINT fk_accounts_payable_expense_supplier FOREIGN KEY (expense_id, supplier_id) REFERENCES expenses (expense_id, supplier_id),
     CONSTRAINT fk_accounts_payable_expense_employee FOREIGN KEY (expense_id, employee_id) REFERENCES expenses (expense_id, employee_id),
-    CONSTRAINT fk_accounts_payable_expense FOREIGN KEY (expense_id) REFERENCES expenses (expense_id),
     CONSTRAINT fk_accounts_payable_journal FOREIGN KEY (journal_entry_id) REFERENCES journal_entries (journal_entry_id),
     CONSTRAINT ck_accounts_payable_type CHECK (REGEXP_LIKE(item_type, '^(SUPPLIER_INVOICE|EXPENSE|SUPPLIER_PAYMENT)$', 'c')),
     -- Exactly one payee (D51); employees are payees only for expense claims.
@@ -187,7 +188,7 @@ CREATE TABLE tax_transactions (
     stock_transfer_line_item_id BIGINT UNSIGNED  NULL,
     document_number             VARCHAR(40)      NOT NULL,
     document_date               DATE             NOT NULL,
-    return_period               CHAR(7)          GENERATED ALWAYS AS (DATE_FORMAT(document_date, '%Y-%m')) STORED,
+    return_period               CHAR(7)          GENERATED ALWAYS AS (DATE_FORMAT(document_date, '%Y-%m')) STORED NOT NULL,
     counterparty_gstin          CHAR(15)         NULL,
     customer_id                 BIGINT UNSIGNED  NULL,
     supplier_id                 BIGINT UNSIGNED  NULL,

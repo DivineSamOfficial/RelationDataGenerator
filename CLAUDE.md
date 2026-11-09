@@ -113,6 +113,7 @@ Priorities: correct architecture, relational integrity, realistic business proce
 | D82 | Enumeration CHECKs written `REGEXP_LIKE(col, '^(A\|B)$', 'c')` (IN lists are case-insensitive under our collation) |
 | D83 | No CHECK on AUTO_INCREMENT columns (MySQL 3818); self-reference "not itself" rules go to validation |
 | D84 | Line-amount formulas (taxable, CGST/SGST/IGST, line total) and header totals are CHECK constraints; generator must use `Decimal` ROUND_HALF_UP (matches MySQL ROUND exactly, test A10) |
+| D85 | No index may start with a foreign key's columns and continue with a nullable column (MySQL 26.10 defect silently disables such FKs, test A12) |
 
 ## Database standards
 
@@ -122,6 +123,7 @@ Priorities: correct architecture, relational integrity, realistic business proce
 - Money `DECIMAL(18,2)`, unit prices/costs `DECIMAL(18,4)`, quantities `DECIMAL(18,3)`, rates `DECIMAL(7,4)`. Never FLOAT for money.
 - Status columns `VARCHAR(30)` + enumeration `CHECK (REGEXP_LIKE(col, '^(A|B)$', 'c'))` (D82), never a plain IN list.
 - Format CHECKs use `REGEXP_LIKE(col, pattern, 'c')`, never plain `REGEXP` (case-insensitive under our collation; proven in step 2.3).
+- No index may start with a foreign key's columns and then contain a nullable column (D85; MySQL 26.10 then stops enforcing the FK). A structural test enforces it.
 - CHECK bodies must be boolean expressions: no `IF(...)` (MySQL 3812); write `(a AND x) OR (NOT a AND y)`.
 - MySQL silently rounds excess DECIMAL digits: the engine must quantize every amount itself (Python `Decimal`, half-up) before insert.
 - Any SQL containing `%` runs through `scmgen.db.sql_files.execute_raw` (PyMySQL %-formats statements otherwise).

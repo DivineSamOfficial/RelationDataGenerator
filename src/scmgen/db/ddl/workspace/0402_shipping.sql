@@ -30,7 +30,6 @@ CREATE TABLE shipments (
     -- Target of the composite FK from invoices: the billed shipment belongs to the invoice's order and warehouse.
     UNIQUE KEY uq_shipments_id_order_warehouse (shipment_id, order_id, warehouse_id),
     KEY ix_shipments_status_planned (shipment_status, planned_dispatch_date),
-    KEY ix_shipments_carrier_dispatched (shipping_carrier_id, dispatched_at),
     KEY ix_shipments_dispatched (dispatched_at),
     CONSTRAINT fk_shipments_order FOREIGN KEY (order_id) REFERENCES orders (order_id),
     CONSTRAINT fk_shipments_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses (warehouse_id),
@@ -66,7 +65,8 @@ CREATE TABLE shipment_line_items (
     updated_at                  DATETIME(6)      NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     PRIMARY KEY (shipment_line_item_id),
     UNIQUE KEY uq_shipment_line_items_shipment_line (shipment_id, line_number),
-    UNIQUE KEY uq_shipment_line_items_shipment_order_line_batch (shipment_id, order_line_item_id, inventory_batch_id),
+    -- Starts with the (nullable) batch FK so no FK-prefixed index has a nullable tail (D85).
+    UNIQUE KEY uq_shipment_line_items_batch_shipment_order_line (inventory_batch_id, shipment_id, order_line_item_id),
     CONSTRAINT fk_shipment_line_items_shipment FOREIGN KEY (shipment_id) REFERENCES shipments (shipment_id),
     CONSTRAINT fk_shipment_line_items_order_line FOREIGN KEY (order_line_item_id) REFERENCES order_line_items (order_line_item_id),
     CONSTRAINT fk_shipment_line_items_batch FOREIGN KEY (inventory_batch_id) REFERENCES inventory_batches (inventory_batch_id),

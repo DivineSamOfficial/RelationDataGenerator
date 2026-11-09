@@ -228,3 +228,24 @@ def test_general_ledger_view_is_queryable(conn) -> None:
         WHERE table_schema = '{SCHEMA}' AND table_name = 'v_general_ledger' ORDER BY ordinal_position""")]
     assert {"journal_entry_line_id", "account_code", "debit_amount", "credit_amount", "running_balance"} <= set(columns)
     assert _rows(conn, "SELECT COUNT(*) FROM v_general_ledger") == [(0,)]
+
+
+def test_no_index_can_disable_a_foreign_key(conn) -> None:
+    """D85: on MySQL 26.10 a foreign key is NOT enforced when the index MySQL picks for it starts with the
+    FK columns and continues with a column that is NULL in the row (proven in test A12). So no index may
+    start with a foreign key's columns and then contain a nullable column."""
+    fks = _rows(conn, f"""SELECT table_name, constraint_name, GROUP_CONCAT(column_name ORDER BY ordinal_position)
+        FROM information_schema.key_column_usage WHERE table_schema = '{SCHEMA}' AND referenced_table_name IS NOT NULL
+        GROUP BY table_name, constraint_name""")
+    indexes: dict[str, list[tuple[str, list[str], list[str]]]] = {}
+    for table, name, columns, nullables in _rows(conn, f"""SELECT table_name, index_name,
+            GROUP_CONCAT(column_name ORDER BY seq_in_index), GROUP_CONCAT(nullable ORDER BY seq_in_index)
+        FROM information_schema.statistics WHERE table_schema = '{SCHEMA}' GROUP BY table_name, index_name"""):
+        indexes.setdefault(table, []).append((name, columns.split(","), nullables.split(",")))
+    offenders = []
+    for table, fk_name, fk_columns in fks:
+        prefix = fk_columns.split(",")
+        for index_name, columns, nullables in indexes.get(table, []):
+            if columns[:len(prefix)] == prefix and "YES" in nullables[len(prefix):]:
+                offenders.append((table, index_name, fk_name))
+    assert offenders == []

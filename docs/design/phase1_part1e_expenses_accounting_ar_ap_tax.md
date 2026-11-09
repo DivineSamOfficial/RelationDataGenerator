@@ -97,7 +97,7 @@ An expense document: vendor bill, employee claim, petty-cash voucher or monthly 
 | `rejection_reason` | `VARCHAR(100)` | | |
 | `description` | `VARCHAR(255)` | ✓ | |
 
-- **Keys:** UNIQUE `(supplier_id, vendor_bill_number)` (duplicate-bill guard).
+- **Keys:** UNIQUE `(vendor_bill_number, supplier_id)` (duplicate-bill guard; column order reversed (D85, Phase 2 step 2.6: no index may start with an FK's columns and continue with a nullable column)).
 - **Constraints:**
   - CHECK lists.
   - Payee by type: `VENDOR_BILL` ⇒ `supplier_id IS NOT NULL AND employee_id IS NULL`; `EMPLOYEE_CLAIM` ⇒ `employee_id IS NOT NULL AND supplier_id IS NULL`; `PAYROLL` ⇒ both NULL; `PETTY_CASH` ⇒ `employee_id IS NULL AND warehouse_id IS NOT NULL`.

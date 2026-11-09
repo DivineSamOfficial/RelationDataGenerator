@@ -578,7 +578,7 @@ A lot of a batch-tracked product, for traceability and FEFO (first-expiry-first-
 
 - **Constraints:** CHECK exactly one of the two source FKs is set; CHECK `initial_quantity > 0`; CHECK `expiry_date IS NULL OR manufacture_date IS NULL OR expiry_date > manufacture_date`.
 - **Rules:** The product is batch-tracked and matches the source line's product. Ledger quantity per batch per warehouse never goes below 0 (V-IN-04).
-- **Indexes:** `(product_id, expiry_date)` (FEFO picking, expiry write-offs).
+- **Indexes:** `(expiry_date)` (expiry write-offs); FEFO picking by product uses the `product_id` FK index and sorts the few batches by expiry (D85, Phase 2 step 2.6: no index may start with an FK's columns and continue with a nullable column).
 - **Populated:** On receipt of a batch-tracked product, and in opening stock. A batch can move between warehouses through transfers. The ledger shows where its quantity is.
 
 #### `inventory_reservations`

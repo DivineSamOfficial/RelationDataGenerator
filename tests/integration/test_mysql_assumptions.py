@@ -363,3 +363,22 @@ def test_a11_inclusive_price_formulas_match_python_decimal(conn) -> None:
     finally:
         cursor.close()
     assert mismatches == []
+
+
+# --- A12: a nullable column after the FK prefix in an index can disable the FK (D85) -----------
+
+def test_a12_fk_enforced_only_when_its_index_has_no_nullable_tail(conn) -> None:
+    """Server defect found in step 2.6 on MySQL 26.10.0: if the index MySQL uses for a foreign key is
+    (fk_col, nullable_col) and nullable_col is NULL, a dangling fk_col value is ACCEPTED. The schema
+    avoids that shape (D85); this test pins both behaviours. If a future MySQL fixes the defect, the
+    first assertion fails - then D85 can be relaxed."""
+    run(conn,
+        "CREATE TABLE parent (id INT PRIMARY KEY)",
+        "INSERT INTO parent VALUES (1)",
+        """CREATE TABLE risky (id INT PRIMARY KEY, pid INT NOT NULL, d DATE NULL,
+            KEY ix_risky (pid, d), CONSTRAINT fk_risky FOREIGN KEY (pid) REFERENCES parent (id))""",
+        """CREATE TABLE safe (id INT PRIMARY KEY, pid INT NOT NULL, d DATE NULL,
+            KEY ix_safe_d (d, pid), CONSTRAINT fk_safe FOREIGN KEY (pid) REFERENCES parent (id))""")
+    run(conn, "INSERT INTO risky VALUES (1, 999, NULL)")  # the defect: dangling reference accepted
+    assert scalar(conn, "SELECT COUNT(*) FROM risky WHERE pid NOT IN (SELECT id FROM parent)") == 1
+    expect_error(conn, "INSERT INTO safe VALUES (1, 999, NULL)", FK_CHILD_WITHOUT_PARENT)  # D85 shape: enforced

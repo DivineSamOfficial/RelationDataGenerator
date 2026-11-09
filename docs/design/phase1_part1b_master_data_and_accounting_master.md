@@ -454,7 +454,7 @@ Billing and shipping addresses, versioned (1A §3 address history).
 
 - **Keys:** UNIQUE `(default_billing_key)`, UNIQUE `(default_shipping_key)` (§2.4b); UNIQUE `(previous_customer_address_id)` (a version is replaced at most once); UNIQUE `(customer_address_id, customer_id)`, the target of the order-address composite FKs (Phase 2 step 2.4, 1D §1.4).
 - **Constraints:** PIN format; CHECK `is_billing_address OR is_shipping_address`; CHECK `NOT is_default_billing OR is_billing_address`; CHECK `NOT is_default_shipping OR is_shipping_address`.
-- **Indexes:** `(customer_id, deleted_at)`, `(state_id)`, `(pincode)`.
+- **Indexes:** `(customer_id)` (the FK index), `(state_id)`, `(pincode)`. `(customer_id, deleted_at)` was dropped (D85, Phase 2 step 2.6: no index may start with an FK's columns and continue with a nullable column).
 - **Relationships:** N : 1 `customers`, `states`; self-chain of versions. Later: orders and invoices reference the address row valid at the time.
 - **Rule:** A used address is never updated in place. A change inserts a new row (`previous_customer_address_id` = old row, `valid_from` = change date) and sets `deleted_at` on the old one in the same transaction.
 - **Populated:** Faker. City, state and PIN prefix are drawn together from a seed list of Indian cities (`config/seed/cities.yaml`), so they're always consistent. Customer locations are weighted towards warehouse regions. B2C: one address with both flags. B2B: one billing + shipping row, ~30% with 1–3 extra shipping addresses. For REGISTERED / COMPOSITION customers the billing state must match the GSTIN state code (V-MD-11). Over time: ~5% of customers per year change an address (new version).

@@ -8,6 +8,8 @@
 --   * Format checks: REGEXP_LIKE(col, pattern, 'c'), never plain REGEXP.
 --   * No CHECK may reference an AUTO_INCREMENT column (MySQL error 3818, D83).
 --   * FKs without ON DELETE/UPDATE clauses = RESTRICT (D15, D81).
+--   * No index may start with a foreign key's columns and continue with a NULLABLE column (D85): on
+--     MySQL 26.10 such an index can silently disable the FK when that trailing column is NULL.
 --   * created_at / updated_at are written by the engine from the simulated clock (D21, D67):
 --     DEFAULT is only a safety net, there is deliberately no ON UPDATE CURRENT_TIMESTAMP.
 

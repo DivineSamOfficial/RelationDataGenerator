@@ -37,8 +37,8 @@ Last updated: 2026-11-08
 | 2.3 | Assumption tests A1–A7 on the installed MySQL | **Done** — A1–A7 confirmed on MySQL 26.10.0 (17 tests). Findings now rules: format CHECKs use `REGEXP_LIKE(…,'c')`; engine must round DECIMALs itself. No design identifier is a reserved word |
 | 2.4 | DDL for all 92 tables + `v_general_ledger` | **Done** — 7 batches, 20 files (`ddl/workspace/0101`–`0701`): 92 tables + 1 view, 302 FKs, 585 CHECKs, 189 unique keys, 17 computed columns. No deferred FK left; every `…_id` column has an FK except 3 documented external identifiers. Structural convention tests pass (97 tests). Decisions D82–D84; refinements recorded in 1B, 1C, 1D §1.4, 1E §1.1 |
 | 2.5 | Workspace commands (`db init`, `workspace create/list/show/delete`) | **Done** — create builds `scm_<code>_oltp` (92 tables + view) and `scm_<code>_sim`, registry row READY, DDL fingerprint recorded; named lock; failed create fully rolled back; delete archives (or `--purge`); 122 tests pass |
-| 2.6 | Constraint test suite | Next |
-| 2.7 | Schema-vs-design check | |
+| 2.6 | Constraint test suite | **Done** — baseline dataset fills all 92 tables (every constraint accepts valid data); sweeps: 301 FKs never accept a dangling reference, 807 NOT NULL columns reject NULL, 114 enumerations reject lower-case/unknown; 69 business-rule cases fire their exact named constraint. **Found a MySQL 26.10 defect** (FK not enforced via an index with a nullable tail) → D85, 9 index fixes, guard test + A12. 200 tests pass |
+| 2.7 | Schema-vs-design check | Next |
 
 ## Open questions
 

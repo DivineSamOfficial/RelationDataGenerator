@@ -36,7 +36,8 @@ CREATE TABLE expenses (
     PRIMARY KEY (expense_id),
     UNIQUE KEY uq_expenses_number (expense_number),
     -- Duplicate-bill guard (1E 2).
-    UNIQUE KEY uq_expenses_supplier_bill (supplier_id, vendor_bill_number),
+    -- (bill number, supplier), not (supplier, bill number): see D85.
+    UNIQUE KEY uq_expenses_bill_supplier (vendor_bill_number, supplier_id),
     -- Targets of the composite FKs from accounts_payable (same payee).
     UNIQUE KEY uq_expenses_id_supplier (expense_id, supplier_id),
     UNIQUE KEY uq_expenses_id_employee (expense_id, employee_id),

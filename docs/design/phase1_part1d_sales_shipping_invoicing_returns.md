@@ -239,7 +239,7 @@ A dispatch from one warehouse for one order. Split shipments = several rows.
 - **Statuses (R11; master prompt list, shipment-level):** `PENDING` → `PICKING` → `PICKED` → `PACKING` → `PACKED` → `READY_FOR_PICKUP` → `PICKED_UP` → `IN_TRANSIT` → `OUT_FOR_DELIVERY` → `DELIVERED`. `OUT_FOR_DELIVERY` → `DELIVERY_FAILED` → `OUT_FOR_DELIVERY` (re-attempt) or → `RETURNED_TO_SENDER`. Any state before `IN_TRANSIT` → `CANCELLED` (after `PICKED_UP` only under D40). `Order Confirmed` is an **order** status (R11).
 - **Constraints:** CHECK lists; CHECK `is_cod = (cod_amount IS NOT NULL)`; CHECK `cod_amount IS NULL OR cod_amount > 0`; CHECK `shipment_status IN ('PENDING','PICKING','PICKED','PACKING','PACKED','READY_FOR_PICKUP','CANCELLED') OR dispatched_at IS NOT NULL`; CHECK `(shipment_status = 'DELIVERED') = (delivered_at IS NOT NULL)`; CHECK `(shipment_status = 'RETURNED_TO_SENDER') = (rto_received_at IS NOT NULL)`; CHECK `delivered_at IS NULL OR delivered_at > dispatched_at`; CHECK `package_count > 0 AND total_weight_kg > 0`.
 - **Rules:** The order is `SHIP`. The warehouse has reservations for the order. The carrier supports COD when `is_cod`. `dispatched_at ≥ order_placed_at` (V-SH-01).
-- **Indexes:** `(order_id)`, `(shipment_status, planned_dispatch_date)`, `(shipping_carrier_id, dispatched_at)`, `(dispatched_at)`.
+- **Indexes:** `(order_id)`, `(shipment_status, planned_dispatch_date)`, `(shipping_carrier_id)` (FK index; the composite with nullable `dispatched_at` was dropped (D85, Phase 2 step 2.6: no index may start with an FK's columns and continue with a nullable column)), `(dispatched_at)`.
 - **Populated:** When reservations for an order at a warehouse are complete (or the partial-shipment policy allows), one shipment per warehouse per wave. Same-day or next-day dispatch at DCs. Carrier chosen by service level, distance and COD need. Transit days from the distance between the warehouse and the delivery state's region plus carrier performance. Defaults: ~10% of orders split, ~8% of shipments with a failed attempt, ~3% RTO (higher for COD).
 
 #### `shipment_line_items`
@@ -254,7 +254,7 @@ A dispatch from one warehouse for one order. Split shipments = several rows.
 | `quantity_shipped` | `DECIMAL(18,3)` | ✓ | |
 | `picked_from_location_id` | `BIGINT UNSIGNED` | | FK → `warehouse_locations` |
 
-- **Keys:** UNIQUE `(shipment_id, line_number)`; UNIQUE `(shipment_id, order_line_item_id, inventory_batch_id)`. Batch can be NULL; for non-batch products the generator emits one line per order line.
+- **Keys:** UNIQUE `(shipment_id, line_number)`; UNIQUE `(inventory_batch_id, shipment_id, order_line_item_id)` (same uniqueness, reordered (D85, Phase 2 step 2.6: no index may start with an FK's columns and continue with a nullable column)). Batch can be NULL; for non-batch products the generator emits one line per order line.
 - **Constraints:** CHECK `quantity_shipped > 0`.
 - **Rules:** The order line belongs to the shipment's order. Batch and location belong to the product and warehouse. The ledger `SALES_ISSUE` for the line = −quantity_shipped at dispatch (V-SH-02).
 - **Delivered quantity:** Not stored. A line is delivered iff its shipment is `DELIVERED` (shipments are delivered whole; partial refusal is modelled as delivery followed by a return).

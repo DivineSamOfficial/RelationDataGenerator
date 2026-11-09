@@ -67,7 +67,8 @@ CREATE TABLE inventory_batches (
     UNIQUE KEY uq_inventory_batches_number (batch_number),
     UNIQUE KEY uq_inventory_batches_grn_line (goods_receipt_line_item_id),
     UNIQUE KEY uq_inventory_batches_adjustment_line (stock_adjustment_line_item_id),
-    KEY ix_inventory_batches_product_expiry (product_id, expiry_date),
+    -- Expiry sweeps; the product lookup uses the FK's own index (D85: no FK-prefixed index with a nullable tail).
+    KEY ix_inventory_batches_expiry (expiry_date),
     CONSTRAINT fk_inventory_batches_product FOREIGN KEY (product_id) REFERENCES products (product_id),
     CONSTRAINT fk_inventory_batches_grn_line FOREIGN KEY (goods_receipt_line_item_id)
         REFERENCES goods_receipt_line_items (goods_receipt_line_item_id),
