@@ -35,8 +35,8 @@ Last updated: 2026-11-08
 
 | 2.2 | MySQL users/privileges (`scm_app`, `scm_reader`, `scm_anomaly`), `scm_control.workspaces` | **Done** — `scmgen db init` (idempotent); wildcard grants verified on MySQL 26.10 by a throwaway-user probe; privilege matrix proven both ways by tests; 60 tests pass. Finding: PyMySQL %-formats statements even via `exec_driver_sql`, so SQL containing `%` runs through `execute_raw` (no parameters) |
 | 2.3 | Assumption tests A1–A7 on the installed MySQL | **Done** — A1–A7 confirmed on MySQL 26.10.0 (17 tests). Findings now rules: format CHECKs use `REGEXP_LIKE(…,'c')`; engine must round DECIMALs itself. No design identifier is a reserved word |
-| 2.4 | DDL for all 92 tables + `v_general_ledger`, in 7 batches (planned 9; master + accounting master, and expenses + finance, were each done as one batch) | **In progress** — batches 1–6/7 done: Part 1B (31), procurement (16), inventory (8), sales & shipping (9), invoicing & returns (9), finance (16 + view, `0601`–`0605`); 89 tables, 298 FKs, 565 CHECKs build; 2 FKs deferred to the system batch; D82–D84; refinements 1D §1.4, 1E §1.1 (new columns `invoice_line_items.inclusive_unit_price`, `tax_transactions.is_cancellation`) |
-| 2.5 | Workspace commands (`db init`, `workspace create/list/delete`) | |
+| 2.4 | DDL for all 92 tables + `v_general_ledger` | **Done** — 7 batches, 20 files (`ddl/workspace/0101`–`0701`): 92 tables + 1 view, 302 FKs, 585 CHECKs, 189 unique keys, 17 computed columns. No deferred FK left; every `…_id` column has an FK except 3 documented external identifiers. Structural convention tests pass (97 tests). Decisions D82–D84; refinements recorded in 1B, 1C, 1D §1.4, 1E §1.1 |
+| 2.5 | Workspace commands (`db init`, `workspace create/list/delete`) | Next |
 | 2.6 | Constraint test suite | |
 | 2.7 | Schema-vs-design check | |
 

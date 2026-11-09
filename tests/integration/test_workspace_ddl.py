@@ -54,21 +54,22 @@ PART_1E_FINANCE_TABLES = {
     "accounts_receivable", "customer_payment_allocations", "accounts_payable", "supplier_payment_allocations",
     "tax_transactions", "gst_returns", "gst_return_line_items",
 }
+PART_1G_SYSTEM_TABLES = {"document_sequences", "generation_runs", "generation_run_steps"}
 EXPECTED_TABLES = (PART_1B_TABLES | PART_1C_PROCUREMENT_TABLES | PART_1C_INVENTORY_TABLES
-                   | PART_1D_SALES_SHIPPING_TABLES | PART_1D_INVOICING_RETURNS_TABLES | PART_1E_FINANCE_TABLES)
+                   | PART_1D_SALES_SHIPPING_TABLES | PART_1D_INVOICING_RETURNS_TABLES | PART_1E_FINANCE_TABLES
+                   | PART_1G_SYSTEM_TABLES)
 EXPECTED_VIEWS = {"v_general_ledger"}
 
-# *_id columns whose FK target table arrives in a later batch (added there by ALTER TABLE).
-# Each later batch removes its entries; after the last batch this set must be empty.
-DEFERRED_FOREIGN_KEYS = {
-    ("inventory_transactions", "generation_run_id"),
-    ("journal_entries", "generation_run_id"),
-}
+# *_id columns whose FK target table arrived in a later batch (added there by ALTER TABLE).
+# All batches are in place, so none may be pending any more.
+DEFERRED_FOREIGN_KEYS: set[tuple[str, str]] = set()
 
 # *_id columns that hold an identifier issued by an EXTERNAL system, not a reference to one of our
 # tables, so they have no FK by design.
 EXTERNAL_ID_COLUMNS = {
     ("shipment_tracking", "carrier_event_id"),  # the carrier's event id from its feed (dedupe key, 1D 4)
+    ("generation_runs", "build_id"),            # workspace build UUID issued by scm_control, outside this schema (A2)
+    ("generation_runs", "process_id"),          # operating-system process id of the background job (1G 5.2)
 }
 
 SOFT_DELETE_TABLES = {
@@ -98,6 +99,11 @@ def conn():
         finally:  # drop even when the DDL itself fails, so no test schema is left behind
             execute_raw(connection, f"DROP DATABASE IF EXISTS `{SCHEMA}`")
     engine.dispose()
+
+
+def test_design_has_exactly_92_tables() -> None:
+    """The design (Part 1F index) defines 92 tables; the expected set must match it exactly."""
+    assert len(EXPECTED_TABLES) == 92
 
 
 def test_ddl_files_are_ordered_and_numbered() -> None:
