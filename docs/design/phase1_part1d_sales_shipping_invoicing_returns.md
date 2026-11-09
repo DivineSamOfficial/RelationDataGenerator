@@ -49,7 +49,7 @@ This part covers **18 tables**: columns, keys, constraints, relationships and po
 | §5.0 movement map | New row `RTO_RECEIPT` (+, SELLABLE, source `shipment_line_item_id`) (D41) |
 | §7 volumes | `inventory_transactions` corrected from "1.5–2 million" to **~250,000** for the Medium preset. The earlier figure was wrong: at 50,000 orders (~140,000 issue rows) plus receipts, transfers and adjustments, the ledger is ~250k rows. Large preset ≈ 1.2M |
 
-### 1.4 Implementation refinements (Phase 2 step 2.4, batch 4)
+### 1.4 Implementation refinements (Phase 2 step 2.4, batches 4–5)
 
 Enforced in the DDL; no tables or relationships added.
 
@@ -60,6 +60,11 @@ Enforced in the DDL; no tables or relationships added.
 | Tracking row recorded when the feed event arrives (Part 1H F5) | Rule | `CHECK (created_at = received_at)` on `shipment_tracking` |
 | Order-line amounts (D84 applied to D79) | Validation V-SO-01 | CHECKs: ex-GST lines `taxable = ROUND(qty × unit_price × (1 − disc/100), 2)`. GST-inclusive lines `unit_price = ROUND(inclusive / (1 + rate/100), 4)` and `taxable = ROUND(qty × inclusive × (1 − disc/100) / (1 + rate/100), 2)`. Both `tax_amount = ROUND(taxable × rate / 100, 2)` and `line_total = taxable + tax`. MySQL and Python `Decimal` agree on the inclusive division (3,000 random cases; permanent test A11) |
 | `shipment_tracking.carrier_event_id` | — | An external identifier (the carrier's), so it deliberately has no FK |
+| Invoice consistency (batch 5) | Validation V-IV-01 | Composite FKs: `invoices (order_id, customer_id)` → `orders`; `(shipment_id, order_id, warehouse_id)` → `shipments` (billed shipment belongs to this order and warehouse); `(warehouse_id, company_gst_registration_id)` → `warehouses` (issuing GSTIN = warehouse GSTIN); billing/shipping addresses belong to the customer. New UNIQUE keys on `shipments` and `warehouses` (1B) |
+| **New column** `invoice_line_items.inclusive_unit_price` (batch 5) | D79 said the invoice back-calculates from the inclusive price but didn't store it | Snapshot of the GST-inclusive price on B2C lines. Same two-branch formula CHECK as order lines, so taxable value is verifiable at the invoice-date rate (without it, `qty × rounded ex-GST price` can differ from the back-calculation by a paisa) |
+| Credit note ↔ invoice, return line ↔ invoice line (batch 5) | D80 | Composite FKs `credit_notes (invoice_id, customer_id, company_gst_registration_id)` → `invoices`; `sales_return_line_items (invoice_line_item_id, order_line_item_id)` → `invoice_line_items` |
+| Credit-note line amounts | — | Tax split and line total are CHECKed. Taxable value isn't formula-checked, because credits can be value-only (quantity 0); limits stay in V-IV-04 |
+| Defective-stock register | D45 | UNIQUE on each source FK: one register row per return inspection / damage adjustment line / damaged transfer line |
 
 ### 1.3 Open questions
 

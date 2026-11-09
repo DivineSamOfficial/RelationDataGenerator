@@ -27,6 +27,8 @@ CREATE TABLE shipments (
     PRIMARY KEY (shipment_id),
     UNIQUE KEY uq_shipments_number (shipment_number),
     UNIQUE KEY uq_shipments_tracking_number (tracking_number),
+    -- Target of the composite FK from invoices: the billed shipment belongs to the invoice's order and warehouse.
+    UNIQUE KEY uq_shipments_id_order_warehouse (shipment_id, order_id, warehouse_id),
     KEY ix_shipments_status_planned (shipment_status, planned_dispatch_date),
     KEY ix_shipments_carrier_dispatched (shipping_carrier_id, dispatched_at),
     KEY ix_shipments_dispatched (dispatched_at),

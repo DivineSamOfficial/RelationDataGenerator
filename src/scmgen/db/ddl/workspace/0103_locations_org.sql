@@ -24,6 +24,8 @@ CREATE TABLE warehouses (
     PRIMARY KEY (warehouse_id),
     UNIQUE KEY uq_warehouses_code (warehouse_code),
     UNIQUE KEY uq_warehouses_name (warehouse_name),
+    -- Target of composite FKs that tie a document's GSTIN to its warehouse (e.g. invoices, 1D §1.4).
+    UNIQUE KEY uq_warehouses_id_registration (warehouse_id, company_gst_registration_id),
     -- A warehouse can only be registered under the GSTIN of its own state (1B 2.4a).
     CONSTRAINT fk_warehouses_registration_state FOREIGN KEY (company_gst_registration_id, state_id)
         REFERENCES company_gst_registrations (company_gst_registration_id, state_id),

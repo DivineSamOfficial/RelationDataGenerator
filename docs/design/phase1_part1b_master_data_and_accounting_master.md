@@ -362,7 +362,7 @@ Stock-holding locations: distribution centres and retail stores (A1 §8.2).
 | `closed_date` | `DATE` | | |
 | `warehouse_status` | `VARCHAR(30)` | ✓ | `ACTIVE` / `INACTIVE` |
 
-- **Keys:** Composite FK `(company_gst_registration_id, state_id)` → `company_gst_registrations (company_gst_registration_id, state_id)`. The database guarantees a warehouse can only be registered under the GSTIN of its own state.
+- **Keys:** Composite FK `(company_gst_registration_id, state_id)` → `company_gst_registrations (company_gst_registration_id, state_id)`. The database guarantees a warehouse can only be registered under the GSTIN of its own state. UNIQUE `(warehouse_id, company_gst_registration_id)`, the target for documents whose GSTIN must be their warehouse's, e.g. invoices (Phase 2 step 2.4, 1D §1.4).
 - **Constraints:** CHECK type / status lists; CHECK `(warehouse_type = 'RETAIL_STORE') = (replenishment_warehouse_id IS NOT NULL)`; ~~CHECK `replenishment_warehouse_id <> warehouse_id`~~ → validation V-MD-08 (D83); CHECK `closed_date IS NULL OR closed_date >= opened_date`. The replenishing warehouse must be a DC (V-MD-08).
 - **Relationships:** N : 1 GST registration; 1 : N `warehouse_locations`, `employees`; 0..1 `bank_accounts` (petty cash); 1 : 1 `cost_centers`. Later: inventory, transfers, shipments, GRNs.
 - **Populated:** Setup (DC cities, store count). Stores are placed in DC cities by default (no new GSTIN). DCs are inserted before stores. Static.

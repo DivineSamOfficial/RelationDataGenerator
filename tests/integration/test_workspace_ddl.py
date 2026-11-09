@@ -44,16 +44,16 @@ PART_1D_SALES_SHIPPING_TABLES = {
     "orders", "order_line_items", "order_status_history", "customer_payments",
     "shipments", "shipment_line_items", "shipment_status_history", "shipment_tracking", "delivery_attempts",
 }
+PART_1D_INVOICING_RETURNS_TABLES = {
+    "invoices", "invoice_line_items", "credit_notes", "credit_note_line_items", "sales_returns",
+    "sales_return_line_items", "return_inspections", "refunds", "defective_stock",
+}
 EXPECTED_TABLES = (PART_1B_TABLES | PART_1C_PROCUREMENT_TABLES | PART_1C_INVENTORY_TABLES
-                   | PART_1D_SALES_SHIPPING_TABLES)
+                   | PART_1D_SALES_SHIPPING_TABLES | PART_1D_INVOICING_RETURNS_TABLES)
 
 # *_id columns whose FK target table arrives in a later batch (added there by ALTER TABLE).
 # Each later batch removes its entries; after the last batch this set must be empty.
 DEFERRED_FOREIGN_KEYS = {
-    ("inventory_transactions", "invoice_line_item_id"),
-    ("inventory_transactions", "sales_return_line_item_id"),
-    ("inventory_transactions", "return_inspection_id"),
-    ("inventory_transactions", "defective_stock_id"),
     ("inventory_transactions", "generation_run_id"),
     ("customer_payments", "settlement_bank_transaction_id"),
 }
