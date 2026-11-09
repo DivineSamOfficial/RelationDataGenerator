@@ -55,6 +55,20 @@ def test_split_statements_ignores_comment_lines() -> None:
     assert split_statements(sql) == ["CREATE TABLE a (x INT)", "CREATE TABLE b (y INT)"]
 
 
+@pytest.mark.parametrize(
+    ("sql", "expected"),
+    [
+        ("CREATE TABLE a (x INT) COMMENT = 'one; two';\nSELECT 1;", ["CREATE TABLE a (x INT) COMMENT = 'one; two'", "SELECT 1"]),
+        ("SELECT 'it''s; fine'; SELECT 2", ["SELECT 'it''s; fine'", "SELECT 2"]),
+        ("SELECT 'a\\'; b'; SELECT 3", ["SELECT 'a\\'; b'", "SELECT 3"]),
+        ('SELECT "x;y" AS `odd;name`; SELECT 4', ['SELECT "x;y" AS `odd;name`', "SELECT 4"]),
+        ("SELECT REGEXP_LIKE(c, '^(A|B)$', 'c');", ["SELECT REGEXP_LIKE(c, '^(A|B)$', 'c')"]),
+    ],
+)
+def test_split_statements_respects_quotes(sql: str, expected: list[str]) -> None:
+    assert split_statements(sql) == expected
+
+
 def test_control_ddl_is_packaged_and_has_one_statement() -> None:
     statements = split_statements(read_sql("ddl/control/0001_workspaces.sql"))
     assert len(statements) == 1

@@ -1,0 +1,218 @@
+-- Workspace schema, batch 3/5 of Part 1B: warehouses and locations, bank accounts, cost centres,
+-- employees, accounting periods (dependency levels 3-6). Conventions: see 0101_reference.sql.
+
+CREATE TABLE warehouses (
+    warehouse_id                SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    warehouse_code              VARCHAR(12)      NOT NULL,
+    warehouse_name              VARCHAR(100)     NOT NULL,
+    warehouse_type              VARCHAR(30)      NOT NULL,
+    company_gst_registration_id SMALLINT UNSIGNED NOT NULL,
+    state_id                    SMALLINT UNSIGNED NOT NULL,
+    address_line1               VARCHAR(200)     NOT NULL,
+    address_line2               VARCHAR(200)     NULL,
+    city                        VARCHAR(80)      NOT NULL,
+    pincode                     CHAR(6)          NOT NULL,
+    latitude                    DECIMAL(9,6)     NOT NULL,
+    longitude                   DECIMAL(9,6)     NOT NULL,
+    storage_area_sqft           INT UNSIGNED     NOT NULL,
+    replenishment_warehouse_id  SMALLINT UNSIGNED NULL,
+    opened_date                 DATE             NOT NULL,
+    closed_date                 DATE             NULL,
+    warehouse_status            VARCHAR(30)      NOT NULL DEFAULT 'ACTIVE',
+    created_at                  DATETIME(6)      NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at                  DATETIME(6)      NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (warehouse_id),
+    UNIQUE KEY uq_warehouses_code (warehouse_code),
+    UNIQUE KEY uq_warehouses_name (warehouse_name),
+    -- A warehouse can only be registered under the GSTIN of its own state (1B 2.4a).
+    CONSTRAINT fk_warehouses_registration_state FOREIGN KEY (company_gst_registration_id, state_id)
+        REFERENCES company_gst_registrations (company_gst_registration_id, state_id),
+    CONSTRAINT fk_warehouses_state FOREIGN KEY (state_id) REFERENCES states (state_id),
+    CONSTRAINT fk_warehouses_replenishment FOREIGN KEY (replenishment_warehouse_id) REFERENCES warehouses (warehouse_id),
+    CONSTRAINT ck_warehouses_code CHECK (REGEXP_LIKE(warehouse_code, '^[A-Z0-9][A-Z0-9-]{1,11}$', 'c')),
+    CONSTRAINT ck_warehouses_type CHECK (REGEXP_LIKE(warehouse_type, '^(DISTRIBUTION_CENTRE|RETAIL_STORE)$', 'c')),
+    -- Only stores have a replenishing DC. "Not itself" can't be a CHECK (auto-increment PK, D83): V-MD-08.
+    CONSTRAINT ck_warehouses_replenishment CHECK ((warehouse_type = 'RETAIL_STORE') = (replenishment_warehouse_id IS NOT NULL)),
+    CONSTRAINT ck_warehouses_pincode CHECK (REGEXP_LIKE(pincode, '^[1-9][0-9]{5}$', 'c')),
+    CONSTRAINT ck_warehouses_coordinates CHECK (latitude BETWEEN -90 AND 90 AND longitude BETWEEN -180 AND 180),
+    CONSTRAINT ck_warehouses_area CHECK (storage_area_sqft > 0),
+    CONSTRAINT ck_warehouses_dates CHECK (closed_date IS NULL OR closed_date >= opened_date),
+    CONSTRAINT ck_warehouses_status CHECK (REGEXP_LIKE(warehouse_status, '^(ACTIVE|INACTIVE)$', 'c')),
+    CONSTRAINT ck_warehouses_audit CHECK (updated_at >= created_at)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = 'Distribution centres and retail stores: stock-holding locations (1B 4.3, A1 8.2)';
+
+CREATE TABLE warehouse_locations (
+    warehouse_location_id       BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    warehouse_id                SMALLINT UNSIGNED NOT NULL,
+    location_code               VARCHAR(30)      NOT NULL,
+    zone                        VARCHAR(30)      NOT NULL,
+    aisle                       VARCHAR(5)       NULL,
+    rack                        VARCHAR(5)       NULL,
+    shelf_level                 VARCHAR(5)       NULL,
+    bin                         VARCHAR(5)       NULL,
+    location_type               VARCHAR(30)      NOT NULL,
+    capacity_units              INT UNSIGNED     NULL,
+    is_pickable                 BOOLEAN          NOT NULL DEFAULT FALSE,
+    is_active                   BOOLEAN          NOT NULL DEFAULT TRUE,
+    created_at                  DATETIME(6)      NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at                  DATETIME(6)      NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    deleted_at                  DATETIME(6)      NULL,
+    PRIMARY KEY (warehouse_location_id),
+    UNIQUE KEY uq_warehouse_locations_warehouse_code (warehouse_id, location_code),
+    CONSTRAINT fk_warehouse_locations_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses (warehouse_id),
+    CONSTRAINT ck_warehouse_locations_code CHECK (REGEXP_LIKE(location_code, '^[A-Z0-9][A-Z0-9-]{1,29}$', 'c')),
+    CONSTRAINT ck_warehouse_locations_zone CHECK (REGEXP_LIKE(zone,
+        '^(RECEIVING|STORAGE|PICKING|PACKING|DISPATCH|QUARANTINE|RETURNS|DEFECTIVE|SALES_FLOOR)$', 'c')),
+    CONSTRAINT ck_warehouse_locations_type CHECK (REGEXP_LIKE(location_type, '^(BIN|PALLET|FLOOR|SHELF)$', 'c')),
+    CONSTRAINT ck_warehouse_locations_audit CHECK (updated_at >= created_at AND (deleted_at IS NULL OR deleted_at >= created_at))
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = 'Zones and bins inside a warehouse (1B 4.3)';
+
+CREATE TABLE bank_accounts (
+    bank_account_id             SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    account_code                VARCHAR(20)      NOT NULL,
+    account_name                VARCHAR(100)     NOT NULL,
+    account_type                VARCHAR(30)      NOT NULL,
+    account_purpose             VARCHAR(30)      NOT NULL,
+    bank_name                   VARCHAR(100)     NULL,
+    branch_name                 VARCHAR(100)     NULL,
+    ifsc_code                   CHAR(11)         NULL,
+    account_number              VARCHAR(20)      NULL,
+    currency_code               CHAR(3)          NOT NULL,
+    overdraft_limit             DECIMAL(18,2)    NULL,
+    warehouse_id                SMALLINT UNSIGNED NULL,
+    gl_account_id               INT UNSIGNED     NOT NULL,
+    opened_date                 DATE             NOT NULL,
+    account_status              VARCHAR(30)      NOT NULL DEFAULT 'ACTIVE',
+    created_at                  DATETIME(6)      NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at                  DATETIME(6)      NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (bank_account_id),
+    UNIQUE KEY uq_bank_accounts_code (account_code),
+    UNIQUE KEY uq_bank_accounts_number (account_number),
+    UNIQUE KEY uq_bank_accounts_gl_account (gl_account_id),
+    CONSTRAINT fk_bank_accounts_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses (warehouse_id),
+    CONSTRAINT fk_bank_accounts_gl_account FOREIGN KEY (gl_account_id) REFERENCES chart_of_accounts (account_id),
+    CONSTRAINT ck_bank_accounts_code CHECK (REGEXP_LIKE(account_code, '^[A-Z][A-Z0-9-]{1,19}$', 'c')),
+    CONSTRAINT ck_bank_accounts_type CHECK (REGEXP_LIKE(account_type, '^(CURRENT|CASH_CREDIT|PETTY_CASH)$', 'c')),
+    CONSTRAINT ck_bank_accounts_purpose CHECK (REGEXP_LIKE(account_purpose, '^(COLLECTIONS|PAYMENTS|PAYROLL|GENERAL|PETTY_CASH)$', 'c')),
+    CONSTRAINT ck_bank_accounts_ifsc CHECK (ifsc_code IS NULL OR REGEXP_LIKE(ifsc_code, '^[A-Z]{4}0[A-Z0-9]{6}$', 'c')),
+    CONSTRAINT ck_bank_accounts_currency CHECK (REGEXP_LIKE(currency_code, '^[A-Z]{3}$', 'c')),
+    CONSTRAINT ck_bank_accounts_petty_cash CHECK ((account_type = 'PETTY_CASH') = (warehouse_id IS NOT NULL)),
+    CONSTRAINT ck_bank_accounts_bank_details CHECK (
+        account_type = 'PETTY_CASH' OR (bank_name IS NOT NULL AND ifsc_code IS NOT NULL AND account_number IS NOT NULL)),
+    CONSTRAINT ck_bank_accounts_overdraft CHECK ((account_type = 'CASH_CREDIT') = (overdraft_limit IS NOT NULL)),
+    CONSTRAINT ck_bank_accounts_overdraft_value CHECK (overdraft_limit IS NULL OR overdraft_limit > 0),
+    CONSTRAINT ck_bank_accounts_status CHECK (REGEXP_LIKE(account_status, '^(ACTIVE|CLOSED)$', 'c')),
+    CONSTRAINT ck_bank_accounts_audit CHECK (updated_at >= created_at)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = 'Company bank accounts and petty-cash floats; no opening balance column (1B 4.8, R16, D22)';
+
+CREATE TABLE cost_centers (
+    cost_center_id              SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    cost_center_code            VARCHAR(20)      NOT NULL,
+    cost_center_name            VARCHAR(100)     NOT NULL,
+    cost_center_type            VARCHAR(30)      NOT NULL,
+    business_unit_id            SMALLINT UNSIGNED NULL,
+    warehouse_id                SMALLINT UNSIGNED NULL,
+    department_id               SMALLINT UNSIGNED NULL,
+    parent_cost_center_id       SMALLINT UNSIGNED NULL,
+    is_active                   BOOLEAN          NOT NULL DEFAULT TRUE,
+    created_at                  DATETIME(6)      NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at                  DATETIME(6)      NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (cost_center_id),
+    UNIQUE KEY uq_cost_centers_code (cost_center_code),
+    UNIQUE KEY uq_cost_centers_name (cost_center_name),
+    UNIQUE KEY uq_cost_centers_business_unit (business_unit_id),
+    UNIQUE KEY uq_cost_centers_warehouse (warehouse_id),
+    UNIQUE KEY uq_cost_centers_department (department_id),
+    CONSTRAINT fk_cost_centers_business_unit FOREIGN KEY (business_unit_id) REFERENCES business_units (business_unit_id),
+    CONSTRAINT fk_cost_centers_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses (warehouse_id),
+    CONSTRAINT fk_cost_centers_department FOREIGN KEY (department_id) REFERENCES departments (department_id),
+    CONSTRAINT fk_cost_centers_parent FOREIGN KEY (parent_cost_center_id) REFERENCES cost_centers (cost_center_id),
+    CONSTRAINT ck_cost_centers_code CHECK (REGEXP_LIKE(cost_center_code, '^[A-Z][A-Z0-9-]{1,19}$', 'c')),
+    CONSTRAINT ck_cost_centers_type CHECK (REGEXP_LIKE(cost_center_type, '^(CORPORATE|BUSINESS_UNIT|WAREHOUSE|DEPARTMENT)$', 'c')),
+    -- Exactly the FK that matches the type is set (1B 4.9).
+    CONSTRAINT ck_cost_centers_type_link CHECK (
+        (cost_center_type = 'CORPORATE'     AND business_unit_id IS NULL     AND warehouse_id IS NULL     AND department_id IS NULL)
+     OR (cost_center_type = 'BUSINESS_UNIT' AND business_unit_id IS NOT NULL AND warehouse_id IS NULL     AND department_id IS NULL)
+     OR (cost_center_type = 'WAREHOUSE'     AND business_unit_id IS NULL     AND warehouse_id IS NOT NULL AND department_id IS NULL)
+     OR (cost_center_type = 'DEPARTMENT'    AND business_unit_id IS NULL     AND warehouse_id IS NULL     AND department_id IS NOT NULL)),
+    CONSTRAINT ck_cost_centers_root CHECK ((cost_center_type = 'CORPORATE') = (parent_cost_center_id IS NULL)),
+    CONSTRAINT ck_cost_centers_audit CHECK (updated_at >= created_at)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = 'Cost centres per business unit, warehouse and department under CORP (1B 4.9)';
+
+CREATE TABLE employees (
+    employee_id                 BIGINT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    employee_code               VARCHAR(12)      NOT NULL,
+    first_name                  VARCHAR(60)      NOT NULL,
+    last_name                   VARCHAR(60)      NOT NULL,
+    email                       VARCHAR(150)     NOT NULL,
+    phone                       VARCHAR(10)      NOT NULL,
+    department_id               SMALLINT UNSIGNED NOT NULL,
+    warehouse_id                SMALLINT UNSIGNED NULL,
+    cost_center_id              SMALLINT UNSIGNED NOT NULL,
+    manager_employee_id         BIGINT UNSIGNED  NULL,
+    job_title                   VARCHAR(100)     NOT NULL,
+    job_level                   VARCHAR(30)      NOT NULL,
+    approval_limit              DECIMAL(18,2)    NOT NULL DEFAULT 0,
+    monthly_gross_salary        DECIMAL(18,2)    NOT NULL,
+    hire_date                   DATE             NOT NULL,
+    termination_date            DATE             NULL,
+    employment_status           VARCHAR(30)      NOT NULL DEFAULT 'ACTIVE',
+    created_at                  DATETIME(6)      NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at                  DATETIME(6)      NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    deleted_at                  DATETIME(6)      NULL,
+    PRIMARY KEY (employee_id),
+    UNIQUE KEY uq_employees_code (employee_code),
+    UNIQUE KEY uq_employees_email (email),
+    KEY ix_employees_department_status (department_id, employment_status),
+    CONSTRAINT fk_employees_department FOREIGN KEY (department_id) REFERENCES departments (department_id),
+    CONSTRAINT fk_employees_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses (warehouse_id),
+    CONSTRAINT fk_employees_cost_center FOREIGN KEY (cost_center_id) REFERENCES cost_centers (cost_center_id),
+    -- "Not own manager" can't be a CHECK (auto-increment PK, D83): covered by V-MD-05 (no cycles).
+    CONSTRAINT fk_employees_manager FOREIGN KEY (manager_employee_id) REFERENCES employees (employee_id),
+    CONSTRAINT ck_employees_code CHECK (REGEXP_LIKE(employee_code, '^EMP-[0-9]{5,7}$', 'c')),
+    CONSTRAINT ck_employees_phone CHECK (REGEXP_LIKE(phone, '^[6-9][0-9]{9}$', 'c')),
+    CONSTRAINT ck_employees_level CHECK (REGEXP_LIKE(job_level, '^(EXECUTIVE|HEAD|MANAGER|LEAD|STAFF)$', 'c')),
+    CONSTRAINT ck_employees_status CHECK (REGEXP_LIKE(employment_status, '^(ACTIVE|ON_LEAVE|TERMINATED)$', 'c')),
+    CONSTRAINT ck_employees_termination CHECK ((employment_status = 'TERMINATED') = (termination_date IS NOT NULL)),
+    CONSTRAINT ck_employees_dates CHECK (termination_date IS NULL OR termination_date >= hire_date),
+    CONSTRAINT ck_employees_money CHECK (approval_limit >= 0 AND monthly_gross_salary > 0),
+    CONSTRAINT ck_employees_audit CHECK (updated_at >= created_at AND (deleted_at IS NULL OR deleted_at >= created_at))
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = 'Staff who create, approve and handle documents (1B 4.2, D19)';
+
+CREATE TABLE accounting_periods (
+    accounting_period_id        SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    fiscal_year                 SMALLINT UNSIGNED NOT NULL,
+    fiscal_year_label           CHAR(7)          NOT NULL,
+    period_number               TINYINT UNSIGNED NOT NULL,
+    period_code                 CHAR(7)          NOT NULL,
+    period_name                 VARCHAR(20)      NOT NULL,
+    start_date                  DATE             NOT NULL,
+    end_date                    DATE             NOT NULL,
+    period_status               VARCHAR(30)      NOT NULL DEFAULT 'FUTURE',
+    opened_at                   DATETIME(6)      NULL,
+    closed_at                   DATETIME(6)      NULL,
+    closed_by_employee_id       BIGINT UNSIGNED  NULL,
+    created_at                  DATETIME(6)      NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at                  DATETIME(6)      NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (accounting_period_id),
+    UNIQUE KEY uq_accounting_periods_year_number (fiscal_year, period_number),
+    UNIQUE KEY uq_accounting_periods_code (period_code),
+    UNIQUE KEY uq_accounting_periods_start (start_date),
+    UNIQUE KEY uq_accounting_periods_end (end_date),
+    CONSTRAINT fk_accounting_periods_closed_by FOREIGN KEY (closed_by_employee_id) REFERENCES employees (employee_id),
+    CONSTRAINT ck_accounting_periods_label CHECK (REGEXP_LIKE(fiscal_year_label, '^[0-9]{4}-[0-9]{2}$', 'c')),
+    CONSTRAINT ck_accounting_periods_code CHECK (REGEXP_LIKE(period_code, '^[0-9]{4}-(0[1-9]|1[0-2])$', 'c')),
+    CONSTRAINT ck_accounting_periods_number CHECK (period_number BETWEEN 1 AND 12),
+    CONSTRAINT ck_accounting_periods_dates CHECK (end_date >= start_date),
+    CONSTRAINT ck_accounting_periods_status CHECK (REGEXP_LIKE(period_status, '^(FUTURE|OPEN|CLOSED)$', 'c')),
+    CONSTRAINT ck_accounting_periods_closed CHECK (
+        (period_status = 'CLOSED') = (closed_at IS NOT NULL AND closed_by_employee_id IS NOT NULL)),
+    CONSTRAINT ck_accounting_periods_opened CHECK (period_status = 'FUTURE' OR opened_at IS NOT NULL),
+    CONSTRAINT ck_accounting_periods_audit CHECK (updated_at >= created_at)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci
+  COMMENT = 'Monthly periods within financial years, FUTURE -> OPEN -> CLOSED (1B 4.9, D7)';

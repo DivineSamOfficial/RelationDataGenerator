@@ -1,8 +1,8 @@
 """Read packaged .sql files and run them statement by statement.
 
-The splitter is deliberately simple: our DDL files contain no stored procedures,
-triggers or semicolons inside string literals, so 'split on ;' is correct. Full-line
-'--' comments are removed first.
+Our DDL contains no stored procedures or triggers, so statements end at ';'. The splitter
+ignores ';' inside quoted text ('...', "...", `...`), e.g. in a table COMMENT, and drops
+full-line '--' comments first.
 """
 
 from __future__ import annotations
@@ -20,8 +20,33 @@ def read_sql(relative_path: str) -> str:
 
 
 def split_statements(sql: str) -> list[str]:
-    lines = [line for line in sql.splitlines() if not line.strip().startswith("--")]
-    return [stmt.strip() for stmt in "\n".join(lines).split(";") if stmt.strip()]
+    text = "\n".join(line for line in sql.splitlines() if not line.strip().startswith("--"))
+    statements: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    i = 0
+    while i < len(text):
+        char = text[i]
+        current.append(char)
+        if quote:
+            if char == "\\" and quote != "`" and i + 1 < len(text):  # backslash escape inside '...' / "..."
+                current.append(text[i + 1])
+                i += 1
+            elif char == quote:
+                if i + 1 < len(text) and text[i + 1] == quote:  # doubled quote = literal quote
+                    current.append(text[i + 1])
+                    i += 1
+                else:
+                    quote = None
+        elif char in ("'", '"', "`"):
+            quote = char
+        elif char == ";":
+            current.pop()
+            statements.append("".join(current))
+            current = []
+        i += 1
+    statements.append("".join(current))
+    return [stmt.strip() for stmt in statements if stmt.strip()]
 
 
 def execute_raw(conn: Connection, statement: str) -> None:

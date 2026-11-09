@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phase 2
-**Last updated:** 2026-11-08 (amended by Part 1C: D25 currency; Part 1H: D78 cash-flow category, D81 FK declaration)
+**Last updated:** 2026-11-08 (amended by Part 1C: D25 currency; Part 1H: D78 cash-flow category, D81 FK declaration; Phase 2 step 2.4: D82, D83)
 **Builds on:** Part 1A (`phase1_part1a_business_and_entities.md`): decisions D1–D14, entity inventory §5, addenda A1/A2
 
 ---
@@ -96,7 +96,8 @@ Indexes on `updated_at` are added in Phase 2 for every table the loader reads in
 - PK `<entity>_id`. `SMALLINT UNSIGNED` for small reference tables that never grow much; `INT UNSIGNED` for medium ones; `BIGINT UNSIGNED` for anything that grows with the simulation (customers, products, addresses…). An FK column always has exactly the same type as the PK it references.
 - FKs whose name doesn't match the target table carry a role prefix: `base_unit_of_measure_id`, `revenue_account_id`, `manager_employee_id`.
 - Booleans are `BOOLEAN` (`TINYINT(1)`), `NOT NULL` with a default.
-- Status / type columns are `VARCHAR(30)` + `CHECK (col IN (...))`.
+- Status / type columns are `VARCHAR(30)` + an enumeration CHECK written `CHECK (REGEXP_LIKE(col, '^(A|B|C)$', 'c'))` (**D82**). A plain `col IN ('A','B')` also accepts `'a'` under the case-insensitive collation (proven in step 2.4); the anchored, case-sensitive pattern enforces both membership and upper case. Where this document says "CHECK lists", that's the form used.
+- **No CHECK may reference an AUTO_INCREMENT column** (MySQL error 3818, **D83**). The two self-reference rules that did (`employees`, `warehouses`) are enforced by validation instead (V-MD-05, V-MD-08).
 - Codes are upper-case, fixed patterns, `UNIQUE` (e.g. `CUST-000123`).
 
 ### 2.3 Reusable format checks (CHECK with `REGEXP_LIKE(col, pattern, 'c')`)
@@ -331,7 +332,7 @@ Staff who create, approve and handle documents, and who are paid salaries.
 | `termination_date` | `DATE` | | |
 | `employment_status` | `VARCHAR(30)` | ✓ | `ACTIVE` / `ON_LEAVE` / `TERMINATED` |
 
-- **Constraints:** CHECK status / level lists; CHECK `(employment_status = 'TERMINATED') = (termination_date IS NOT NULL)`; CHECK `termination_date >= hire_date`; CHECK `manager_employee_id <> employee_id`; CHECK `approval_limit >= 0 AND monthly_gross_salary > 0`.
+- **Constraints:** CHECK status / level lists; CHECK `(employment_status = 'TERMINATED') = (termination_date IS NOT NULL)`; CHECK `termination_date >= hire_date`; ~~CHECK `manager_employee_id <> employee_id`~~ → validation V-MD-05 (D83); CHECK `approval_limit >= 0 AND monthly_gross_salary > 0`.
 - **Indexes:** `(department_id, employment_status)`, `(warehouse_id)`, `(manager_employee_id)`.
 - **Relationships:** Self-hierarchy (D19). Referenced later as creator / approver / handler on almost every document, `marketing_campaigns.owner_employee_id`, `customers.sales_employee_id`, `accounting_periods.closed_by_employee_id`.
 - **Populated:** Faker names; the org structure is derived from config (per DC: 1 manager, 2–3 leads, 10–20 staff; per store 1 manager + 4–6 staff; central departments sized by volume preset). Inserted top-down by level. Salaries and approval limits come from bands per `job_level`. Over time: monthly attrition (~1–2%) with replacement hires, so documents must use employees active on the document date (V-MD-06).
@@ -362,7 +363,7 @@ Stock-holding locations: distribution centres and retail stores (A1 §8.2).
 | `warehouse_status` | `VARCHAR(30)` | ✓ | `ACTIVE` / `INACTIVE` |
 
 - **Keys:** Composite FK `(company_gst_registration_id, state_id)` → `company_gst_registrations (company_gst_registration_id, state_id)`. The database guarantees a warehouse can only be registered under the GSTIN of its own state.
-- **Constraints:** CHECK type / status lists; CHECK `(warehouse_type = 'RETAIL_STORE') = (replenishment_warehouse_id IS NOT NULL)`; CHECK `replenishment_warehouse_id <> warehouse_id`; CHECK `closed_date IS NULL OR closed_date >= opened_date`. The replenishing warehouse must be a DC (V-MD-08).
+- **Constraints:** CHECK type / status lists; CHECK `(warehouse_type = 'RETAIL_STORE') = (replenishment_warehouse_id IS NOT NULL)`; ~~CHECK `replenishment_warehouse_id <> warehouse_id`~~ → validation V-MD-08 (D83); CHECK `closed_date IS NULL OR closed_date >= opened_date`. The replenishing warehouse must be a DC (V-MD-08).
 - **Relationships:** N : 1 GST registration; 1 : N `warehouse_locations`, `employees`; 0..1 `bank_accounts` (petty cash); 1 : 1 `cost_centers`. Later: inventory, transfers, shipments, GRNs.
 - **Populated:** Setup (DC cities, store count). Stores are placed in DC cities by default (no new GSTIN). DCs are inserted before stores. Static.
 
