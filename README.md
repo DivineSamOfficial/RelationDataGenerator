@@ -38,6 +38,14 @@ Python 3.11+, MySQL 8.0.16+, DuckDB, SQLAlchemy/PyMySQL, Faker, YAML config, Typ
    scmgen db check --as app        # also: --as reader, --as anomaly
    ```
    `db init` creates `scm_app` (all work, schemas `scm_*`), `scm_reader` (read-only) and `scm_anomaly` (read-only on clean `*_oltp` schemas, write on `*_sim`). Their passwords are generated and saved to `.env`. Re-running re-applies those passwords and grants.
+6. **Create a workspace** (one per fictional company):
+   ```bash
+   scmgen workspace create --code kaveri --company "Kaveri Nexus Distribution Pvt. Ltd." --industries electronics,home_kitchen --seed 42
+   scmgen workspace list
+   scmgen workspace show -w kaveri
+   scmgen workspace delete -w kaveri            # asks you to type the code; --purge frees the code for reuse
+   ```
+   `create` builds `scm_<code>_oltp` with all 92 tables (empty until data generation, Phase 3) and an empty `scm_<code>_sim`.
 
 ## Tests
 

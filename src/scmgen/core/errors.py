@@ -16,3 +16,7 @@ class DatabaseConnectionError(ScmgenError):
 
 class ServerRequirementError(ScmgenError):
     """The MySQL server fails a blocking requirement (version, strict mode, ...)."""
+
+
+class WorkspaceError(ScmgenError):
+    """A workspace operation can't proceed (invalid code, already exists, busy, not found, ...)."""

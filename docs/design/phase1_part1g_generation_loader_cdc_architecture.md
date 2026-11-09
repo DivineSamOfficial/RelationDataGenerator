@@ -127,6 +127,14 @@ Because history comes from the same daily engine as Continue, there's no differe
 - **Continue:** allowed only if status is READY and the last run passed validation (D76).
 - **Rebuild:** requires typed confirmation of the workspace code. Steps: set status REBUILDING → drop both schemas → recreate → new `build_id` → historical run. The DuckDB replica detects the new build id and full-reloads (A2).
 - **Delete workspace:** drops the schemas, removes the DuckDB files, marks the registry row ARCHIVED. Same confirmation as Rebuild.
+- **Implementation details (Phase 2 step 2.5):**
+  - `workspace delete --purge` also removes the registry row so the code can be reused. Without it the ARCHIVED row stays as history and the code stays taken.
+  - Codes `control`, `test`, `sys` and `mysql` are reserved.
+  - `create` refuses an existing *unregistered* schema with the same name instead of overwriting it.
+  - MySQL DDL can't be rolled back, so a failed `create` drops whatever it built and removes the registry row: no half-built workspace remains.
+  - Each workspace's `config_snapshot` records the DDL file list and a SHA-256 of their contents, so later schema changes show which workspaces are on an older version.
+  - Create and delete hold the MySQL named lock `scmgen:workspace:<code>` (§2.4).
+  - In Phase 2 `create` builds empty schemas (status READY, no runs). The historical run is added in Phase 3.
 - **Privileges (D8, D73):**
   - `scm_app` has all privileges on `scm\_%` (including `scm_control`).
   - `scm_anomaly` has `SELECT` on `scm\_%\_oltp` and full privileges on `scm\_%\_sim` only.

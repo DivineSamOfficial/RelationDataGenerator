@@ -17,10 +17,13 @@ from scmgen.core.settings import ALL_ROLES, DEFAULT_ENV_FILE, Settings, load_set
 from scmgen.db.bootstrap import init_database
 from scmgen.db.connection import create_mysql_engine, verify_connection
 from scmgen.db.server_check import evaluate_server, fetch_server_info
+from scmgen.db.workspaces import WorkspaceInfo, create_workspace, delete_workspace, get_workspace, list_workspaces
 
 app = typer.Typer(help="Synthetic supply-chain OLTP generator.", no_args_is_help=True)
 db_app = typer.Typer(help="MySQL server and schema commands.", no_args_is_help=True)
+workspace_app = typer.Typer(help="Create, list, inspect and delete company workspaces.", no_args_is_help=True)
 app.add_typer(db_app, name="db")
+app.add_typer(workspace_app, name="workspace")
 
 log = logging.getLogger("scmgen.cli")
 
@@ -100,6 +103,98 @@ def db_init() -> None:
     # Each action was already printed by the console log handler as it happened.
     typer.secho(f"Database initialised ({len(report.actions)} actions).", fg=typer.colors.GREEN)
     typer.echo("Verify with: scmgen db check --as app")
+
+
+# --- workspace commands -----------------------------------------------------------------------
+
+def _fail(exc: ScmgenError, event: str) -> None:
+    log.error(str(exc), extra={"event": event})
+    typer.secho(str(exc), fg=typer.colors.RED, err=True)
+    raise typer.Exit(2) from exc
+
+
+def _schema_health(tables: int | None) -> str:
+    return "missing" if tables is None else f"{tables} tables"
+
+
+@workspace_app.command("create")
+def workspace_create(
+    code: Annotated[str, typer.Option("--code", help="Short workspace code, e.g. 'kaveri' (2-10 lower-case letters/digits).")],
+    company: Annotated[str, typer.Option("--company", help="Fictional company name.")],
+    industries: Annotated[str, typer.Option("--industries", help="Comma-separated industry packs, e.g. 'beauty,electronics'.")],
+    seed: Annotated[int | None, typer.Option("--seed", help="Base random seed (default: random, recorded).")] = None,
+) -> None:
+    """Register a workspace and build its MySQL schemas (empty until data generation in Phase 3)."""
+    settings = _bootstrap()
+    try:
+        info = create_workspace(settings, code, company, industries.split(","), base_seed=seed)
+    except ScmgenError as exc:
+        _fail(exc, "workspace.create.error")
+    typer.secho(f"Workspace '{info.code}' is {info.status}.", fg=typer.colors.GREEN)
+    typer.echo(f"  clean schema       {info.oltp_schema}  ({_schema_health(info.oltp_tables)})")
+    typer.echo(f"  simulation schema  {info.sim_schema}  ({_schema_health(info.sim_tables)}, filled in Phase 7)")
+    typer.echo(f"  base seed          {info.base_seed}")
+    typer.echo(f"  build id           {info.build_id}")
+
+
+@workspace_app.command("list")
+def workspace_list() -> None:
+    """List registered workspaces with a live schema health check."""
+    settings = _bootstrap()
+    try:
+        workspaces = list_workspaces(settings)
+    except ScmgenError as exc:
+        _fail(exc, "workspace.list.error")
+    if not workspaces:
+        typer.echo("No workspaces yet. Create one with: scmgen workspace create --code ... --company ... --industries ...")
+        return
+    typer.echo(f"{'CODE':<11}{'STATUS':<17}{'COMPANY':<34}{'CLEAN SCHEMA':<26}TABLES")
+    for ws in workspaces:
+        typer.echo(f"{ws.code:<11}{ws.status:<17}{ws.company_name[:32]:<34}{ws.oltp_schema:<26}{_schema_health(ws.oltp_tables)}")
+
+
+@workspace_app.command("show")
+def workspace_show(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+) -> None:
+    """Show one workspace in detail."""
+    settings = _bootstrap()
+    try:
+        ws: WorkspaceInfo = get_workspace(settings, code)
+    except ScmgenError as exc:
+        _fail(exc, "workspace.show.error")
+    for label, value in [
+        ("code", ws.code), ("company", ws.company_name), ("industries", ", ".join(ws.industries)),
+        ("status", ws.status), ("clean schema", f"{ws.oltp_schema} ({_schema_health(ws.oltp_tables)})"),
+        ("simulation schema", f"{ws.sim_schema} ({_schema_health(ws.sim_tables)})"),
+        ("duckdb file", ws.duckdb_path), ("base seed", ws.base_seed), ("build id", ws.build_id),
+        ("created", ws.created_at), ("data up to", ws.last_committed_through or "no data generated yet"),
+    ]:
+        typer.echo(f"  {label:<18}{value}")
+
+
+@workspace_app.command("delete")
+def workspace_delete(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+    purge: Annotated[bool, typer.Option("--purge", help="Also remove the registry entry so the code can be reused.")] = False,
+    yes: Annotated[bool, typer.Option("--yes", help="Skip the confirmation prompt (scripts / tests).")] = False,
+) -> None:
+    """Drop a workspace's schemas and DuckDB files. Irreversible."""
+    settings = _bootstrap()
+    if not yes:
+        typer.secho(
+            f"This permanently drops all data of workspace '{code}' (MySQL schemas and DuckDB files).",
+            fg=typer.colors.YELLOW,
+        )
+        typed = typer.prompt("Type the workspace code to confirm")
+        if typed.strip() != code:
+            typer.secho("Confirmation did not match. Nothing was deleted.", fg=typer.colors.RED, err=True)
+            raise typer.Exit(1)
+    try:
+        outcome = delete_workspace(settings, code, purge=purge)
+    except ScmgenError as exc:
+        _fail(exc, "workspace.delete.error")
+    typer.secho(f"Workspace '{code}' deleted ({outcome}).", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":  # pragma: no cover
