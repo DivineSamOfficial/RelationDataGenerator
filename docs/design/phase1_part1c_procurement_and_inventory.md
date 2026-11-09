@@ -486,6 +486,11 @@ Notation for one `inventory` row (warehouse W × product P): `Q` = on-hand quant
 
 Reservations are **not** movements. They change `inventory.qty_reserved` only (§5 `inventory_reservations`).
 
+**Implementation notes (Phase 2 step 2.4, batch 3):**
+- *Deferred foreign keys.* Ledger source columns pointing at sales, returns and system tables (`shipment_line_item_id`, `invoice_line_item_id`, `sales_return_line_item_id`, `return_inspection_id`, `defective_stock_id`, `generation_run_id`) and `inventory_reservations.order_line_item_id` are created here. Their FK constraints are added by the later DDL batch that creates each target table (`ALTER TABLE … ADD CONSTRAINT`). A structural test lists exactly these pending links and fails if any `…_id` column lacks an FK otherwise. The list must be empty when step 2.4 ends.
+- *`inventory_batches` ↔ `stock_adjustment_line_items`.* An opening-stock batch is created from an adjustment line, and later adjustment lines can reference a batch. Both FKs are nullable, so rows are always inserted in order (line, then batch) and there's no two-pass insert. That's the problem D19 exists to avoid, so this two-way link is acceptable.
+- *Reversals (D33).* The type ↔ source and type ↔ stock-status rules apply to every row. The sign rules (receipts positive, issues negative) apply only when `reversal_of_inventory_transaction_id` is NULL, because a reversal carries the opposite sign.
+
 #### `inventory`
 Current balance and policy per warehouse × product (D26).
 

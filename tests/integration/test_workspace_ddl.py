@@ -36,7 +36,23 @@ PART_1C_PROCUREMENT_TABLES = {
     "goods_receipts", "goods_receipt_line_items", "goods_inspections",
     "supplier_invoices", "supplier_invoice_line_items", "supplier_payments",
 }
-EXPECTED_TABLES = PART_1B_TABLES | PART_1C_PROCUREMENT_TABLES
+PART_1C_INVENTORY_TABLES = {
+    "inventory", "inventory_batches", "inventory_reservations", "stock_adjustments",
+    "stock_adjustment_line_items", "stock_transfers", "stock_transfer_line_items", "inventory_transactions",
+}
+EXPECTED_TABLES = PART_1B_TABLES | PART_1C_PROCUREMENT_TABLES | PART_1C_INVENTORY_TABLES
+
+# *_id columns whose FK target table arrives in a later batch (added there by ALTER TABLE).
+# Each later batch removes its entries; after the last batch this set must be empty.
+DEFERRED_FOREIGN_KEYS = {
+    ("inventory_reservations", "order_line_item_id"),
+    ("inventory_transactions", "shipment_line_item_id"),
+    ("inventory_transactions", "invoice_line_item_id"),
+    ("inventory_transactions", "sales_return_line_item_id"),
+    ("inventory_transactions", "return_inspection_id"),
+    ("inventory_transactions", "defective_stock_id"),
+    ("inventory_transactions", "generation_run_id"),
+}
 
 SOFT_DELETE_TABLES = {
     "employees", "warehouse_locations", "customers", "customer_addresses", "suppliers",
@@ -120,6 +136,18 @@ def test_foreign_keys_are_restrict_and_named(conn) -> None:
     for table, name, update_rule, delete_rule in rows:
         assert name.startswith(f"fk_{table}_"), name
         assert {update_rule, delete_rule} <= {"NO ACTION", "RESTRICT"}, (name, update_rule, delete_rule)
+
+
+def test_every_id_column_has_a_foreign_key_unless_deferred(conn) -> None:
+    """Every non-PK *_id column references another table, apart from the explicit deferred list."""
+    id_columns = {(t, c) for t, c in _rows(conn, f"""
+        SELECT c.table_name, c.column_name FROM information_schema.columns c
+        WHERE c.table_schema = '{SCHEMA}' AND c.column_name LIKE '%\\_id'
+          AND c.column_key <> 'PRI'""")}
+    fk_columns = {(t, c) for t, c in _rows(conn, f"""
+        SELECT table_name, column_name FROM information_schema.key_column_usage
+        WHERE table_schema = '{SCHEMA}' AND referenced_table_name IS NOT NULL""")}
+    assert id_columns - fk_columns == DEFERRED_FOREIGN_KEYS
 
 
 def test_indexes_follow_naming_convention(conn) -> None:
