@@ -112,6 +112,7 @@ Priorities: correct architecture, relational integrity, realistic business proce
 | D81 | FKs declared without ON DELETE/UPDATE clauses (InnoDB NO ACTION = RESTRICT); avoids MySQL's CHECK/FK-action conflict |
 | D82 | Enumeration CHECKs written `REGEXP_LIKE(col, '^(A\|B)$', 'c')` (IN lists are case-insensitive under our collation) |
 | D83 | No CHECK on AUTO_INCREMENT columns (MySQL 3818); self-reference "not itself" rules go to validation |
+| D84 | Line-amount formulas (taxable, CGST/SGST/IGST, line total) and header totals are CHECK constraints; generator must use `Decimal` ROUND_HALF_UP (matches MySQL ROUND exactly, test A10) |
 
 ## Database standards
 
@@ -121,6 +122,7 @@ Priorities: correct architecture, relational integrity, realistic business proce
 - Money `DECIMAL(18,2)`, unit prices/costs `DECIMAL(18,4)`, quantities `DECIMAL(18,3)`, rates `DECIMAL(7,4)`. Never FLOAT for money.
 - Status columns `VARCHAR(30)` + enumeration `CHECK (REGEXP_LIKE(col, '^(A|B)$', 'c'))` (D82), never a plain IN list.
 - Format CHECKs use `REGEXP_LIKE(col, pattern, 'c')`, never plain `REGEXP` (case-insensitive under our collation; proven in step 2.3).
+- CHECK bodies must be boolean expressions: no `IF(...)` (MySQL 3812); write `(a AND x) OR (NOT a AND y)`.
 - MySQL silently rounds excess DECIMAL digits: the engine must quantize every amount itself (Python `Decimal`, half-up) before insert.
 - Any SQL containing `%` runs through `scmgen.db.sql_files.execute_raw` (PyMySQL %-formats statements otherwise).
 - `created_at`, `updated_at` `DATETIME(6)` on every table; `deleted_at` on soft-deletable master data.

@@ -8,13 +8,15 @@ A1 CHECK enforced                      A5 FK without action clause = RESTRICT, c
 A2 REGEXP in CHECK (case-sensitive)     A6 date arithmetic / boolean sums in CHECK
 A3 generated columns: UNIQUE + CHECK    A7 explicit values in AUTO_INCREMENT keys
 A4 partly-NULL composite FK not checked E1–E4 strictness facts the generator must respect
+A10 MySQL ROUND arithmetic = Python Decimal ROUND_HALF_UP for the tax formulas (D84)
 
 Runs as scm_app in the throwaway schema scm_assume_oltp (dropped afterwards).
 """
 
 from __future__ import annotations
 
-from decimal import Decimal
+import random
+from decimal import ROUND_HALF_UP, Decimal
 
 import pymysql
 import pytest
@@ -286,3 +288,44 @@ def test_e3_datetime6_keeps_microseconds(conn) -> None:
 def test_e4_json_columns_reject_invalid_json(conn) -> None:
     run(conn, "CREATE TABLE t (j JSON)", "INSERT INTO t VALUES ('[\"beauty\"]')")
     expect_error(conn, "INSERT INTO t VALUES ('not json')", INVALID_JSON)
+
+
+# --- A10: line-amount CHECK formulas agree with Python Decimal (D84) -----------------------
+
+def _python_amounts(qty: Decimal, price: Decimal, disc: Decimal, rate: Decimal) -> tuple[Decimal, Decimal, Decimal]:
+    """Exactly how the generator computes a taxable line (1C §2.3)."""
+    cent = Decimal("0.01")
+    taxable = (qty * price * (1 - disc / 100)).quantize(cent, ROUND_HALF_UP)
+    half = (taxable * rate / 200).quantize(cent, ROUND_HALF_UP)   # CGST = SGST
+    full = (taxable * rate / 100).quantize(cent, ROUND_HALF_UP)   # IGST
+    return taxable, half, full
+
+
+def test_a10_check_formulas_match_python_decimal(conn) -> None:
+    """The DDL enforces the tax formulas as CHECKs, so the generator's Decimal arithmetic must
+    produce exactly what MySQL computes, for every quantity / price / discount / GST slab."""
+    rng = random.Random(20261110)
+    slabs = ["0", "0.25", "3", "5", "12", "18", "28", "40"]
+    cases = []
+    for _ in range(1500):
+        qty = Decimal(rng.randint(1, 500_000)) / 1000                    # 3 decimals
+        price = Decimal(rng.randint(1, 50_000_000)) / 10000               # 4 decimals
+        disc = Decimal(rng.choice([0, 0, rng.randint(1, 900_000)])) / 10000
+        cases.append((qty, price, disc, Decimal(rng.choice(slabs))))
+
+    cursor = conn.connection.cursor()
+    try:
+        mismatches = []
+        for qty, price, disc, rate in cases:
+            cursor.execute(
+                "SELECT t, ROUND(t * r / 200, 2), ROUND(t * r / 100, 2) FROM ("
+                " SELECT ROUND(CAST(%s AS DECIMAL(18,3)) * CAST(%s AS DECIMAL(18,4))"
+                "        * (1 - CAST(%s AS DECIMAL(7,4)) / 100), 2) AS t,"
+                "        CAST(%s AS DECIMAL(7,4)) AS r) x",
+                (str(qty), str(price), str(disc), str(rate)),
+            )
+            if tuple(cursor.fetchone()) != _python_amounts(qty, price, disc, rate):
+                mismatches.append((qty, price, disc, rate))
+    finally:
+        cursor.close()
+    assert mismatches == []

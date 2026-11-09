@@ -29,7 +29,14 @@ PART_1B_TABLES = {
     "marketing_campaigns", "account_types", "chart_of_accounts", "accounting_periods", "cost_centers",
     "tax_accounts",
 }
-EXPECTED_TABLES = PART_1B_TABLES
+PART_1C_PROCUREMENT_TABLES = {
+    "rfq_headers", "rfq_line_items", "rfq_suppliers", "rfq_status_history",
+    "quotation_headers", "quotation_line_items", "quotation_status_history",
+    "purchase_order_headers", "purchase_order_line_items", "purchase_order_status_history",
+    "goods_receipts", "goods_receipt_line_items", "goods_inspections",
+    "supplier_invoices", "supplier_invoice_line_items", "supplier_payments",
+}
+EXPECTED_TABLES = PART_1B_TABLES | PART_1C_PROCUREMENT_TABLES
 
 SOFT_DELETE_TABLES = {
     "employees", "warehouse_locations", "customers", "customer_addresses", "suppliers",
@@ -52,9 +59,11 @@ def conn():
     with engine.connect() as connection:
         execute_raw(connection, f"DROP DATABASE IF EXISTS `{SCHEMA}`")
         execute_raw(connection, f"CREATE DATABASE `{SCHEMA}` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci")
-        apply_workspace_ddl(connection, SCHEMA)
-        yield connection
-        execute_raw(connection, f"DROP DATABASE IF EXISTS `{SCHEMA}`")
+        try:
+            apply_workspace_ddl(connection, SCHEMA)
+            yield connection
+        finally:  # drop even when the DDL itself fails, so no test schema is left behind
+            execute_raw(connection, f"DROP DATABASE IF EXISTS `{SCHEMA}`")
     engine.dispose()
 
 

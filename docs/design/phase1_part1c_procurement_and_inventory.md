@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phase 2
-**Last updated:** 2026-11-08 (amended by Part 1D: D38 tax document numbers, D41 RTO movement, ledger volume; Part 1H: D80 composite FKs)
+**Last updated:** 2026-11-08 (amended by Part 1D: D38 tax document numbers, D41 RTO movement, ledger volume; Part 1H: D80 composite FKs; Phase 2 step 2.4: D84 formula CHECKs, PO cancellation fix, zero-rate unregistered suppliers)
 **Builds on:** Part 1A (entities, D1–D14), Part 1B (master data, D15–D24, conventions §2)
 
 ---
@@ -130,6 +130,8 @@ Every taxable document line follows one pattern, so tax logic and tests can be r
 | `line_total` | `DECIMAL(18,2)` | `taxable + cgst + sgst + igst` |
 
 - **Constraints on every such line:** CHECK `(cgst_amount = 0 AND sgst_amount = 0) OR igst_amount = 0`; CHECK `cgst_amount = sgst_amount`; CHECK `line_total = taxable_amount + cgst_amount + sgst_amount + igst_amount`; CHECK all amounts `>= 0`; CHECK `discount_percent BETWEEN 0 AND 100`.
+- **D84 (Phase 2 step 2.4): the formulas themselves are CHECK constraints.** Every taxable line also carries `CHECK (taxable_amount = ROUND(qty * unit_price * (1 - discount_percent / 100), 2))` and `CHECK ((igst_amount = 0 AND cgst_amount = ROUND(taxable_amount * gst_rate / 200, 2) AND sgst_amount = cgst_amount) OR (cgst_amount = 0 AND sgst_amount = 0 AND igst_amount = ROUND(taxable_amount * gst_rate / 100, 2)))`, so a mis-calculated line can't be stored. Headers additionally CHECK `total_amount = ROUND(total_amount, 0)` and that the tax heads used match `is_inter_state`. This is safe because MySQL's `ROUND` and Python's `Decimal` `ROUND_HALF_UP` agree exactly on these expressions (proven on 2,000 random lines; permanent test A10). Header = Σ lines stays a validation (V-PR-01): it spans rows.
+- **Unregistered and composition suppliers charge no GST**, so their quotation, PO and invoice lines carry `gst_rate = 0` (consistent with the CHECK above and with "all tax amounts are 0" in §3).
 - **Headers carry** `taxable_amount`, `cgst_amount`, `sgst_amount`, `igst_amount`, `round_off_amount` (`DECIMAL(18,2)`, between −0.50 and +0.50) and `total_amount`. Each total equals the sum of its lines; the header total = sum of line totals + round-off, rounded to the whole rupee (V-PR-01).
 - Whether a document is intra- or inter-state is stored once on the header as `is_inter_state` (a snapshot, because the supplier's address can change later).
 
@@ -279,7 +281,7 @@ Standard structure (§2.2), FK `quotation_id`.
 | `cancellation_reason` | `VARCHAR(255)` | | Also used for short-close reason |
 
 - **Keys:** UNIQUE `(purchase_order_id, supplier_id)`, the target of the composite FK from `supplier_invoices` (D80). UNIQUE `(quotation_id)`: one PO per awarded quotation (MySQL allows many NULLs, so direct reorders are unaffected). UNIQUE `(purchase_order_id, delivery_warehouse_id)`, the target of the composite FK from `goods_receipts`.
-- **Constraints:** CHECK `(po_source = 'RFQ_AWARD') = (quotation_id IS NOT NULL)`; CHECK `(approved_by_employee_id IS NULL) = (approved_at IS NULL)`; CHECK `po_status IN ('DRAFT','PENDING_APPROVAL') OR approved_at IS NOT NULL` (anything past approval has been approved); CHECK `(po_status IN ('CANCELLED','SHORT_CLOSED')) = (cancellation_reason IS NOT NULL)`; CHECK `expected_delivery_date >= po_date`.
+- **Constraints:** CHECK `(po_source = 'RFQ_AWARD') = (quotation_id IS NOT NULL)`; CHECK `(approved_by_employee_id IS NULL) = (approved_at IS NULL)`; CHECK `po_status IN ('DRAFT','PENDING_APPROVAL','CANCELLED') OR approved_at IS NOT NULL` (CANCELLED added in step 2.4: a PO cancelled before approval has no approval) (anything past approval has been approved); CHECK `(po_status IN ('CANCELLED','SHORT_CLOSED')) = (cancellation_reason IS NOT NULL)`; CHECK `expected_delivery_date >= po_date`.
 - **Statuses and transitions:** `DRAFT` → `PENDING_APPROVAL` → `APPROVED` → `SENT` → `PARTIALLY_RECEIVED` → `RECEIVED` → `CLOSED` (fully received and invoiced). `DRAFT`/`PENDING_APPROVAL`/`APPROVED`/`SENT` → `CANCELLED` (before any receipt). `PARTIALLY_RECEIVED` → `SHORT_CLOSED` (supplier can't deliver the rest; that quantity is cancelled), then → `CLOSED` once invoicing is complete.
 - **Rules:** The PO supplier equals the quotation's supplier (V-PR-07). The supplier address belongs to the supplier and was valid on `po_date`. The approver was active on the approval date.
 - **Indexes:** `(supplier_id, po_date)`, `(po_status, expected_delivery_date)`, `(quotation_id)`.
