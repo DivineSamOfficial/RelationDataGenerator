@@ -61,6 +61,8 @@ class DayContext:
         return self.conn.execute(text(sql), params or {}).rowcount
 
     def rows(self, sql: str, **params: Any) -> list[dict[str, Any]]:
+        """Query after flushing the buffered rows, so a step sees what earlier steps did today."""
+        self.writer.flush(self.conn)
         return [dict(r) for r in self.conn.execute(text(sql), params).mappings()]
 
 

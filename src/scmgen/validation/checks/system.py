@@ -22,6 +22,7 @@ TAX_SERIES = frozenset({"TAX_INVOICE", "CREDIT_NOTE", "TRANSFER_INVOICE"})
 NUMBERED_COLUMNS = (
     ("RFQ", "rfq_headers", "rfq_number"), ("QTN", "quotation_headers", "quotation_number"),
     ("PO", "purchase_order_headers", "po_number"), ("GRN", "goods_receipts", "grn_number"),
+    ("PINV", "supplier_invoices", "internal_reference"),
     ("SPAY", "supplier_payments", "payment_number"), ("ADJ", "stock_adjustments", "adjustment_number"),
     ("STO", "stock_transfers", "transfer_number"), ("TRANSFER_INVOICE", "stock_transfers", "tax_invoice_number"),
     ("SO", "orders", "order_number"), ("RCPT", "customer_payments", "payment_number"),

@@ -85,7 +85,7 @@ def test_master_data_is_generated_on_day_zero_and_validates(settings, workspaces
     assert rows["product_brands"] == 23 and rows["supplier_products"] >= 2 * 400
     statuses = {r.rule_id: r.status for r in result.report.results}
     # Every master-data rule is checked on real rows now; only V-MD-06 (document approvers) waits for 3.7.
-    assert {rid: st for rid, st in statuses.items() if rid.startswith("V-MD") and st != "PASSED"} == {"V-MD-06": "PENDING"}
+    assert {rid: st for rid, st in statuses.items() if rid.startswith("V-MD") and st != "PASSED"} == {}
     ws = get_workspace(settings, code)
     assert ws.status == "READY" and str(ws.last_committed_through) == "2026-03-31 23:59:59.999999"
     engine = create_mysql_engine(settings, role="app", database=ws.oltp_schema)

@@ -59,6 +59,9 @@ _DAILY_KEYS = {"weekly_off", "national_holidays", "period_close_day", "progress_
                "discontinued_per_year", "campaign_lead_days"}
 _OPENING_KEYS = {"share_capital", "bank_balances", "cash_credit_drawn", "petty_cash", "fixed_assets",
                  "accumulated_depreciation_share", "store_assortment_share"}
+_PROCUREMENT_KEYS = {"direct_reorder_max_value", "rfq_max_lines", "rfq_suppliers", "rfq_response_days", "response_mix",
+                     "quote_price_factor", "quote_lead_factor", "quote_validity_days", "evaluation_days",
+                     "award_price_ceiling", "score_weights", "approval_days", "po_cancel_share"}
 B2B_SEGMENTS = ("RETAILER", "WHOLESALER", "CORPORATE", "INSTITUTION", "WORKSHOP")
 _ORG_KEYS = {"job_levels", "warehouse_staff_share", "departments", "warehouse_titles", "chief_executive"}
 JOB_LEVELS = ("EXECUTIVE", "HEAD", "MANAGER", "LEAD", "STAFF")
@@ -137,6 +140,23 @@ class OpeningBalances:
 
 
 @dataclass(frozen=True)
+class ProcurementSettings:
+    direct_reorder_max_value: int
+    rfq_max_lines: int
+    rfq_suppliers: tuple[int, int]
+    rfq_response_days: tuple[int, int]
+    response_mix: dict[str, float]
+    quote_price_factor: tuple[float, float]
+    quote_lead_factor: tuple[float, float]
+    quote_validity_days: tuple[int, int]
+    evaluation_days: tuple[int, int]
+    award_price_ceiling: float
+    score_weights: dict[str, float]
+    approval_days: tuple[int, int]
+    po_cancel_share: float
+
+
+@dataclass(frozen=True)
 class Organisation:
     job_levels: dict[str, JobLevel]
     warehouse_staff_share: float
@@ -160,6 +180,7 @@ class GenerationConfig:
     master_data: MasterDataSettings | None = None
     daily: DailySettings | None = None
     opening_balances: OpeningBalances | None = None
+    procurement: ProcurementSettings | None = None
 
     @property
     def days(self) -> int:
@@ -260,8 +281,8 @@ def load_generation_config(
     ``today`` exists for tests; it defaults to the real date in IST.
     """
     raw = _read(config_dir / GENERATION_FILE)
-    _reject_unknown(raw, {"defaults", "presets", "setup", "organisation", "master_data", "daily", "opening_balances"},
-                    GENERATION_FILE)
+    _reject_unknown(raw, {"defaults", "presets", "setup", "organisation", "master_data", "daily", "opening_balances",
+                          "procurement"}, GENERATION_FILE)
     defaults, presets = raw.get("defaults"), raw.get("presets")
     if not isinstance(defaults, dict) or not isinstance(presets, dict) or not presets:
         raise ConfigError(f"{GENERATION_FILE} needs a 'defaults' mapping and at least one preset under 'presets'")
@@ -293,6 +314,7 @@ def load_generation_config(
         "master_data": copy.deepcopy(raw.get("master_data") or {}),
         "daily": copy.deepcopy(raw.get("daily") or {}),
         "opening_balances": copy.deepcopy(raw.get("opening_balances") or {}),
+        "procurement": copy.deepcopy(raw.get("procurement") or {}),
     }
     for dotted, value in (overrides or {}).items():
         _apply_override(effective, dotted, _parse_override_value(value) if isinstance(value, str) else value)
@@ -324,7 +346,9 @@ def load_generation_config(
     master_data = _parse_master_data(effective["master_data"])
     daily = _parse_daily(effective["daily"])
     opening = _parse_opening(effective["opening_balances"])
+    procurement = _parse_procurement(effective["procurement"])
     return GenerationConfig(
+        procurement=procurement,
         opening_balances=opening,
         daily=daily,
         master_data=master_data,
@@ -526,4 +550,39 @@ def _parse_opening(raw: dict[str, Any]) -> OpeningBalances:
         accumulated_depreciation_share=_share(raw["accumulated_depreciation_share"],
                                               "opening_balances.accumulated_depreciation_share", 0.95),
         store_assortment_share=_share(raw["store_assortment_share"], "opening_balances.store_assortment_share"),
+    )
+
+
+def _float_pair(value: Any, name: str, low: float, high: float) -> tuple[float, float]:
+    if not isinstance(value, list) or len(value) != 2 or any(isinstance(v, bool) or not isinstance(v, (int, float))
+                                                              for v in value):
+        raise ConfigError(f"{name} must be [min, max] numbers")
+    a, b = float(value[0]), float(value[1])
+    if not low <= a <= b <= high:
+        raise ConfigError(f"{name} must satisfy {low} <= min <= max <= {high}, got {value}")
+    return a, b
+
+
+def _parse_procurement(raw: dict[str, Any]) -> ProcurementSettings:
+    _reject_unknown(raw, _PROCUREMENT_KEYS, "procurement")
+    missing = sorted(_PROCUREMENT_KEYS - set(raw))
+    if missing:
+        raise ConfigError(f"procurement is missing: {', '.join(missing)}")
+    weights = _mix(raw["score_weights"], "procurement.score_weights", ("price", "lead_time", "rating"))
+    ceiling = raw["award_price_ceiling"]
+    if isinstance(ceiling, bool) or not isinstance(ceiling, (int, float)) or not 1 <= ceiling <= 3:
+        raise ConfigError("procurement.award_price_ceiling must be between 1 and 3")
+    return ProcurementSettings(
+        direct_reorder_max_value=_int(raw["direct_reorder_max_value"], "procurement.direct_reorder_max_value", 0, 10**10),
+        rfq_max_lines=_int(raw["rfq_max_lines"], "procurement.rfq_max_lines", 1, 50),
+        rfq_suppliers=_pair(raw["rfq_suppliers"], "procurement.rfq_suppliers", 1, 20),
+        rfq_response_days=_pair(raw["rfq_response_days"], "procurement.rfq_response_days", 1, 60),
+        response_mix=_mix(raw["response_mix"], "procurement.response_mix", ("QUOTED", "DECLINED", "NO_RESPONSE")),
+        quote_price_factor=_float_pair(raw["quote_price_factor"], "procurement.quote_price_factor", 0.5, 2.0),
+        quote_lead_factor=_float_pair(raw["quote_lead_factor"], "procurement.quote_lead_factor", 0.1, 3.0),
+        quote_validity_days=_pair(raw["quote_validity_days"], "procurement.quote_validity_days", 1, 180),
+        evaluation_days=_pair(raw["evaluation_days"], "procurement.evaluation_days", 1, 30),
+        award_price_ceiling=float(ceiling), score_weights=weights,
+        approval_days=_pair(raw["approval_days"], "procurement.approval_days", 0, 30),
+        po_cancel_share=_share(raw["po_cancel_share"], "procurement.po_cancel_share", 0.5),
     )

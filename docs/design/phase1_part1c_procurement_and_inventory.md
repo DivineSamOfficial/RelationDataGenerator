@@ -282,7 +282,7 @@ Standard structure (§2.2), FK `quotation_id`.
 
 - **Keys:** UNIQUE `(purchase_order_id, supplier_id)`, the target of the composite FK from `supplier_invoices` (D80). UNIQUE `(quotation_id)`: one PO per awarded quotation (MySQL allows many NULLs, so direct reorders are unaffected). UNIQUE `(purchase_order_id, delivery_warehouse_id)`, the target of the composite FK from `goods_receipts`.
 - **Constraints:** CHECK `(po_source = 'RFQ_AWARD') = (quotation_id IS NOT NULL)`; CHECK `(approved_by_employee_id IS NULL) = (approved_at IS NULL)`; CHECK `po_status IN ('DRAFT','PENDING_APPROVAL','CANCELLED') OR approved_at IS NOT NULL` (CANCELLED added in step 2.4: a PO cancelled before approval has no approval) (anything past approval has been approved); CHECK `(po_status IN ('CANCELLED','SHORT_CLOSED')) = (cancellation_reason IS NOT NULL)`; CHECK `expected_delivery_date >= po_date`.
-- **Statuses and transitions:** `DRAFT` → `PENDING_APPROVAL` → `APPROVED` → `SENT` → `PARTIALLY_RECEIVED` → `RECEIVED` → `CLOSED` (fully received and invoiced). `DRAFT`/`PENDING_APPROVAL`/`APPROVED`/`SENT` → `CANCELLED` (before any receipt). `PARTIALLY_RECEIVED` → `SHORT_CLOSED` (supplier can't deliver the rest; that quantity is cancelled), then → `CLOSED` once invoicing is complete.
+- **Statuses and transitions:** `DRAFT` → `PENDING_APPROVAL` → `APPROVED` → `SENT` → `PARTIALLY_RECEIVED` → `RECEIVED` → `CLOSED` (fully received and invoiced). A single delivery of everything goes `SENT` → `RECEIVED` directly. `DRAFT`/`PENDING_APPROVAL`/`APPROVED`/`SENT` → `CANCELLED` (before any receipt). `PARTIALLY_RECEIVED` → `SHORT_CLOSED` (supplier can't deliver the rest; that quantity is cancelled), then → `CLOSED` once invoicing is complete.
 - **Rules:** The PO supplier equals the quotation's supplier (V-PR-07). The supplier address belongs to the supplier and was valid on `po_date`. The approver was active on the approval date.
 - **Indexes:** `(supplier_id, po_date)`, `(po_status, expected_delivery_date)`, `(quotation_id)`.
 - **Populated:** One PO per awarded quotation (RFQ path), or one per supplier per replenishment run (direct path: products whose preferred supplier was bought from in the last 180 days and whose order value is under a threshold). Scenario defaults: ~2% cancelled, ~4% short-closed.
@@ -782,7 +782,7 @@ The constraints above already catch most errors. These cross-table rules become 
 | V-PR-04 | Every QUOTED invitation has exactly one quotation; DECLINED/NO_RESPONSE have none |
 | V-PR-05 | Quotation status agrees with its awarded lines; the RFQ status agrees with its lines' award status |
 | V-PR-06 | Quotation lines reference RFQ lines of the same RFQ; quoted qty ≤ requested; quotation date within the response window |
-| V-PR-07 | RFQ_AWARD POs: supplier = quotation supplier, PO lines map 1:1 to awarded quotation lines with the same product, price and rate; PO date after the award |
+| V-PR-07 | RFQ_AWARD POs: supplier = quotation supplier, PO lines map 1:1 to awarded quotation lines with the same product and price; PO date on or after the award. The GST rate is the one in force on the PO date (V-PR-01), so a rate change after the quotation applies |
 | ★ V-PR-08 | PO line counters = Σ GRN lines (received), Σ inspections (accepted / rejected), Σ supplier invoice lines (invoiced) |
 | V-PR-09 | GRN date ≥ PO date and on or after the PO reached SENT; only APPROVED-and-later POs receive goods; PO status matches its line quantities |
 | V-PR-10 | GRN lines reference lines of the GRN's PO; locations are in the GRN warehouse |

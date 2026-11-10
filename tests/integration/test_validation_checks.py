@@ -36,7 +36,8 @@ SCHEMA = "scm_valtest_oltp"
 CATALOGUE = load_catalogue()
 # This file covers the master-data and system rules on the step 2.6 baseline; the accounting and inventory
 # rules are tested on generated data (test_validation_generated.py).
-IMPLEMENTED = sorted(r for r in framework.registered_checks() if r.startswith(("V-MD", "V-SY")))
+# V-MD-06 needs documents (employees on POs, journals ...): its pass and mutation live in test_procurement.
+IMPLEMENTED = sorted(r for r in framework.registered_checks() if r.startswith(("V-MD", "V-SY")) and r != "V-MD-06")
 
 
 def _clone(conn, table: str, pk: str, pk_value: int, **changes) -> int:
@@ -136,8 +137,8 @@ def test_consistent_master_data_passes_every_implemented_rule(db):
     results = {r.rule_id: r for r in report.results}
     failing = {r.rule_id: (r.status, r.message, r.sample[:2]) for r in report.results if r.status in ("FAILED", "ERROR")}
     assert failing == {}
-    assert {rid for rid, r in results.items() if r.status == "PASSED"} == set(IMPLEMENTED)
-    assert {rid for rid, r in results.items() if r.status == "PENDING"} == {"V-MD-06", "V-SY-04"}
+    assert {rid for rid, r in results.items() if r.status == "PASSED"} == set(IMPLEMENTED) | {"V-MD-06"}
+    assert {rid for rid, r in results.items() if r.status == "PENDING"} == {"V-SY-04"}
     assert report.passed
 
 

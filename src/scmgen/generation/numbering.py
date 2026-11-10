@@ -41,6 +41,7 @@ DOCUMENT_SERIES: dict[str, Series] = {
     "QTN": Series("standard", "QTN", 6),
     "PO": Series("standard", "PO", 6),
     "GRN": Series("standard", "GRN", 6),
+    "PINV": Series("standard", "PINV", 6),
     "SPAY": Series("standard", "SPAY", 6),
     "ADJ": Series("standard", "ADJ", 6),
     "STO": Series("standard", "STO", 6),

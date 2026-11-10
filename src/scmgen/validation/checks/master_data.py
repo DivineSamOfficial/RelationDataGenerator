@@ -1,7 +1,4 @@
-"""Master-data rules (1B §7, V-MD-*). Each check returns the violating rows; empty = the rule holds.
-
-Not implemented here yet: V-MD-06 (approvers on documents, step 3.7).
-"""
+"""Master-data rules (1B §7, V-MD-*). Each check returns the violating rows; empty = the rule holds."""
 
 from __future__ import annotations
 
@@ -368,3 +365,35 @@ def campaigns_on_campaign_channels(ctx: ValidationContext) -> Rows:
         JOIN employees e ON e.employee_id = m.owner_employee_id
         JOIN departments d ON d.department_id = e.department_id
         WHERE NOT c.supports_campaigns OR d.department_code <> 'MKT'""")
+
+
+# V-MD-06: (table, employee column, document date expression, approved amount or None). Each process step adds
+# its documents here; every ``<doc>_status_history.changed_by_employee_id`` is covered automatically.
+EMPLOYEE_REFERENCES = (
+    ("accounting_periods", "closed_by_employee_id", "DATE(closed_at)", None),
+    ("journal_entries", "created_by_employee_id", "document_date", None),
+    ("stock_adjustments", "created_by_employee_id", "adjustment_date", None),
+    ("rfq_headers", "created_by_employee_id", "rfq_date", None),
+    ("quotation_headers", "evaluated_by_employee_id", "evaluated_date", None),
+    ("purchase_order_headers", "created_by_employee_id", "po_date", None),
+    ("purchase_order_headers", "approved_by_employee_id", "DATE(approved_at)", "total_amount"),
+)
+
+
+@check("V-MD-06", requires_master_data=True)
+def document_employees_active_and_within_limit(ctx: ValidationContext) -> Rows:
+    """Every employee on a document was employed (hired, not yet left) on the document date, and an approver's
+    ``approval_limit`` covers the approved amount."""
+    references = list(EMPLOYEE_REFERENCES) + [
+        (table, "changed_by_employee_id", "DATE(changed_at)", None) for (table,) in ctx.conn.exec_driver_sql(
+            "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() "
+            "AND REGEXP_LIKE(TABLE_NAME, '_status_history$', 'c') ORDER BY TABLE_NAME")]
+    found: Rows = []
+    for table, column, on, amount in references:
+        found += [{**r, "table": table, "column": column} for r in ctx.rows(f"""
+            SELECT d.{column} AS employee_id, {on} AS document_date, e.hire_date, e.termination_date,
+                   {f"d.{amount}" if amount else "NULL"} AS amount, e.approval_limit
+            FROM {table} d JOIN employees e ON e.employee_id = d.{column}
+            WHERE {on} < e.hire_date OR (e.termination_date IS NOT NULL AND {on} > e.termination_date)
+               {f"OR d.{amount} > e.approval_limit" if amount else ""}""")]
+    return found
