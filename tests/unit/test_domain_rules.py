@@ -302,3 +302,12 @@ def test_account_book_lookups():
                  lambda: book.tax(1, "VAT", "OUTPUT"), lambda: AccountBook(roles={}).role("GRNI")):
         with pytest.raises(JournalError):
             call()
+
+
+def test_balance_with_adds_the_balancing_line_on_the_right_side():
+    credit_side = JournalBuilder("x").debit(1, D("100.00")).credit(2, D("60.00")).balance_with(3).build()
+    assert credit_side.lines[-1].credit_amount == D("40.00") and credit_side.total_debit == credit_side.total_credit
+    debit_side = JournalBuilder("y").debit(1, D("30.00")).credit(2, D("50.00")).balance_with(3).build()
+    assert debit_side.lines[-1].debit_amount == D("20.00")
+    already = JournalBuilder("z").debit(1, D("5.00")).credit(2, D("5.00")).balance_with(3).build()
+    assert len(already.lines) == 2                                   # nothing to balance: no zero line

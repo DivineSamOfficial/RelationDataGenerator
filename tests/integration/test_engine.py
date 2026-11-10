@@ -104,6 +104,19 @@ def test_history_runs_day_by_day_and_validates(settings, workspaces):
     # Electronics 28% → 18% (monitors, TVs, ACs); beauty 18% → 5% (shampoo, soap, toothpaste …), all on 22 Sep 2025.
     assert {(float(r[0]), r[1]) for r in revised} == {(18.0, date(2025, 9, 22)), (5.0, date(2025, 9, 22))}
     assert _query(settings, code, "SELECT COUNT(*) FROM product_tax_rates WHERE gst_rate = 28 AND effective_to IS NULL")[0][0] == 0
+    # Opening position on the first simulated day, once: P01 + one OPENING_STOCK adjustment (and journal) per warehouse.
+    opening = _query(settings, code, "SELECT journal_source, journal_type, COUNT(*), MIN(posting_date) FROM journal_entries "
+                                     "GROUP BY 1, 2 ORDER BY 1")
+    assert [(r[0], r[1], r[2]) for r in opening] == [("OPENING_BALANCE", "OPENING", 1), ("STOCK_ADJUSTMENT", "SYSTEM", 8)]
+    assert all(r[3] == date(2025, 8, 1) for r in opening)
+    adjustments = _query(settings, code, "SELECT COUNT(*), COUNT(DISTINCT warehouse_id), MIN(adjustment_type) "
+                                         "FROM stock_adjustments")[0]
+    assert adjustments == (8, 8, "OPENING_STOCK")
+    steps = dict(_query(settings, code, "SELECT step_name, step_status FROM generation_run_steps s JOIN generation_runs r "
+                                        "USING (generation_run_id) WHERE r.run_number = 2"))
+    assert steps["OPENING_BALANCES"] == "COMPLETED" and steps["DAILY_SIMULATION"] == "COMPLETED"
+    # Batch-tracked (beauty) opening stock carries batches that haven't expired on day one.
+    assert _query(settings, code, "SELECT COUNT(*) FROM inventory_batches WHERE expiry_date <= '2025-08-01'")[0][0] == 0
     # Campaigns move with the clock; the next ones are created 30 days ahead.
     statuses = dict(_query(settings, code, "SELECT campaign_status, COUNT(*) FROM marketing_campaigns GROUP BY 1"))
     assert statuses.get("COMPLETED", 0) > 0 and statuses.get("PLANNED", 0) > 0

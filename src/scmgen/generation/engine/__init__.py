@@ -117,15 +117,18 @@ def _run_days(settings: Settings, workspace, config: GenerationConfig, first: da
             run = RunRecorder.create(conn, build_id=workspace.build_id, run_mode=mode, triggered_by=triggered_by,
                                      base_seed=workspace.base_seed, config=config, sim_start=first, sim_end=last)
             run.start(conn)
-            for step in ("SCHEMA", "SEED_DATA", "MASTER_DATA", "OPENING_BALANCES"):
+            world = load_world(conn, config, seed, packs, code, workspace.company_name)
+            opening_due = world.first_day == first
+            for step in ("SCHEMA", "SEED_DATA", "MASTER_DATA") + (() if opening_due else ("OPENING_BALANCES",)):
                 run.step_skip(conn, step)
+            if opening_due:
+                run.step_start(conn, "OPENING_BALANCES", planned_units=1)
             run.step_start(conn, "DAILY_SIMULATION", planned_units=total_days)
             conn.commit()
             run_number = conn.execute(text("SELECT run_number FROM generation_runs WHERE generation_run_id = :r"),
                                       {"r": run.run_id}).scalar_one()
             set_workspace_status(settings, code, "GENERATING")
 
-            world = load_world(conn, config, seed, packs, code, workspace.company_name)
             ids = IdAllocator.from_database(conn, workspace.oltp_schema)
             writer = BatchWriter.for_schema(conn, workspace.oltp_schema, config.batch_size)
             numbers = DocumentNumbers(config.fiscal_year_start_month)
@@ -144,6 +147,10 @@ def _run_days(settings: Settings, workspace, config: GenerationConfig, first: da
                     writer.flush(conn)
                     numbers.flush(conn)
                     committed = run.day_committed(conn, current)
+                    if opening_due and done == 0:
+                        run.step_progress(conn, "OPENING_BALANCES", completed_units=1,
+                                          generated_rows=sum(writer.written.values()), current_sim_date=current)
+                        run.step_finish(conn, "OPENING_BALANCES")
                     done += 1
                     if done % config.daily.progress_every_days == 0 or current == last:
                         elapsed = max(time.perf_counter() - started, 1e-6)
@@ -158,6 +165,8 @@ def _run_days(settings: Settings, workspace, config: GenerationConfig, first: da
                     writer.discard()
                     numbers.discard()
                     run.step_finish(conn, "DAILY_SIMULATION", "FAILED")
+                    if opening_due and done == 0:
+                        run.step_finish(conn, "OPENING_BALANCES", "FAILED")
                     run.finish(conn, "FAILED", rows_written=sum(writer.written.values()),
                                error=f"{current}: {type(exc).__name__}: {exc}"[:2000])
                     conn.commit()

@@ -126,3 +126,15 @@ daily:
   new_products_per_year: 0.08      # launches per year as a share of the catalogue (1B: ~15% over the history)
   discontinued_per_year: 0.04      # 1B: 3-5% of products discontinued per year
   campaign_lead_days: 30           # campaigns are created this long before they start
+
+# Opening position on the first simulated day (1E P01, P02; D22, D34). Rupee amounts are for the Medium
+# preset and scale with the preset's product count. Fixed assets are named by account code (codes live in
+# YAML, never in Python, D16).
+opening_balances:
+  share_capital: 50000000
+  bank_balances: {COLLECTIONS: 6000000, PAYMENTS: 9000000}    # by bank account purpose
+  cash_credit_drawn: 15000000                                  # balance owed on the cash-credit facility
+  petty_cash: {DISTRIBUTION_CENTRE: 50000, RETAIL_STORE: 20000}
+  fixed_assets: {"15100": 18000000, "15200": 12000000}         # account code: original cost
+  accumulated_depreciation_share: 0.35                         # of fixed-asset cost, already depreciated
+  store_assortment_share: 0.40                                 # stores stock this share of consumer products

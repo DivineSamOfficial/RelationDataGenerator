@@ -102,6 +102,12 @@ class JournalBuilder:
                             "credit_amount": ZERO if is_debit else amount, **dimensions})
         return self
 
+    def balance_with(self, account_id: int, **dimensions: int | str | None) -> JournalBuilder:
+        """Add the line that balances the entry on ``account_id``, on whichever side it is needed
+        (e.g. Opening Balance Equity in P01, Rounding Off on invoices)."""
+        difference = total(l["debit_amount"] - l["credit_amount"] for l in self._lines)
+        return self.credit(account_id, difference, **dimensions)
+
     def build(self) -> Journal:
         if len(self._lines) < 2:
             raise JournalError(f"A journal needs at least two lines, got {len(self._lines)}: {self.description}")

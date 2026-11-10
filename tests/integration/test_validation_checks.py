@@ -34,7 +34,9 @@ pytestmark = pytest.mark.integration
 
 SCHEMA = "scm_valtest_oltp"
 CATALOGUE = load_catalogue()
-IMPLEMENTED = sorted(framework.registered_checks())
+# This file covers the master-data and system rules on the step 2.6 baseline; the accounting and inventory
+# rules are tested on generated data (test_validation_generated.py).
+IMPLEMENTED = sorted(r for r in framework.registered_checks() if r.startswith(("V-MD", "V-SY")))
 
 
 def _clone(conn, table: str, pk: str, pk_value: int, **changes) -> int:

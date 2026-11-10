@@ -57,6 +57,8 @@ _MASTER_SCHEMA = {
 WEEKDAYS = ("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY")
 _DAILY_KEYS = {"weekly_off", "national_holidays", "period_close_day", "progress_every_days", "new_products_per_year",
                "discontinued_per_year", "campaign_lead_days"}
+_OPENING_KEYS = {"share_capital", "bank_balances", "cash_credit_drawn", "petty_cash", "fixed_assets",
+                 "accumulated_depreciation_share", "store_assortment_share"}
 B2B_SEGMENTS = ("RETAILER", "WHOLESALER", "CORPORATE", "INSTITUTION", "WORKSHOP")
 _ORG_KEYS = {"job_levels", "warehouse_staff_share", "departments", "warehouse_titles", "chief_executive"}
 JOB_LEVELS = ("EXECUTIVE", "HEAD", "MANAGER", "LEAD", "STAFF")
@@ -124,6 +126,17 @@ class DailySettings:
 
 
 @dataclass(frozen=True)
+class OpeningBalances:
+    share_capital: int
+    bank_balances: dict[str, int]                 # by bank account purpose
+    cash_credit_drawn: int
+    petty_cash: dict[str, int]                    # by warehouse type
+    fixed_assets: dict[str, int]                  # account code → cost
+    accumulated_depreciation_share: float
+    store_assortment_share: float
+
+
+@dataclass(frozen=True)
 class Organisation:
     job_levels: dict[str, JobLevel]
     warehouse_staff_share: float
@@ -146,6 +159,7 @@ class GenerationConfig:
     organisation: Organisation | None = None
     master_data: MasterDataSettings | None = None
     daily: DailySettings | None = None
+    opening_balances: OpeningBalances | None = None
 
     @property
     def days(self) -> int:
@@ -246,7 +260,8 @@ def load_generation_config(
     ``today`` exists for tests; it defaults to the real date in IST.
     """
     raw = _read(config_dir / GENERATION_FILE)
-    _reject_unknown(raw, {"defaults", "presets", "setup", "organisation", "master_data", "daily"}, GENERATION_FILE)
+    _reject_unknown(raw, {"defaults", "presets", "setup", "organisation", "master_data", "daily", "opening_balances"},
+                    GENERATION_FILE)
     defaults, presets = raw.get("defaults"), raw.get("presets")
     if not isinstance(defaults, dict) or not isinstance(presets, dict) or not presets:
         raise ConfigError(f"{GENERATION_FILE} needs a 'defaults' mapping and at least one preset under 'presets'")
@@ -277,6 +292,7 @@ def load_generation_config(
         "organisation": copy.deepcopy(raw.get("organisation") or {}),
         "master_data": copy.deepcopy(raw.get("master_data") or {}),
         "daily": copy.deepcopy(raw.get("daily") or {}),
+        "opening_balances": copy.deepcopy(raw.get("opening_balances") or {}),
     }
     for dotted, value in (overrides or {}).items():
         _apply_override(effective, dotted, _parse_override_value(value) if isinstance(value, str) else value)
@@ -307,7 +323,9 @@ def load_generation_config(
     organisation = _parse_organisation(effective["organisation"])
     master_data = _parse_master_data(effective["master_data"])
     daily = _parse_daily(effective["daily"])
+    opening = _parse_opening(effective["opening_balances"])
     return GenerationConfig(
+        opening_balances=opening,
         daily=daily,
         master_data=master_data,
         setup=setup,
@@ -479,4 +497,33 @@ def _parse_daily(raw: dict[str, Any]) -> DailySettings:
         new_products_per_year=_share(raw["new_products_per_year"], "daily.new_products_per_year"),
         discontinued_per_year=_share(raw["discontinued_per_year"], "daily.discontinued_per_year", 0.5),
         campaign_lead_days=_int(raw["campaign_lead_days"], "daily.campaign_lead_days", 1, 120),
+    )
+
+
+def _parse_opening(raw: dict[str, Any]) -> OpeningBalances:
+    _reject_unknown(raw, _OPENING_KEYS, "opening_balances")
+    missing = sorted(_OPENING_KEYS - set(raw))
+    if missing:
+        raise ConfigError(f"opening_balances is missing: {', '.join(missing)}")
+
+    def amounts(value: Any, name: str, allowed: set[str] | None = None) -> dict[str, int]:
+        if not isinstance(value, dict) or not value:
+            raise ConfigError(f"opening_balances.{name} must be a mapping of name: amount")
+        if allowed is not None:
+            _reject_unknown(value, allowed, f"opening_balances.{name}")
+        return {str(k): _int(v, f"opening_balances.{name}.{k}", 0, 10**12) for k, v in value.items()}
+
+    fixed = amounts(raw["fixed_assets"], "fixed_assets")
+    for code in fixed:
+        if not code.isdigit() or len(code) != 5 or code[0] != "1":
+            raise ConfigError(f"opening_balances.fixed_assets: {code!r} must be a 5-digit asset account code")
+    return OpeningBalances(
+        share_capital=_int(raw["share_capital"], "opening_balances.share_capital", 1, 10**12),
+        bank_balances=amounts(raw["bank_balances"], "bank_balances", {"COLLECTIONS", "PAYMENTS"}),
+        cash_credit_drawn=_int(raw["cash_credit_drawn"], "opening_balances.cash_credit_drawn", 0, 10**12),
+        petty_cash=amounts(raw["petty_cash"], "petty_cash", {"DISTRIBUTION_CENTRE", "RETAIL_STORE"}),
+        fixed_assets=fixed,
+        accumulated_depreciation_share=_share(raw["accumulated_depreciation_share"],
+                                              "opening_balances.accumulated_depreciation_share", 0.95),
+        store_assortment_share=_share(raw["store_assortment_share"], "opening_balances.store_assortment_share"),
     )

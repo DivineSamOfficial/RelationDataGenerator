@@ -11,6 +11,7 @@ from datetime import date, timedelta
 from scmgen.core.calendar import fiscal_year, fiscal_year_label
 from scmgen.generation.engine.day import DayContext, poisson
 from scmgen.generation.master.parties import approve_suppliers, create_campaign
+from scmgen.generation.engine.opening import opening_step
 from scmgen.generation.master.catalogue import create_style
 
 
@@ -152,6 +153,7 @@ def campaigns_step(day: DayContext) -> None:
 DAY_STEPS = (
     ("calendar", calendar_step),
     ("periods", periods_step),
+    ("opening", opening_step),                       # first simulated day only (P01, P02)
     ("gst_revision", gst_revision_step),
     ("catalogue", catalogue_step),
     ("campaigns", campaigns_step),
