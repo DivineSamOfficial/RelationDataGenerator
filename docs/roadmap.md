@@ -68,6 +68,7 @@ Working principle: from step 3.6 on, a **Small** workspace generates end to end 
 | # | Request | Scheduled |
 |---|---|---|
 | O1 | **Table guide in the UI** (requested 2026-11-10, "at the end"): for every table, what it holds, its columns and keys, how it relates to other tables (diagrams), how it's populated and how to use it in analysis (example queries). | Phase 5 (UI), after the main screens. Built from `docs/design/` (the step 2.7 parser already reads every column table), so the guide and the design can never disagree |
+| O2 | **Digital marketing and e-commerce data module** (requested 2026-11-10, "a feature for the future"): ad performance (daily impressions, clicks, spend, conversions per campaign and platform), web/app sessions and funnel (product views, carts, abandoned carts, checkout), promo codes, product reviews. Generated from the same simulated days as orders and campaigns, delivered as a separate source (ad-platform / analytics-style exports) for multi-source ingestion practice; the 92 OLTP tables stay unchanged (at most an optional promo-code link on orders). | After Phase 3, as its own design part (1I) with owner approval |
 
 ## Open questions
 
