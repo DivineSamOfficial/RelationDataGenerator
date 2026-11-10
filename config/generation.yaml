@@ -154,3 +154,16 @@ procurement:
   score_weights: {price: 0.60, lead_time: 0.25, rating: 0.15}
   approval_days: [0, 2]
   po_cancel_share: 0.02
+  # Receiving (1C §3.0): each PO's delivery plan is drawn once, from a stream keyed by the PO (D65).
+  late_share: 0.10                      # late POs for a 5-star supplier; +5 points per star below 5 (~15% overall)
+  late_days: [1, 10]
+  early_days: 2
+  partial_delivery_share: 0.20
+  deliveries: [2, 3]
+  delivery_gap_days: [3, 10]
+  short_close_share: 0.20               # of partial POs (≈ 4% of all POs)
+  short_close_wait_days: 7
+  rejection_share: 0.02                 # GRN lines with rejects for a 5-star supplier; +1 point per star below 5
+  min_shelf_life_share: 0.60            # expiry goods need ≥ 60% shelf life left on receipt
+  short_shelf_life_share: 0.01
+  eway_bill_threshold: 50000            # GST e-way bill for consignments above ₹50,000

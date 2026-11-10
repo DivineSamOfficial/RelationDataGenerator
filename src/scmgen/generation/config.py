@@ -61,7 +61,10 @@ _OPENING_KEYS = {"share_capital", "bank_balances", "cash_credit_drawn", "petty_c
                  "accumulated_depreciation_share", "store_assortment_share"}
 _PROCUREMENT_KEYS = {"direct_reorder_max_value", "rfq_max_lines", "rfq_suppliers", "rfq_response_days", "response_mix",
                      "quote_price_factor", "quote_lead_factor", "quote_validity_days", "evaluation_days",
-                     "award_price_ceiling", "score_weights", "approval_days", "po_cancel_share"}
+                     "award_price_ceiling", "score_weights", "approval_days", "po_cancel_share", "late_share",
+                     "late_days", "early_days", "partial_delivery_share", "deliveries", "delivery_gap_days",
+                     "short_close_share", "short_close_wait_days", "rejection_share", "min_shelf_life_share",
+                     "short_shelf_life_share", "eway_bill_threshold"}
 B2B_SEGMENTS = ("RETAILER", "WHOLESALER", "CORPORATE", "INSTITUTION", "WORKSHOP")
 _ORG_KEYS = {"job_levels", "warehouse_staff_share", "departments", "warehouse_titles", "chief_executive"}
 JOB_LEVELS = ("EXECUTIVE", "HEAD", "MANAGER", "LEAD", "STAFF")
@@ -154,6 +157,18 @@ class ProcurementSettings:
     score_weights: dict[str, float]
     approval_days: tuple[int, int]
     po_cancel_share: float
+    late_share: float                       # POs delivered late (best supplier); worse ratings are later more often
+    late_days: tuple[int, int]
+    early_days: int                         # on-time deliveries may arrive up to this many days early
+    partial_delivery_share: float           # POs delivered in several parts
+    deliveries: tuple[int, int]             # parts of a partial delivery
+    delivery_gap_days: tuple[int, int]      # between parts, and before a replacement for rejected goods
+    short_close_share: float                # of partially delivered POs: the last part never comes
+    short_close_wait_days: int              # waited past the missing part's date before short-closing
+    rejection_share: float                  # GRN lines with rejected goods (best supplier)
+    min_shelf_life_share: float             # expiry goods with less remaining shelf life are rejected
+    short_shelf_life_share: float           # expiry deliveries that arrive with too little shelf life
+    eway_bill_threshold: int                # consignment value (incl. GST) needing an e-way bill
 
 
 @dataclass(frozen=True)
@@ -585,4 +600,16 @@ def _parse_procurement(raw: dict[str, Any]) -> ProcurementSettings:
         award_price_ceiling=float(ceiling), score_weights=weights,
         approval_days=_pair(raw["approval_days"], "procurement.approval_days", 0, 30),
         po_cancel_share=_share(raw["po_cancel_share"], "procurement.po_cancel_share", 0.5),
+        late_share=_share(raw["late_share"], "procurement.late_share", 1),
+        late_days=_pair(raw["late_days"], "procurement.late_days", 1, 90),
+        early_days=_int(raw["early_days"], "procurement.early_days", 0, 30),
+        partial_delivery_share=_share(raw["partial_delivery_share"], "procurement.partial_delivery_share", 1),
+        deliveries=_pair(raw["deliveries"], "procurement.deliveries", 2, 5),
+        delivery_gap_days=_pair(raw["delivery_gap_days"], "procurement.delivery_gap_days", 1, 60),
+        short_close_share=_share(raw["short_close_share"], "procurement.short_close_share", 1),
+        short_close_wait_days=_int(raw["short_close_wait_days"], "procurement.short_close_wait_days", 0, 90),
+        rejection_share=_share(raw["rejection_share"], "procurement.rejection_share", 0.5),
+        min_shelf_life_share=_share(raw["min_shelf_life_share"], "procurement.min_shelf_life_share", 1),
+        short_shelf_life_share=_share(raw["short_shelf_life_share"], "procurement.short_shelf_life_share", 0.5),
+        eway_bill_threshold=_int(raw["eway_bill_threshold"], "procurement.eway_bill_threshold", 0, 10**9),
     )

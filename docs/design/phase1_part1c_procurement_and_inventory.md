@@ -150,6 +150,8 @@ PO approved ─► sent ─► 1..n deliveries ─► GRN + dock inspection ─�
 supplier invoice (three-way match: PO price × accepted qty) ─► AP open item (1E) ─► supplier payment ─► allocation (1E)
 ```
 
+Receiving (step 3.7b): each PO's delivery plan (lateness, parts, short-close) is drawn once from a stream keyed by the PO; delivery *k* is due when the PO has *k* − 1 GRNs and the planned date has come. Rejected goods are re-sent a few days after the last delivery; after 6 deliveries, or when a short-closing supplier's last part is 7 days overdue, the PO is short-closed (open quantity cancelled; lines that never had accepted goods become CANCELLED). GRNI journal lines carry no party or warehouse: GRNI is reconciled per PO line (V-GRNI). Receipts post at the PO net price; the ledger row sits in a STORAGE location (put-away), the GRN line in a RECEIVING location.
+
 Typical timing (config defaults): RFQ response window 3–7 days; evaluation 1–3 days; PO approval 0–2 days; delivery after the quoted lead time ± the supplier's reliability (late in ~15% of POs, worse for low-rated suppliers); invoice 0–5 days after receipt; payment on the due date ± behaviour (late in ~20%, MSME suppliers within 45 days).
 
 ---

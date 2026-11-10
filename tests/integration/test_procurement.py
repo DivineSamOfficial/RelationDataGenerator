@@ -1,4 +1,5 @@
-"""Phase 3 step 3.7a: sourcing on generated data (RFQ → quotations → award → PO → approval).
+"""Phase 3 steps 3.7a/3.7b: sourcing and receiving on generated data (RFQ → quotations → award → PO →
+approval → deliveries → GRN + dock inspection → stock and P03).
 
 Demand only arrives in step 3.8, so the fixture forces replenishment: after three weeks, the reorder level of
 half the DC stock is raised to the quantity on hand
@@ -28,6 +29,7 @@ pytestmark = pytest.mark.integration
 
 CATALOGUE = load_catalogue()
 RULES = sorted(r for r in framework.registered_checks() if r.startswith("V-PR") or r == "V-MD-06")
+INVENTORY_RULES = ("V-IN-01", "V-IN-02", "V-IN-04", "V-IN-05", "V-IN-10", "V-AC-05", "V-AC-11")
 WINDOW = {"history.start_date": "2025-08-01", "history.end_date": "2025-11-30"}
 
 
@@ -83,18 +85,20 @@ def test_sourcing_produces_the_whole_document_chain(generated):
     quotations = {s for (s,) in _rows(conn, "SELECT DISTINCT quotation_status FROM quotation_headers")}
     assert {"ACCEPTED", "REJECTED"} <= quotations
     po_statuses = {s for (s,) in _rows(conn, "SELECT DISTINCT po_status FROM purchase_order_headers")}
-    assert "SENT" in po_statuses and po_statuses <= {"PENDING_APPROVAL", "SENT", "CANCELLED"}
+    assert {"RECEIVED", "PARTIALLY_RECEIVED", "SHORT_CLOSED", "CANCELLED"} <= po_statuses
     # Purchasing works on working days only.
     assert _rows(conn, "SELECT COUNT(*) FROM purchase_order_headers WHERE DAYOFWEEK(po_date) = 1")[0][0] == 0
 
 
 def test_stock_is_never_ordered_twice(generated):
-    """Stock on order and being sourced counts in the reorder position: one open supply per DC × product."""
+    """Stock on order and being sourced counts in the reorder position: at most one open PO per DC × product
+    at a time (reordering after a receipt is normal)."""
     _, conn = generated
     duplicates = _rows(conn, """
         SELECT h.delivery_warehouse_id, l.product_id, COUNT(*) FROM purchase_order_line_items l
         JOIN purchase_order_headers h USING (purchase_order_id)
-        WHERE h.po_status NOT IN ('CANCELLED') GROUP BY 1, 2 HAVING COUNT(*) > 1""")
+        WHERE h.po_status IN ('PENDING_APPROVAL', 'SENT', 'PARTIALLY_RECEIVED') AND l.quantity_open > 0
+        GROUP BY 1, 2 HAVING COUNT(*) > 1""")
     assert duplicates == []
 
 
@@ -107,14 +111,26 @@ def test_award_after_rate_change_uses_the_new_rate(generated):
 
 def test_generated_data_passes_procurement_rules(generated):
     code, conn = generated
-    report = run_checks(ValidationContext(conn, workspace_code=code), CATALOGUE, rule_ids=RULES)
+    report = run_checks(ValidationContext(conn, workspace_code=code), CATALOGUE, rule_ids=RULES + list(INVENTORY_RULES))
     assert {r.rule_id: r.status for r in report.results if r.status != "PASSED"} == {}
 
 
 _ONE_PO = "(SELECT x FROM (SELECT MIN(purchase_order_id) x FROM purchase_order_headers WHERE po_source = '{}') t)"
 _AWARD_PO = _ONE_PO.format("RFQ_AWARD")
 
+_GRN_LINE = "(SELECT x FROM (SELECT MIN(goods_receipt_line_item_id) x FROM goods_inspections WHERE quantity_rejected = 0) t)"
+
 MUTATIONS = {
+    "V-PR-08": [f"UPDATE goods_receipt_line_items SET quantity_received = quantity_received + 1 "
+                f"WHERE goods_receipt_line_item_id = {_GRN_LINE}"],
+    "V-PR-09": ["UPDATE goods_receipts g JOIN purchase_order_headers h USING (purchase_order_id) "
+                "SET g.receipt_date = DATE_SUB(h.po_date, INTERVAL 1 DAY), g.received_at = DATE_SUB(h.po_date, INTERVAL 1 DAY) "
+                "WHERE g.goods_receipt_id = (SELECT x FROM (SELECT MIN(goods_receipt_id) x FROM goods_receipts) t)"],
+    "V-PR-10": ["UPDATE goods_receipt_line_items SET receiving_location_id = (SELECT x FROM (SELECT MIN(warehouse_location_id) x "
+                f"FROM warehouse_locations WHERE zone = 'STORAGE') t) WHERE goods_receipt_line_item_id = {_GRN_LINE}"],
+    "V-PR-11": ["UPDATE goods_inspections SET quantity_accepted = quantity_accepted - 1, quantity_rejected = 1, "
+                "inspection_result = 'PARTIALLY_ACCEPTED', rejection_reason = 'QUALITY_FAILED' "
+                f"WHERE goods_receipt_line_item_id = {_GRN_LINE}"],
     "V-MD-06": [f"UPDATE purchase_order_headers SET approved_by_employee_id = (SELECT e FROM (SELECT MIN(employee_id) e "
                 f"FROM employees WHERE approval_limit = 0) t) WHERE purchase_order_id = {_AWARD_PO}"],
     "V-PR-01": [f"UPDATE purchase_order_line_items SET unit_price = unit_price + 1, "
@@ -158,3 +174,24 @@ def test_each_rule_catches_its_violation(generated, rule_id):
     finally:
         conn.rollback()
         conn.execute(text("SET FOREIGN_KEY_CHECKS = 1"))
+
+
+def test_receiving_moves_stock_and_books_grni(generated):
+    _, conn = generated
+    deliveries = _rows(conn, "SELECT COUNT(*), COUNT(DISTINCT purchase_order_id) FROM goods_receipts")[0]
+    assert deliveries[0] > deliveries[1] > 0                        # some POs arrive in several parts
+    results = dict(_rows(conn, "SELECT inspection_result, COUNT(*) FROM goods_inspections GROUP BY 1"))
+    assert results["ACCEPTED"] > 0 and results.get("PARTIALLY_ACCEPTED", 0) + results.get("REJECTED", 0) > 0
+    # Late first deliveries happen, but most arrive on time.
+    late = _rows(conn, """SELECT AVG(g.receipt_date > h.expected_delivery_date) FROM goods_receipts g
+                          JOIN purchase_order_headers h USING (purchase_order_id)
+                          WHERE g.goods_receipt_id IN (SELECT MIN(goods_receipt_id) FROM goods_receipts GROUP BY purchase_order_id)""")[0][0]
+    assert 0.05 < late < 0.5
+    # P03: GRNI carries the accepted value at PO price (nothing invoiced before 3.7c) and Inventory = ledger.
+    receipts = _rows(conn, "SELECT SUM(value_change) FROM inventory_transactions WHERE transaction_type = 'PURCHASE_RECEIPT'")[0][0]
+    grni = _rows(conn, "SELECT SUM(l.credit_amount - l.debit_amount) FROM journal_entry_lines l "
+                       "JOIN chart_of_accounts a USING (account_id) WHERE a.system_role = 'GRNI'")[0][0]
+    assert receipts > 0 and grni == receipts
+    # New products get their stock row with the product's reorder policy on first receipt.
+    assert _rows(conn, "SELECT COUNT(*) FROM inventory i JOIN products p USING (product_id) "
+                       "WHERE p.launch_date > '2025-08-01' AND i.reorder_level = p.reorder_level")[0][0] > 0

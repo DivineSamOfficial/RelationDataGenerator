@@ -74,6 +74,10 @@ def test_generated_data_passes_every_implemented_rule(generated):
 
 
 MUTATIONS = {
+    "V-IN-05": ["UPDATE inventory_transactions SET quantity = quantity + 1 WHERE inventory_transaction_id = "
+                "(SELECT t FROM (SELECT MIN(inventory_transaction_id) t FROM inventory_transactions) x)"],
+    "V-IN-10": ["UPDATE inventory_transactions SET transaction_at = '2025-07-30 10:00:00' WHERE inventory_transaction_id = "
+                "(SELECT t FROM (SELECT MIN(inventory_transaction_id) t FROM inventory_transactions) x)"],
     "V-AC-01": ["UPDATE chart_of_accounts SET account_code = '24100' WHERE account_code = '14100'"],
     "V-AC-02": ["UPDATE chart_of_accounts SET is_postable = FALSE WHERE account_code = '14100'"],
     "V-AC-03": ["UPDATE business_units SET cogs_account_id = (SELECT account_id FROM (SELECT account_id FROM chart_of_accounts "

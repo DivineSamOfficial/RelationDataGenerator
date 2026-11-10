@@ -1,6 +1,6 @@
 """Procurement rules (1C §8, V-PR-*). Each check returns the violating rows.
 
-Step 3.7a (sourcing) implements V-PR-01…07; receiving and supplier invoices (V-PR-08…14) follow in 3.7b/3.7c.
+Step 3.7a (sourcing) implements V-PR-01…07, 3.7b (receiving) V-PR-08…11; supplier invoices (V-PR-12…14) follow in 3.7c.
 """
 
 from __future__ import annotations
@@ -222,3 +222,98 @@ def award_purchase_orders_follow_the_quotation(ctx: ValidationContext) -> Rows:
         WHERE q.quotation_status IN ('ACCEPTED', 'PARTIALLY_ACCEPTED')
           AND NOT EXISTS (SELECT 1 FROM purchase_order_headers h WHERE h.quotation_id = q.quotation_id)""")]
     return found
+
+
+@check("V-PR-08")
+def po_line_counters_equal_their_sources(ctx: ValidationContext) -> Rows:
+    """★ PO line counters = Σ GRN lines (received), Σ inspections (accepted / rejected), Σ supplier invoice
+    lines (invoiced)."""
+    return ctx.rows("""
+        SELECT l.purchase_order_line_item_id, l.quantity_received, COALESCE(g.received, 0) AS grn_received,
+               l.quantity_accepted, COALESCE(g.accepted, 0) AS inspected_accepted,
+               l.quantity_rejected, COALESCE(g.rejected, 0) AS inspected_rejected,
+               l.quantity_invoiced, COALESCE(i.invoiced, 0) AS invoice_lines
+        FROM purchase_order_line_items l
+        LEFT JOIN (SELECT gl.purchase_order_line_item_id, SUM(gl.quantity_received) AS received,
+                          SUM(gi.quantity_accepted) AS accepted, SUM(gi.quantity_rejected) AS rejected
+                   FROM goods_receipt_line_items gl JOIN goods_receipts g ON g.goods_receipt_id = gl.goods_receipt_id
+                   LEFT JOIN goods_inspections gi ON gi.goods_receipt_line_item_id = gl.goods_receipt_line_item_id
+                   WHERE g.grn_status <> 'CANCELLED' GROUP BY gl.purchase_order_line_item_id) g
+               ON g.purchase_order_line_item_id = l.purchase_order_line_item_id
+        LEFT JOIN (SELECT sl.purchase_order_line_item_id, SUM(sl.invoiced_quantity) AS invoiced
+                   FROM supplier_invoice_line_items sl JOIN supplier_invoices s ON s.supplier_invoice_id = sl.supplier_invoice_id
+                   WHERE s.invoice_status <> 'CANCELLED' GROUP BY sl.purchase_order_line_item_id) i
+               ON i.purchase_order_line_item_id = l.purchase_order_line_item_id
+        WHERE l.quantity_received <> COALESCE(g.received, 0) OR l.quantity_accepted <> COALESCE(g.accepted, 0)
+           OR l.quantity_rejected <> COALESCE(g.rejected, 0) OR l.quantity_invoiced <> COALESCE(i.invoiced, 0)""")
+
+
+# Receipt-driven PO statuses (1C §3): what the header and line statuses must be, given the line quantities.
+_RECEIVING_PO_STATUSES = "('SENT', 'PARTIALLY_RECEIVED', 'RECEIVED')"
+
+
+@check("V-PR-09")
+def receipts_follow_the_po(ctx: ValidationContext) -> Rows:
+    """GRN dated on/after the PO date and received after the PO was SENT; only approved-and-later POs receive
+    goods; PO header and line statuses match their quantities."""
+    found = [{**r, "problem": "received before the PO was sent"} for r in ctx.rows("""
+        SELECT g.goods_receipt_id, g.received_at, h.po_date, s.sent_at, h.po_status FROM goods_receipts g
+        JOIN purchase_order_headers h ON h.purchase_order_id = g.purchase_order_id
+        LEFT JOIN (SELECT purchase_order_id, MIN(changed_at) AS sent_at FROM purchase_order_status_history
+                   WHERE to_status = 'SENT' GROUP BY purchase_order_id) s ON s.purchase_order_id = g.purchase_order_id
+        WHERE g.receipt_date < h.po_date OR s.sent_at IS NULL OR g.received_at < s.sent_at
+           OR h.po_status IN ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'SENT', 'CANCELLED')""")]
+    found += [{**r, "problem": "line status doesn't match its quantities"} for r in ctx.rows("""
+        SELECT l.purchase_order_line_item_id, l.line_status, l.quantity_received, l.quantity_accepted, l.quantity_open
+        FROM purchase_order_line_items l JOIN purchase_order_headers h ON h.purchase_order_id = l.purchase_order_id
+        WHERE l.line_status <> CASE
+            WHEN h.po_status = 'CLOSED' THEN 'CLOSED'
+            WHEN l.quantity_open = 0 AND l.quantity_accepted > 0 THEN 'RECEIVED'
+            WHEN l.quantity_open = 0 THEN 'CANCELLED'
+            WHEN l.quantity_received > 0 THEN 'PARTIALLY_RECEIVED'
+            ELSE 'OPEN' END""")]
+    found += [{**r, "problem": "PO status doesn't match its line quantities"} for r in ctx.rows(f"""
+        SELECT h.purchase_order_id, h.po_status, s.still_open, s.received FROM purchase_order_headers h
+        JOIN (SELECT purchase_order_id, SUM(quantity_open > 0) AS still_open, SUM(quantity_received) AS received
+              FROM purchase_order_line_items GROUP BY purchase_order_id) s ON s.purchase_order_id = h.purchase_order_id
+        WHERE (h.po_status IN {_RECEIVING_PO_STATUSES} AND h.po_status <> CASE
+                   WHEN s.still_open = 0 THEN 'RECEIVED' WHEN s.received > 0 THEN 'PARTIALLY_RECEIVED' ELSE 'SENT' END)
+           OR (h.po_status IN ('SHORT_CLOSED', 'CANCELLED') AND s.still_open > 0)
+           OR (h.po_status IN ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'CANCELLED') AND s.received > 0)""")]
+    return found
+
+
+@check("V-PR-10")
+def grn_lines_belong_to_the_grn(ctx: ValidationContext) -> Rows:
+    """GRN lines reference lines of the GRN's own PO; receiving locations are RECEIVING locations of the GRN
+    warehouse."""
+    found = [{**r, "problem": "PO line of another PO"} for r in ctx.rows("""
+        SELECT gl.goods_receipt_line_item_id FROM goods_receipt_line_items gl
+        JOIN goods_receipts g ON g.goods_receipt_id = gl.goods_receipt_id
+        JOIN purchase_order_line_items l ON l.purchase_order_line_item_id = gl.purchase_order_line_item_id
+        WHERE l.purchase_order_id <> g.purchase_order_id""")]
+    found += [{**r, "problem": "receiving location outside the GRN warehouse's RECEIVING zone"} for r in ctx.rows("""
+        SELECT gl.goods_receipt_line_item_id, wl.warehouse_id, wl.zone FROM goods_receipt_line_items gl
+        JOIN goods_receipts g ON g.goods_receipt_id = gl.goods_receipt_id
+        JOIN warehouse_locations wl ON wl.warehouse_location_id = gl.receiving_location_id
+        WHERE wl.warehouse_id <> g.warehouse_id OR wl.zone <> 'RECEIVING'""")]
+    return found
+
+
+@check("V-PR-11")
+def inspections_split_the_receipt(ctx: ValidationContext) -> Rows:
+    """★ Every GRN line of an INSPECTED GRN has its inspection with accepted + rejected = received; the
+    PURCHASE_RECEIPT ledger quantity for the GRN line = accepted (rejected goods have no ledger row)."""
+    return ctx.rows("""
+        SELECT gl.goods_receipt_line_item_id, g.grn_status, gl.quantity_received, gi.quantity_accepted,
+               gi.quantity_rejected, COALESCE(t.qty, 0) AS ledger_qty, COALESCE(t.rows_, 0) AS ledger_rows
+        FROM goods_receipt_line_items gl JOIN goods_receipts g ON g.goods_receipt_id = gl.goods_receipt_id
+        LEFT JOIN goods_inspections gi ON gi.goods_receipt_line_item_id = gl.goods_receipt_line_item_id
+        LEFT JOIN (SELECT goods_receipt_line_item_id, SUM(quantity) AS qty, COUNT(*) AS rows_ FROM inventory_transactions
+                   WHERE transaction_type = 'PURCHASE_RECEIPT' GROUP BY goods_receipt_line_item_id) t
+               ON t.goods_receipt_line_item_id = gl.goods_receipt_line_item_id
+        WHERE (g.grn_status = 'INSPECTED' AND gi.goods_inspection_id IS NULL)
+           OR (g.grn_status = 'RECEIVED' AND gi.goods_inspection_id IS NOT NULL)
+           OR gi.quantity_accepted + gi.quantity_rejected <> gl.quantity_received
+           OR COALESCE(t.qty, 0) <> COALESCE(gi.quantity_accepted, 0)
+           OR (COALESCE(gi.quantity_accepted, 0) = 0 AND t.rows_ IS NOT NULL)""")

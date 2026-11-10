@@ -72,12 +72,22 @@ def _query(settings, code: str, sql: str):
 
 
 def _checksums(settings, code: str) -> dict[str, int]:
+    """A checksum per business table over every column except ``generation_run_id``: which run wrote a row
+    is run metadata and legitimately depends on how the history was split (D65 covers the business data)."""
     engine = create_mysql_engine(settings, role="app", database=f"scm_{code}_oltp")
+    sums = {}
     with engine.connect() as conn:
-        tables = [t for (t,) in conn.execute(text(
-            "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() "
-            "AND TABLE_TYPE = 'BASE TABLE'")) if t not in SYSTEM_TABLES]
-        sums = {t: conn.exec_driver_sql(f"CHECKSUM TABLE `{t}`").one()[1] for t in sorted(tables)}
+        columns: dict[str, list[str]] = {}
+        for table, column in conn.execute(text(
+                "SELECT c.TABLE_NAME, c.COLUMN_NAME FROM information_schema.COLUMNS c JOIN information_schema.TABLES t "
+                "ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME WHERE c.TABLE_SCHEMA = DATABASE() "
+                "AND t.TABLE_TYPE = 'BASE TABLE' ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION")):
+            if table not in SYSTEM_TABLES and column != "generation_run_id":
+                columns.setdefault(table, []).append(column)
+        for table, cols in sorted(columns.items()):
+            row = ", ".join(f"COALESCE(CAST(`{c}` AS CHAR), '<null>')" for c in cols)
+            sums[table] = conn.exec_driver_sql(
+                f"SELECT COUNT(*), COALESCE(SUM(CRC32(CONCAT_WS('|', {row}))), 0) FROM `{table}`").one()
     engine.dispose()
     return sums
 
@@ -107,8 +117,10 @@ def test_history_runs_day_by_day_and_validates(settings, workspaces):
     # Opening position on the first simulated day, once: P01 + one OPENING_STOCK adjustment (and journal) per warehouse.
     opening = _query(settings, code, "SELECT journal_source, journal_type, COUNT(*), MIN(posting_date) FROM journal_entries "
                                      "GROUP BY 1, 2 ORDER BY 1")
-    assert [(r[0], r[1], r[2]) for r in opening] == [("OPENING_BALANCE", "OPENING", 1), ("STOCK_ADJUSTMENT", "SYSTEM", 8)]
-    assert all(r[3] == date(2025, 8, 1) for r in opening)
+    counts = {(r[0], r[1]): r[2] for r in opening}
+    assert counts[("OPENING_BALANCE", "OPENING")] == 1 and counts[("STOCK_ADJUSTMENT", "SYSTEM")] == 8
+    assert all(r[3] == date(2025, 8, 1) for r in opening if r[0] != "GOODS_RECEIPT")
+    assert counts[("GOODS_RECEIPT", "SYSTEM")] > 0                     # receipts from 3.7b
     adjustments = _query(settings, code, "SELECT COUNT(*), COUNT(DISTINCT warehouse_id), MIN(adjustment_type) "
                                          "FROM stock_adjustments")[0]
     assert adjustments == (8, 8, "OPENING_STOCK")

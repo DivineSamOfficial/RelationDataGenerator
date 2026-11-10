@@ -40,16 +40,18 @@ def load_account_book(conn: Connection) -> AccountBook:
 
 
 def posting_period(day: DayContext, event_date: date) -> tuple[int, date]:
-    """D59: (period id, posting date) for an event: its own period if OPEN, else the earliest OPEN period."""
-    own = day.rows("SELECT accounting_period_id FROM accounting_periods WHERE period_status = 'OPEN' "
-                   "AND :d BETWEEN start_date AND end_date", d=event_date)
-    if own:
-        return own[0]["accounting_period_id"], event_date
-    earliest = day.rows("SELECT accounting_period_id, start_date FROM accounting_periods WHERE period_status = 'OPEN' "
-                        "ORDER BY start_date LIMIT 1")
-    if not earliest:
+    """D59: (period id, posting date) for an event: its own period if OPEN, else the earliest OPEN period.
+    The OPEN periods are read once a day (only the periods step, which runs first, changes them)."""
+    if "open_periods" not in day.notes:
+        day.notes["open_periods"] = day.rows("SELECT accounting_period_id, start_date, end_date FROM accounting_periods "
+                                             "WHERE period_status = 'OPEN' ORDER BY start_date")
+    periods = day.notes["open_periods"]
+    for period in periods:
+        if period["start_date"] <= event_date <= period["end_date"]:
+            return period["accounting_period_id"], event_date
+    if not periods:
         raise RuntimeError(f"No OPEN accounting period to post an event of {event_date}")
-    return earliest[0]["accounting_period_id"], max(earliest[0]["start_date"], event_date)
+    return periods[0]["accounting_period_id"], max(periods[0]["start_date"], event_date)
 
 
 def post_journal(day: DayContext, journal: Journal, *, source: str, journal_type: str = "SYSTEM",
