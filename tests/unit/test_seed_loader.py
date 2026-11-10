@@ -28,6 +28,7 @@ def test_shipped_seed_loads_with_the_designed_contents():
     assert seed.account("15900")["normal_balance"] == "CREDIT"              # contra asset
     assert seed.account("61900")["requires_cost_center"] and not seed.account("11000")["requires_cost_center"]
     assert isinstance(seed.payment_methods[0]["gateway_fee_percent"], (Decimal, type(None)))
+    assert str(seed.gst_rate_revision["effective_date"]) == "2025-09-22"                 # D17
 
 
 @pytest.fixture

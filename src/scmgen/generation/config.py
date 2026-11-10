@@ -28,7 +28,7 @@ from scmgen.core.settings import DEFAULT_CONFIG_DIR
 GENERATION_FILE = "generation.yaml"
 MAX_HISTORY_DAYS = 3 * 366 + 1           # design: 1-3 years of history (1G §3)
 
-_DEFAULT_KEYS = {"preset", "fiscal_year_start_month", "batch_size", "history"}
+_DEFAULT_KEYS = {"preset", "fiscal_year_start_month", "batch_size", "history", "gst_rate_revision"}
 _HISTORY_KEYS = {"start_date", "end_date", "allow_future"}
 _PRESET_KEYS = {"history_months", "volumes"}
 
@@ -57,6 +57,7 @@ class GenerationConfig:
     fiscal_year_start_month: int
     batch_size: int
     volumes: Volumes
+    gst_rate_revision: bool = True        # apply the packs' 22 Sep 2025 rate change (D17)
 
     @property
     def days(self) -> int:
@@ -180,6 +181,7 @@ def load_generation_config(
     effective: dict[str, Any] = {
         "fiscal_year_start_month": defaults.get("fiscal_year_start_month"),
         "batch_size": defaults.get("batch_size"),
+        "gst_rate_revision": defaults.get("gst_rate_revision", True),
         "history_months": preset_cfg.get("history_months"),
         "history": {key: (defaults.get("history") or {}).get(key) for key in _HISTORY_KEYS},
         "volumes": copy.deepcopy(preset_cfg["volumes"]),
@@ -192,6 +194,9 @@ def load_generation_config(
     history_months = _int(effective["history_months"], "history_months", 1, 36)
     volumes = Volumes(**{key: _int(effective["volumes"][key], f"volumes.{key}", 1, 10_000_000)
                          for key in sorted(_VOLUME_KEYS)})
+    gst_rate_revision = effective["gst_rate_revision"]
+    if not isinstance(gst_rate_revision, bool):
+        raise ConfigError(f"gst_rate_revision must be true or false, got {gst_rate_revision!r}")
     allow_future = effective["history"]["allow_future"]
     if not isinstance(allow_future, bool):
         raise ConfigError(f"history.allow_future must be true or false, got {allow_future!r}")
@@ -214,4 +219,5 @@ def load_generation_config(
         fiscal_year_start_month=fy_month,
         batch_size=batch_size,
         volumes=volumes,
+        gst_rate_revision=gst_rate_revision,
     )

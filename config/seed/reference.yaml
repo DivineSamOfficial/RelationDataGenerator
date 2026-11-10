@@ -92,3 +92,9 @@ banks:
   - {bank_code: XDCB, bank_name: Deccan Commercial Bank}
   - {bank_code: XKSB, bank_name: Konkan Sahyadri Bank}
   - {bank_code: XNMB, bank_name: Narmada Mercantile Bank}
+
+# National GST rate revision used by the packs' gst.before / gst.after rates (D17). The rate change
+# can be switched off per run in config/generation.yaml (gst_rate_revision: false).
+gst_rate_revision:
+  effective_date: 2025-09-22
+  notification_reference: GST Council 56th meeting - rate rationalisation

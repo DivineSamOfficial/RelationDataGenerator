@@ -122,6 +122,8 @@ def test_default_config_resolves_medium_two_years_ending_yesterday():
     assert config.preset == "medium" and config.end_date == date(2026, 11, 9)
     assert config.start_date == date(2024, 11, 10) and config.days == 730
     assert config.volumes.orders_per_day == 70 and config.batch_size == 1000
+    assert config.gst_rate_revision is True
+    assert load_generation_config(today=TODAY, overrides={"gst_rate_revision": False}).gst_rate_revision is False
 
 
 def test_presets_scale_and_overrides_apply():
@@ -152,6 +154,7 @@ def test_hash_is_stable_and_tracks_content():
     ({"history.start_date": "2020-01-01"}, "3-year"),
     ({"history.start_date": "01/04/2026"}, "YYYY-MM-DD"),
     ({"history.allow_future": "maybe"}, "true or false"),
+    ({"gst_rate_revision": "sometimes"}, "true or false"),
 ])
 def test_invalid_settings_are_refused(overrides, message):
     with pytest.raises(ConfigError, match=message):

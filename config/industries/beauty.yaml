@@ -1,0 +1,139 @@
+# Industry pack: Beauty & Personal Care (1A §8.3). Format: see electronics.yaml.
+# B2C-heavy, Instagram-driven, products with expiry (batch-tracked), wedding and festive peaks.
+# Brand names are invented; GST rates are illustrative (D17 pattern), not tax advice.
+
+code: beauty
+name: Beauty & Personal Care
+business_unit: {code: BEAU, name: Beauty & Personal Care}
+
+customers:
+  b2b_sales_share: 0.35                # D2 override: B2C-heavy
+  credit_terms:
+    B2B: {NET15: 0.40, NET30: 0.45, IMMEDIATE: 0.15}
+    B2C: {ADVANCE: 0.80, COD: 0.20}
+  sales_channels:
+    B2B: {FIELD_SALES: 0.40, WHATSAPP: 0.30, PHONE: 0.15, WEBSITE: 0.15}
+    B2C: {MOBILE_APP: 0.30, WEBSITE: 0.20, MARKETPLACE: 0.30, RETAIL_STORE: 0.15, WHATSAPP: 0.05}
+  marketing_channels:
+    B2B: {FIELD_SALES: 0.45, REFERRAL: 0.25, TRADE_SHOW: 0.10, DIRECT: 0.20}
+    B2C: {INSTAGRAM: 0.32, YOUTUBE: 0.12, FACEBOOK: 0.10, GOOGLE_ADS: 0.08, MARKETPLACE_ADS: 0.10,
+          ORGANIC_SEARCH: 0.08, EMAIL: 0.06, REFERRAL: 0.08, DIRECT: 0.06}
+marketplace_commission_percent: 18
+
+seasonality: [1.15, 1.10, 0.95, 0.90, 0.95, 0.85, 0.85, 0.90, 0.95, 1.15, 1.20, 1.05]
+events:
+  - {name: Valentine Glow Week, month: 2, day: 7, days: 8, uplift: 1.30, channels: [INSTAGRAM, YOUTUBE]}
+  - {name: Holi Colour Care, month: 3, day: 5, days: 10, uplift: 1.15, channels: [INSTAGRAM, FACEBOOK]}
+  - {name: Summer Skin Fest, month: 5, day: 1, days: 21, uplift: 1.15, channels: [INSTAGRAM, GOOGLE_ADS]}
+  - {name: Monsoon Hair Care, month: 7, day: 10, days: 14, uplift: 1.10, channels: [YOUTUBE, EMAIL]}
+  - {name: Big Festive Sale, month: 9, day: 25, days: 14, uplift: 1.45, channels: [MARKETPLACE_ADS, INSTAGRAM]}
+  - {name: Diwali Gifting, month: 10, day: 20, days: 14, uplift: 1.50, channels: [INSTAGRAM, FACEBOOK, EMAIL]}
+  - {name: Wedding Season Edit, month: 11, day: 20, days: 30, uplift: 1.25, channels: [INSTAGRAM, YOUTUBE]}
+  - {name: Salon Partner Meet, month: 1, day: 15, days: 3, uplift: 1.10, channels: [TRADE_SHOW]}
+
+returns:
+  b2c_return_rate: 0.04
+  b2b_return_rate: 0.01
+  defective_share: 0.25
+  transit_damage_rate: 0.006           # leaking bottles, crushed packs
+
+suppliers:
+  hubs: [Mumbai, Ahmedabad, Vadodara, Bhiwandi, Bengaluru, Kolkata]
+  name_suffixes: [Cosmetics, Herbals, Personal Care, Chemicals, Fragrances]
+  monthly_cost_drift: [0.003, 0.008]
+  lead_time_days: [4, 14]
+
+pricing:
+  list_price_ratio: [0.70, 0.85]       # retail margins are wide in beauty
+  gross_margin: [0.25, 0.40]
+
+brands:
+  - {code: SAUNDARYA, name: Saundarya Naturals, tier: MID, categories: [BEAU-HAIR, BEAU-SKIN, BEAU-BATH]}
+  - {code: KESHVI, name: Keshvi, tier: ECONOMY, categories: [BEAU-HAIR, BEAU-BATH, BEAU-ORAL]}
+  - {code: LUMERA, name: Lumera Paris, tier: PREMIUM, categories: [BEAU-SKIN, BEAU-MKP, BEAU-FRG]}
+  - {code: AMBRA, name: Ambra, tier: PREMIUM, categories: [BEAU-FRG, BEAU-SKIN]}
+  - {code: NILAVU, name: Nilavu Herbals, tier: ECONOMY, categories: [BEAU-HAIR, BEAU-SKIN, BEAU-BATH]}
+  - {code: VELORA, name: Velora, tier: MID, categories: [BEAU-MKP, BEAU-SKIN]}
+  - {code: DANTAKANTI, name: Dantakanti, tier: ECONOMY, categories: [BEAU-ORAL]}
+  - {code: PEARLITE, name: Pearlite, tier: MID, categories: [BEAU-ORAL, BEAU-BATH]}
+  - {code: RANGREZ, name: Rangrez Colour, tier: ECONOMY, categories: [BEAU-MKP]}
+  - {code: OUDHAVEN, name: Oud Haven, tier: MID, categories: [BEAU-FRG, BEAU-BATH]}
+  - {code: KS-ESSENT, name: KS Essentials, tier: ECONOMY, private_label: true, categories: [BEAU-HAIR, BEAU-BATH, BEAU-ORAL]}
+
+name_series: [Daily, Intense, Gentle, Radiance, Herbal, Classic, Ultra, Fresh, Silk, Glow]
+categories:
+  - code: BEAU-HAIR
+    name: Hair Care
+    return_window_days: 7
+    children:
+      - {code: BEAU-HAIR-SHP, name: Shampoo, share: 8, hsn: "33051090", gst: {before: 18, after: 5}, uom: BTL,
+         mrp: {ECONOMY: [99, 249], MID: [250, 499], PREMIUM: [500, 1299]}, weight_kg: [0.2, 0.75], volume_litres: [0.2, 0.7],
+         shelf_life_days: 730, nouns: [Anti-Dandruff Shampoo, Smooth & Shine Shampoo, Hair Fall Control Shampoo],
+         variants: [{label: 180 ml, price_factor: 1.0}, {label: 340 ml, price_factor: 1.7}, {label: 650 ml, price_factor: 3.0}]}
+      - {code: BEAU-HAIR-OIL, name: Hair Oil, share: 6, hsn: "33059011", gst: {before: 18, after: 5}, uom: BTL,
+         mrp: {ECONOMY: [79, 199], MID: [200, 449], PREMIUM: [450, 999]}, weight_kg: [0.12, 0.6], volume_litres: [0.1, 0.55],
+         shelf_life_days: 730, nouns: [Coconut Hair Oil, Amla Hair Oil, Onion Hair Oil],
+         variants: [{label: 100 ml, price_factor: 1.0}, {label: 200 ml, price_factor: 1.8}, {label: 500 ml, price_factor: 4.0}]}
+      - {code: BEAU-HAIR-CND, name: Conditioner, share: 4, hsn: "33059019", gst: {before: 18, after: 5}, uom: BTL,
+         mrp: {ECONOMY: [129, 279], MID: [280, 549], PREMIUM: [550, 1399]}, weight_kg: [0.2, 0.4], volume_litres: [0.18, 0.36],
+         shelf_life_days: 730, nouns: [Deep Repair Conditioner, Silky Conditioner]}
+  - code: BEAU-SKIN
+    name: Skin Care
+    return_window_days: 7
+    children:
+      - {code: BEAU-SKIN-CRM, name: Face Creams & Moisturisers, share: 7, hsn: "33049910", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [99, 299], MID: [300, 799], PREMIUM: [800, 3499]}, weight_kg: [0.05, 0.25], volume_litres: [0.05, 0.25],
+         shelf_life_days: 730, nouns: [Day Cream, Night Cream, Moisturising Lotion]}
+      - {code: BEAU-SKIN-SUN, name: Sunscreens, share: 4, hsn: "33049910", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [149, 349], MID: [350, 699], PREMIUM: [700, 1999]}, weight_kg: [0.05, 0.15], volume_litres: [0.05, 0.12],
+         shelf_life_days: 540, nouns: [Sunscreen SPF 30, Sunscreen SPF 50 Gel],
+         seasonality: [0.7, 0.8, 1.1, 1.4, 1.6, 1.3, 1.0, 0.9, 0.9, 0.8, 0.7, 0.8]}
+      - {code: BEAU-SKIN-WSH, name: Face Wash, share: 5, hsn: "33049990", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [89, 199], MID: [200, 449], PREMIUM: [450, 1199]}, weight_kg: [0.08, 0.2], volume_litres: [0.08, 0.18],
+         shelf_life_days: 730, nouns: [Neem Face Wash, Brightening Face Wash, Oil Control Face Wash]}
+  - code: BEAU-BATH
+    name: Bath & Body
+    return_window_days: 7
+    children:
+      - {code: BEAU-BATH-SOP, name: Bathing Soaps, share: 6, hsn: "34011190", gst: {before: 18, after: 5}, uom: PKT,
+         mrp: {ECONOMY: [99, 199], MID: [200, 349], PREMIUM: [350, 799]}, weight_kg: [0.3, 0.65], volume_litres: [0.35, 0.7],
+         shelf_life_days: 1095, nouns: [Sandal Soap Pack of 4, Glycerine Soap Pack of 3, Neem Soap Pack of 4]}
+      - {code: BEAU-BATH-DEO, name: Deodorants, share: 5, hsn: "33072000", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [149, 249], MID: [250, 449], PREMIUM: [450, 999]}, weight_kg: [0.12, 0.25], volume_litres: [0.15, 0.25],
+         shelf_life_days: 1095, nouns: [Deodorant Spray, Roll-On Deodorant]}
+      - {code: BEAU-BATH-TAL, name: Talcum Powder, share: 3, hsn: "33049110", gst: {before: 18, after: 5}, uom: PCS,
+         mrp: {ECONOMY: [69, 149], MID: [150, 299], PREMIUM: [300, 599]}, weight_kg: [0.1, 0.45], volume_litres: [0.15, 0.6],
+         shelf_life_days: 1095, nouns: [Cool Talc, Prickly Heat Powder],
+         seasonality: [0.6, 0.7, 1.1, 1.5, 1.7, 1.4, 1.0, 0.9, 0.9, 0.8, 0.7, 0.7]}
+  - code: BEAU-MKP
+    name: Makeup
+    return_window_days: 0                # hygiene: makeup can't be returned
+    children:
+      - {code: BEAU-MKP-LIP, name: Lipsticks, share: 6, hsn: "33041000", gst: {before: 18, after: 18}, uom: PCS, returnable: false,
+         mrp: {ECONOMY: [149, 349], MID: [350, 799], PREMIUM: [800, 2499]}, weight_kg: [0.02, 0.06], volume_litres: [0.02, 0.05],
+         shelf_life_days: 1095, nouns: [Matte Lipstick, Creamy Lipstick, Liquid Lipstick], colours: [Ruby Red, Nude Beige, Berry Pink, Coral]}
+      - {code: BEAU-MKP-KAJ, name: Kajal & Eyeliner, share: 4, hsn: "33042000", gst: {before: 18, after: 18}, uom: PCS, returnable: false,
+         mrp: {ECONOMY: [99, 249], MID: [250, 499], PREMIUM: [500, 1499]}, weight_kg: [0.01, 0.04], volume_litres: [0.01, 0.03],
+         shelf_life_days: 1095, nouns: [Smudge-Proof Kajal, Liquid Eyeliner]}
+      - {code: BEAU-MKP-NAI, name: Nail Polish, share: 3, hsn: "33043000", gst: {before: 18, after: 18}, uom: BTL, returnable: false,
+         mrp: {ECONOMY: [79, 149], MID: [150, 299], PREMIUM: [300, 899]}, weight_kg: [0.02, 0.05], volume_litres: [0.01, 0.03],
+         shelf_life_days: 1095, nouns: [Gel Finish Nail Polish, Matte Nail Polish], colours: [Crimson, Peach, Lilac, Jet Black]}
+  - code: BEAU-FRG
+    name: Fragrances
+    return_window_days: 7
+    children:
+      - {code: BEAU-FRG-PRF, name: Perfumes, share: 5, hsn: "33030090", gst: {before: 18, after: 18}, uom: BTL,
+         mrp: {ECONOMY: [299, 699], MID: [700, 1999], PREMIUM: [2000, 7999]}, weight_kg: [0.15, 0.4], volume_litres: [0.1, 0.3],
+         shelf_life_days: 1825, nouns: [Eau de Parfum, Attar, Body Mist],
+         variants: [{label: 50 ml, price_factor: 1.0}, {label: 100 ml, price_factor: 1.7}]}
+  - code: BEAU-ORAL
+    name: Oral Care
+    return_window_days: 0                # hygiene
+    children:
+      - {code: BEAU-ORAL-TPS, name: Toothpaste, share: 5, hsn: "33061020", gst: {before: 18, after: 5}, uom: PCS, returnable: false,
+         mrp: {ECONOMY: [49, 119], MID: [120, 229], PREMIUM: [230, 449]}, weight_kg: [0.1, 0.25], volume_litres: [0.1, 0.25],
+         shelf_life_days: 730, nouns: [Herbal Toothpaste, Whitening Toothpaste, Sensitive Toothpaste],
+         variants: [{label: 100 g, price_factor: 1.0}, {label: 200 g, price_factor: 1.8}]}
+      - {code: BEAU-ORAL-TBR, name: Toothbrushes, share: 3, hsn: "96032100", gst: {before: 18, after: 5}, uom: PKT, returnable: false,
+         mrp: {ECONOMY: [39, 99], MID: [100, 199], PREMIUM: [200, 499]}, weight_kg: [0.02, 0.08], volume_litres: [0.05, 0.2],
+         nouns: [Soft Toothbrush Pack of 2, Charcoal Toothbrush, Kids Toothbrush]}

@@ -29,6 +29,7 @@ from scmgen.core.settings import PROJECT_ROOT, Settings
 from scmgen.db.connection import create_mysql_engine
 from scmgen.db.sql_files import execute_raw, read_sql
 from scmgen.db.workspace_ddl import apply_workspace_ddl, workspace_ddl_files
+from scmgen.generation.packs import available_packs
 
 log = logging.getLogger(__name__)
 
@@ -77,7 +78,8 @@ def validate_code(code: str) -> str:
     return code
 
 
-def validate_industries(industries: list[str]) -> list[str]:
+def validate_industries(industries: list[str], available: list[str] | None = None) -> list[str]:
+    """Clean and check industry codes; with ``available``, each must be a shipped industry pack."""
     cleaned = [item.strip() for item in industries if item.strip()]
     if not cleaned:
         raise WorkspaceError("At least one industry is required (e.g. --industries beauty,electronics)")
@@ -86,6 +88,10 @@ def validate_industries(industries: list[str]) -> list[str]:
         raise WorkspaceError(f"Invalid industry code(s): {', '.join(bad)} (lower-case letters, digits, underscores)")
     if len(set(cleaned)) != len(cleaned):
         raise WorkspaceError("Industries must not repeat")
+    if available is not None:
+        unknown = [item for item in cleaned if item not in available]
+        if unknown:
+            raise WorkspaceError(f"No industry pack for: {', '.join(unknown)} (available: {', '.join(available)})")
     return cleaned
 
 
@@ -207,7 +213,7 @@ def create_workspace(
 ) -> WorkspaceInfo:
     """Register a workspace and build its schemas (empty: data generation is Phase 3)."""
     code = validate_code(code)
-    industries = validate_industries(industries)
+    industries = validate_industries(industries, available_packs())
     company_name = company_name.strip()
     if not 1 <= len(company_name) <= 200:
         raise WorkspaceError("Company name must be 1-200 characters")

@@ -18,6 +18,8 @@ from scmgen.db.bootstrap import init_database
 from scmgen.db.connection import create_mysql_engine, verify_connection
 from scmgen.db.design_check import run_design_check
 from scmgen.generation.config import load_generation_config
+from scmgen.generation.packs import available_packs, load_packs
+from scmgen.generation.seed import load_seed
 from scmgen.db.server_check import evaluate_server, fetch_server_info
 from scmgen.db.workspaces import WorkspaceInfo, create_workspace, delete_workspace, get_workspace, list_workspaces
 
@@ -265,6 +267,29 @@ def generate_config(
     typer.echo(f"environment       app {environment['app_version']}, Python {environment['python']}, "
                f"Faker {environment['faker']}")
     typer.echo(f"config hash       {config.config_hash()}")
+
+
+@generate_app.command("packs")
+def generate_packs(
+    industries: Annotated[str | None, typer.Option(
+        "--industries", help="Comma-separated packs to check together (default: every shipped pack).")] = None,
+) -> None:
+    """Check the seed data and industry packs, and summarise each pack."""
+    _bootstrap()
+    codes = [c.strip() for c in industries.split(",")] if industries else available_packs()
+    try:
+        seed = load_seed()
+        packs = load_packs(codes, seed)
+    except ScmgenError as exc:
+        _fail(exc, "generate.packs.error")
+    typer.echo(f"Seed data OK: {len(seed.states)} states, {len(seed.cities)} cities, {len(seed.accounts)} accounts, "
+               f"{len(seed.expense_categories)} expense categories")
+    typer.echo(f"{'PACK':<14}{'BUSINESS UNIT':<26}{'CATEGORIES':>11}{'PRODUCT TYPES':>15}{'BRANDS':>8}{'EVENTS':>8}{'B2B SALES':>11}")
+    for pack in packs:
+        typer.echo(f"{pack.code:<14}{pack.business_unit_code + ' ' + pack.business_unit_name:<26}"
+                   f"{len(pack.categories):>11}{len(pack.leaves):>15}{len(pack.brands):>8}{len(pack.events):>8}"
+                   f"{pack.b2b_sales_share:>10.0%}")
+    typer.secho("Packs OK.", fg=typer.colors.GREEN)
 
 
 if __name__ == "__main__":  # pragma: no cover

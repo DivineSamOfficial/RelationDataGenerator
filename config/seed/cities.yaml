@@ -13,6 +13,7 @@ cities:
   - {city: Kanpur, state_code: UP, pin_prefix: "208", latitude: 26.4499, longitude: 80.3319, weight: 3}
   - {city: Agra, state_code: UP, pin_prefix: "282", latitude: 27.1767, longitude: 78.0081, weight: 2}
   - {city: Varanasi, state_code: UP, pin_prefix: "221", latitude: 25.3176, longitude: 82.9739, weight: 2}
+  - {city: Moradabad, state_code: UP, pin_prefix: "244", latitude: 28.8386, longitude: 78.7733, weight: 1}
   - {city: Jaipur, state_code: RJ, pin_prefix: "302", latitude: 26.9124, longitude: 75.7873, weight: 4}
   - {city: Jodhpur, state_code: RJ, pin_prefix: "342", latitude: 26.2389, longitude: 73.0243, weight: 2}
   - {city: Udaipur, state_code: RJ, pin_prefix: "313", latitude: 24.5854, longitude: 73.7125, weight: 1}

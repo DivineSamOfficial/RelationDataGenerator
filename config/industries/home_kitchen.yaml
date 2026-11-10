@@ -1,0 +1,130 @@
+# Industry pack: Home & Kitchen (1A §8.3). Format: see electronics.yaml.
+# Mixed GST slabs, festive and wedding-season spikes, bulky / fragile items with higher damage rates.
+# Brand names are invented; GST rates are illustrative (D17 pattern), not tax advice.
+
+code: home_kitchen
+name: Home & Kitchen
+business_unit: {code: HOME, name: Home & Kitchen}
+
+customers:
+  b2b_sales_share: 0.70
+  credit_terms:
+    B2B: {NET30: 0.50, NET45: 0.20, NET15: 0.20, 2_10_NET30: 0.10}
+    B2C: {ADVANCE: 0.70, COD: 0.30}
+  sales_channels:
+    B2B: {FIELD_SALES: 0.40, PHONE: 0.25, WHATSAPP: 0.20, WEBSITE: 0.15}
+    B2C: {WEBSITE: 0.25, MOBILE_APP: 0.20, MARKETPLACE: 0.35, RETAIL_STORE: 0.15, WHATSAPP: 0.05}
+  marketing_channels:
+    B2B: {FIELD_SALES: 0.40, TRADE_SHOW: 0.20, REFERRAL: 0.20, DIRECT: 0.20}
+    B2C: {FACEBOOK: 0.15, INSTAGRAM: 0.15, YOUTUBE: 0.10, GOOGLE_ADS: 0.15, MARKETPLACE_ADS: 0.15,
+          ORGANIC_SEARCH: 0.10, EMAIL: 0.05, REFERRAL: 0.07, DIRECT: 0.08}
+marketplace_commission_percent: 15
+
+seasonality: [0.95, 0.90, 0.95, 1.05, 1.10, 0.85, 0.80, 0.85, 1.00, 1.35, 1.25, 0.95]
+events:
+  - {name: New Home Fest, month: 1, day: 10, days: 10, uplift: 1.15, channels: [FACEBOOK, GOOGLE_ADS]}
+  - {name: Akshaya Tritiya Offers, month: 4, day: 20, days: 7, uplift: 1.25, channels: [INSTAGRAM, FACEBOOK]}
+  - {name: Wedding Season Gifting, month: 5, day: 1, days: 21, uplift: 1.20, channels: [INSTAGRAM, EMAIL]}
+  - {name: Monsoon Home Makeover, month: 7, day: 15, days: 14, uplift: 1.10, channels: [YOUTUBE, GOOGLE_ADS]}
+  - {name: Big Festive Sale, month: 9, day: 25, days: 14, uplift: 1.50, channels: [MARKETPLACE_ADS, FACEBOOK]}
+  - {name: Dhanteras Kitchen Week, month: 10, day: 18, days: 8, uplift: 1.70, channels: [INSTAGRAM, GOOGLE_ADS, EMAIL]}
+  - {name: Housewares Trade Fair, month: 2, day: 10, days: 4, uplift: 1.10, channels: [TRADE_SHOW]}
+  - {name: Year End Clearance, month: 12, day: 22, days: 9, uplift: 1.15, channels: [EMAIL, MARKETPLACE_ADS]}
+
+returns:
+  b2c_return_rate: 0.05
+  b2b_return_rate: 0.02
+  defective_share: 0.30
+  transit_damage_rate: 0.012           # glass and ceramics break in transit
+
+suppliers:
+  hubs: [Rajkot, Moradabad, Ludhiana, Mumbai, Coimbatore, Tiruppur, Jaipur]
+  name_suffixes: [Steel Industries, Housewares, Polymers, Home Textiles, Glass Works, Metalcraft]
+  monthly_cost_drift: [0.003, 0.007]
+  lead_time_days: [6, 25]
+
+pricing:
+  list_price_ratio: [0.75, 0.88]
+  gross_margin: [0.18, 0.32]
+
+brands:
+  - {code: RASOIRAJ, name: Rasoi Raj, tier: MID, categories: [HOME-COOK, HOME-DINE]}
+  - {code: TRIVENI-STL, name: Triveni Steel, tier: ECONOMY, categories: [HOME-COOK, HOME-DINE, HOME-STOR]}
+  - {code: ANAYA-HOME, name: Anaya Home, tier: PREMIUM, categories: [HOME-DINE, HOME-FURN, HOME-DECO]}
+  - {code: KUMBHAKAR, name: Kumbhakar Ceramics, tier: MID, categories: [HOME-DINE, HOME-DECO]}
+  - {code: SAFEKEEP, name: Safekeep, tier: ECONOMY, categories: [HOME-STOR, HOME-CLN]}
+  - {code: NIDRA, name: Nidra Linens, tier: MID, categories: [HOME-FURN]}
+  - {code: KAPAS, name: Kapas Cotton Co, tier: ECONOMY, categories: [HOME-FURN]}
+  - {code: DEEPIKA-LTS, name: Deepika Lights, tier: MID, categories: [HOME-DECO]}
+  - {code: CHAMAK, name: Chamak, tier: ECONOMY, categories: [HOME-CLN, HOME-STOR]}
+  - {code: LUXORIO, name: Luxorio, tier: PREMIUM, categories: [HOME-COOK, HOME-DECO]}
+  - {code: KS-HOME, name: KS Home Basics, tier: ECONOMY, private_label: true, categories: [HOME-STOR, HOME-CLN, HOME-FURN]}
+
+name_series: [Classic, Royal, Eco, Smart, Prestige Line, Daily, Elegance, Heritage, Fresh, Neo]
+categories:
+  - code: HOME-COOK
+    name: Cookware
+    return_window_days: 10
+    children:
+      - {code: HOME-COOK-PRC, name: Pressure Cookers, share: 6, hsn: "76151030", gst: {before: 12, after: 5}, uom: PCS,
+         mrp: {ECONOMY: [899, 1599], MID: [1600, 2999], PREMIUM: [3000, 6999]}, weight_kg: [1.5, 4.5], volume_litres: [6, 18],
+         warranty_months: 60, nouns: [Pressure Cooker], variants: [{label: 3 L, price_factor: 1.0}, {label: 5 L, price_factor: 1.35}, {label: 7.5 L, price_factor: 1.8}]}
+      - {code: HOME-COOK-NST, name: Non-stick Cookware, share: 6, hsn: "76151090", gst: {before: 12, after: 5}, uom: PCS,
+         mrp: {ECONOMY: [499, 999], MID: [1000, 2499], PREMIUM: [2500, 7999]}, weight_kg: [0.6, 2.5], volume_litres: [3, 12],
+         warranty_months: 12, nouns: [Non-stick Fry Pan, Non-stick Tawa, Non-stick Cookware Set]}
+      - {code: HOME-COOK-KAD, name: Kadai & Tawa, share: 4, hsn: "73239390", gst: {before: 12, after: 5}, uom: PCS,
+         mrp: {ECONOMY: [399, 899], MID: [900, 1999], PREMIUM: [2000, 4999]}, weight_kg: [0.8, 3.0], volume_litres: [3, 10],
+         nouns: [Stainless Steel Kadai, Iron Tawa, Triply Kadai]}
+  - code: HOME-DINE
+    name: Dining & Serveware
+    return_window_days: 10
+    children:
+      - {code: HOME-DINE-DNS, name: Dinner Sets, share: 5, hsn: "69120040", gst: {before: 12, after: 5}, uom: SET,
+         mrp: {ECONOMY: [999, 2499], MID: [2500, 5999], PREMIUM: [6000, 19999]}, weight_kg: [3.0, 9.0], volume_litres: [15, 40],
+         nouns: [Ceramic Dinner Set 24 Pieces, Melamine Dinner Set 32 Pieces, Bone China Dinner Set 18 Pieces]}
+      - {code: HOME-DINE-GLS, name: Glassware, share: 4, hsn: "70133700", gst: {before: 18, after: 18}, uom: SET,
+         mrp: {ECONOMY: [299, 699], MID: [700, 1499], PREMIUM: [1500, 4999]}, weight_kg: [0.8, 2.5], volume_litres: [3, 9],
+         nouns: [Water Glass Set of 6, Tumbler Set of 6, Juice Glass Set of 6]}
+      - {code: HOME-DINE-CUT, name: Cutlery, share: 4, hsn: "82159900", gst: {before: 12, after: 5}, uom: SET,
+         mrp: {ECONOMY: [199, 599], MID: [600, 1499], PREMIUM: [1500, 4999]}, weight_kg: [0.3, 1.5], volume_litres: [0.8, 3],
+         nouns: [Spoon Set of 6, Cutlery Set 24 Pieces, Serving Spoon Set]}
+  - code: HOME-STOR
+    name: Storage & Containers
+    return_window_days: 7
+    children:
+      - {code: HOME-STOR-CNT, name: Storage Containers, share: 6, hsn: "39241090", gst: {before: 18, after: 18}, uom: SET,
+         mrp: {ECONOMY: [199, 499], MID: [500, 1199], PREMIUM: [1200, 2999]}, weight_kg: [0.4, 2.0], volume_litres: [3, 15],
+         nouns: [Airtight Container Set of 3, Kitchen Storage Jar Set of 6, Modular Container Set of 12]}
+      - {code: HOME-STOR-BOT, name: Water Bottles, share: 5, hsn: "39241090", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [99, 299], MID: [300, 799], PREMIUM: [800, 1999]}, weight_kg: [0.1, 0.5], volume_litres: [0.6, 1.5],
+         nouns: [Water Bottle 1 L, Insulated Bottle 750 ml, Fridge Bottle Set of 3], colours: [Blue, Green, Grey, Pink]}
+  - code: HOME-FURN
+    name: Home Furnishing
+    return_window_days: 10
+    children:
+      - {code: HOME-FURN-BSH, name: Bedsheets, share: 6, hsn: "63022100", gst: {before: 12, after: 5}, uom: SET,
+         mrp: {ECONOMY: [399, 899], MID: [900, 2199], PREMIUM: [2200, 6999]}, weight_kg: [0.6, 1.8], volume_litres: [2, 6],
+         nouns: [Cotton Double Bedsheet with 2 Pillow Covers, Printed Single Bedsheet, King Size Bedsheet Set], colours: [Indigo, Ivory, Maroon, Sage]}
+      - {code: HOME-FURN-TWL, name: Towels, share: 4, hsn: "63026010", gst: {before: 12, after: 5}, uom: PCS,
+         mrp: {ECONOMY: [149, 399], MID: [400, 899], PREMIUM: [900, 2499]}, weight_kg: [0.2, 0.8], volume_litres: [0.8, 3],
+         nouns: [Bath Towel, Hand Towel Set of 2, Face Towel Set of 4], colours: [White, Navy, Teal]}
+      - {code: HOME-FURN-CSH, name: Cushion Covers, share: 3, hsn: "63049239", gst: {before: 12, after: 5}, uom: SET,
+         mrp: {ECONOMY: [199, 499], MID: [500, 1199], PREMIUM: [1200, 2999]}, weight_kg: [0.2, 0.7], volume_litres: [0.8, 3],
+         nouns: [Cushion Cover Set of 5, Embroidered Cushion Cover Set of 2]}
+  - code: HOME-DECO
+    name: Lighting & Decor
+    return_window_days: 7
+    children:
+      - {code: HOME-DECO-LED, name: LED Bulbs & Lamps, share: 5, hsn: "85395000", gst: {before: 12, after: 5}, uom: PCS,
+         mrp: {ECONOMY: [79, 249], MID: [250, 899], PREMIUM: [900, 3999]}, weight_kg: [0.05, 1.5], volume_litres: [0.3, 8],
+         warranty_months: 12, nouns: [LED Bulb 9W, LED Bulb 12W, LED Table Lamp, LED Batten 20W]}
+      - {code: HOME-DECO-CLK, name: Wall Clocks, share: 3, hsn: "91052100", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [299, 699], MID: [700, 1799], PREMIUM: [1800, 5999]}, weight_kg: [0.4, 1.5], volume_litres: [2, 8],
+         warranty_months: 6, nouns: [Round Wall Clock, Pendulum Wall Clock, Silent Sweep Wall Clock]}
+  - code: HOME-CLN
+    name: Cleaning Supplies
+    return_window_days: 7
+    children:
+      - {code: HOME-CLN-MOP, name: Mops & Brushes, share: 4, hsn: "96039000", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [149, 399], MID: [400, 999], PREMIUM: [1000, 2999]}, weight_kg: [0.3, 2.5], volume_litres: [3, 20],
+         nouns: [Spin Mop with Bucket, Floor Cleaning Brush, Microfibre Mop]}

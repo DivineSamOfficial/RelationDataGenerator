@@ -8,6 +8,7 @@ defaults:
   preset: medium
   fiscal_year_start_month: 4      # April (D7); must match companies.fy_start_month
   batch_size: 1000                # rows per multi-row INSERT statement (1G §2.5)
+  gst_rate_revision: true         # apply the 22 Sep 2025 GST rate change from the industry packs (D17)
   history:
     start_date: null              # first simulated day (YYYY-MM-DD); null = end_date minus the preset's history_months
     end_date: null                # last simulated day; null = yesterday (IST). Today or later needs allow_future (D68)

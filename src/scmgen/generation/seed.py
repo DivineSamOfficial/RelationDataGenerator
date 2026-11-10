@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Mapping
@@ -69,6 +70,7 @@ class SeedData:
     accounts: tuple[dict[str, Any], ...]           # COA skeleton, parents before children
     derived_accounts: Mapping[str, dict[str, Any]]
     expense_categories: tuple[dict[str, Any], ...]
+    gst_rate_revision: Mapping[str, Any]            # {effective_date: date, notification_reference: str} (D17)
 
     def state(self, state_code: str) -> dict[str, Any]:
         for row in self.states:
@@ -260,7 +262,13 @@ def load_seed(config_dir: Path = DEFAULT_CONFIG_DIR) -> SeedData:
         if category.get("is_itc_eligible") and not (rate and rate > 0):
             problems.append(f"expense category {category.get('category_code')}: input credit needs a GST rate > 0")
 
+    revision = reference.get("gst_rate_revision")
+    if not isinstance(revision, dict) or not isinstance(revision.get("effective_date"), date) \
+            or not 0 < len(str(revision.get("notification_reference") or "")) <= 60:
+        problems.append("reference.yaml: gst_rate_revision needs an effective_date and a notification_reference (<= 60)")
+        revision = {}
+
     if problems:
         raise SeedError("Seed data problems:\n  - " + "\n  - ".join(problems))
     return SeedData(states=states, cities=cities, accounts=accounts, derived_accounts=dict(derived),
-                    expense_categories=expense_categories, **tables)
+                    expense_categories=expense_categories, gst_rate_revision=dict(revision), **tables)

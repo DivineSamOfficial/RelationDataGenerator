@@ -1,0 +1,149 @@
+# Industry pack: Consumer Electronics (1A §8.3, D11). This file is the commented reference for the
+# pack format; the other packs follow it. Everything here is data: the engine holds no industry logic.
+#
+# All brand names are invented. GST rates are illustrative for synthetic data (they follow the pattern
+# of the 22 Sep 2025 rationalisation, D17: most 28% -> 18%, most 12% -> 5%), not tax advice.
+
+code: electronics                      # = file name = business_units.industry_pack_code
+name: Consumer Electronics
+business_unit: {code: ELEC, name: Consumer Electronics}
+
+customers:
+  b2b_sales_share: 0.80                # share of NET SALES VALUE from B2B (D2, D23); counts are in presets
+  credit_terms:                        # payment-term mix per customer type (shares sum to 1)
+    B2B: {NET30: 0.45, NET45: 0.20, NET15: 0.25, 2_10_NET30: 0.10}
+    B2C: {ADVANCE: 0.72, COD: 0.28}
+  sales_channels:                      # order channel mix per customer type (D10)
+    B2B: {FIELD_SALES: 0.45, PHONE: 0.20, WHATSAPP: 0.15, WEBSITE: 0.20}
+    B2C: {WEBSITE: 0.25, MOBILE_APP: 0.25, MARKETPLACE: 0.30, RETAIL_STORE: 0.15, WHATSAPP: 0.05}
+  marketing_channels:                  # acquisition / attribution mix per customer type
+    B2B: {FIELD_SALES: 0.40, TRADE_SHOW: 0.15, REFERRAL: 0.20, DIRECT: 0.15, GOOGLE_ADS: 0.10}
+    B2C: {GOOGLE_ADS: 0.20, YOUTUBE: 0.15, INSTAGRAM: 0.12, FACEBOOK: 0.08, MARKETPLACE_ADS: 0.15,
+          ORGANIC_SEARCH: 0.12, EMAIL: 0.05, REFERRAL: 0.05, DIRECT: 0.08}
+marketplace_commission_percent: 12
+
+# Demand: 12 monthly factors (Jan..Dec, average 1.0) times the preset's orders_per_day.
+seasonality: [1.05, 0.85, 0.85, 0.95, 1.00, 0.85, 0.85, 0.95, 1.05, 1.40, 1.35, 0.85]
+# Sale events: create marketing campaigns (~8 a year, 1B §4.7) and lift demand while they run.
+events:
+  - {name: Republic Day Sale, month: 1, day: 20, days: 7, uplift: 1.30, channels: [GOOGLE_ADS, MARKETPLACE_ADS]}
+  - {name: Summer Cooling Fest, month: 4, day: 1, days: 30, uplift: 1.15, channels: [GOOGLE_ADS, YOUTUBE]}
+  - {name: Back to College, month: 7, day: 1, days: 21, uplift: 1.15, channels: [INSTAGRAM, YOUTUBE]}
+  - {name: Independence Day Sale, month: 8, day: 10, days: 7, uplift: 1.25, channels: [GOOGLE_ADS, MARKETPLACE_ADS]}
+  - {name: Big Festive Sale, month: 9, day: 25, days: 14, uplift: 1.60, channels: [MARKETPLACE_ADS, YOUTUBE, FACEBOOK]}
+  - {name: Diwali Dhamaka, month: 10, day: 20, days: 14, uplift: 1.80, channels: [GOOGLE_ADS, INSTAGRAM, EMAIL]}
+  - {name: Dealer Meet, month: 11, day: 15, days: 3, uplift: 1.10, channels: [TRADE_SHOW]}
+  - {name: Year End Sale, month: 12, day: 20, days: 10, uplift: 1.20, channels: [EMAIL, FACEBOOK]}
+
+returns:
+  b2c_return_rate: 0.07                # share of delivered B2C lines returned
+  b2b_return_rate: 0.02
+  defective_share: 0.35                # share of returned units failing inspection (warranty-driven)
+  transit_damage_rate: 0.004           # share of shipped units damaged in transit
+
+suppliers:
+  hubs: [Noida, Chennai, Pune, Bengaluru, Hosur]   # cities in config/seed/cities.yaml
+  name_suffixes: [Electronics, Technologies, Electricals, Digital Systems, Components]
+  monthly_cost_drift: [0.002, 0.006]  # reference-cost inflation per month (min, max)
+  lead_time_days: [5, 21]
+
+pricing:
+  list_price_ratio: [0.82, 0.92]       # list price (ex-GST, trade) as a share of MRP excluding GST
+  gross_margin: [0.12, 0.24]           # (list price - supplier cost) / list price
+
+# Brands: tier drives the price band; categories = the level-1 categories the brand sells in.
+brands:
+  - {code: VOLTRIX, name: Voltrix, tier: MID, categories: [ELEC-AUD, ELEC-MOB, ELEC-CMP]}
+  - {code: AURALYN, name: Auralyn, tier: PREMIUM, categories: [ELEC-AUD]}
+  - {code: NIMBUZ, name: Nimbuz, tier: ECONOMY, categories: [ELEC-AUD, ELEC-MOB, ELEC-SAP]}
+  - {code: ORBITRON, name: Orbitron, tier: PREMIUM, categories: [ELEC-MOB, ELEC-CMP, ELEC-TV]}
+  - {code: PIXORA, name: Pixora, tier: MID, categories: [ELEC-TV, ELEC-CMP]}
+  - {code: TEJAS-DIGI, name: Tejas Digital, tier: ECONOMY, categories: [ELEC-TV, ELEC-MOB, ELEC-CMP]}
+  - {code: COOLVAYU, name: Coolvayu, tier: MID, categories: [ELEC-APL]}
+  - {code: HIMSHEETAL, name: Himsheetal Appliances, tier: ECONOMY, categories: [ELEC-APL, ELEC-SAP]}
+  - {code: GRANDORA, name: Grandora, tier: PREMIUM, categories: [ELEC-APL, ELEC-SAP]}
+  - {code: RASOIMATE, name: RasoiMate, tier: MID, categories: [ELEC-SAP]}
+  - {code: GLIDEX, name: Glidex, tier: MID, categories: [ELEC-MOB, ELEC-AUD]}
+  - {code: SPARKO, name: Sparko, tier: ECONOMY, categories: [ELEC-CMP, ELEC-AUD]}
+
+# Category tree (max 3 levels). Leaves define the product template:
+#   share: relative share of the preset's product count; hsn + gst.before/after (rates around 22 Sep 2025;
+#   after <= before so list price + GST stays within MRP, V-MD-18); uom (seed code); mrp per brand tier
+#   (GST-inclusive, rupees); weight_kg / volume_litres ranges; warranty_months; shelf_life_days (expiry);
+#   nouns for product names; optional variants (label, price_factor) and colours; optional seasonality.
+name_series: [Pro, Max, Lite, Neo, Air, Plus, Prime, Ultra, Go, X]
+categories:
+  - code: ELEC-AUD
+    name: Audio
+    return_window_days: 7
+    children:
+      - {code: ELEC-AUD-EAR, name: Earbuds & Earphones, share: 10, hsn: "85183000", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [499, 1499], MID: [1500, 3999], PREMIUM: [4000, 19999]}, weight_kg: [0.05, 0.25], volume_litres: [0.2, 0.8],
+         warranty_months: 12, nouns: [Wireless Earbuds, Neckband Earphones, Wired Earphones], colours: [Black, White, Blue]}
+      - {code: ELEC-AUD-HDP, name: Headphones, share: 4, hsn: "85183000", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [999, 2499], MID: [2500, 6999], PREMIUM: [7000, 29999]}, weight_kg: [0.2, 0.5], volume_litres: [1.5, 4.0],
+         warranty_months: 12, nouns: [Over-Ear Headphones, On-Ear Headphones], colours: [Black, Grey]}
+      - {code: ELEC-AUD-SPK, name: Bluetooth Speakers, share: 5, hsn: "85182200", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [799, 1999], MID: [2000, 6999], PREMIUM: [7000, 24999]}, weight_kg: [0.3, 2.5], volume_litres: [1.0, 8.0],
+         warranty_months: 12, nouns: [Portable Speaker, Party Speaker, Soundbar]}
+  - code: ELEC-MOB
+    name: Mobiles & Wearables
+    return_window_days: 7
+    children:
+      - {code: ELEC-MOB-PHN, name: Smartphones, share: 8, hsn: "85171300", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [6999, 12999], MID: [13000, 29999], PREMIUM: [30000, 89999]}, weight_kg: [0.35, 0.6], volume_litres: [0.8, 1.5],
+         warranty_months: 12, nouns: [Smartphone], variants: [{label: 4GB/64GB, price_factor: 1.0}, {label: 6GB/128GB, price_factor: 1.18}, {label: 8GB/256GB, price_factor: 1.4}]}
+      - {code: ELEC-MOB-WCH, name: Smartwatches, share: 5, hsn: "85176290", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [1299, 2999], MID: [3000, 7999], PREMIUM: [8000, 34999]}, weight_kg: [0.1, 0.3], volume_litres: [0.3, 0.8],
+         warranty_months: 12, nouns: [Smartwatch, Fitness Band], colours: [Black, Rose Gold, Silver]}
+      - {code: ELEC-MOB-PWB, name: Power Banks & Chargers, share: 6, hsn: "85076000", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [399, 999], MID: [1000, 2499], PREMIUM: [2500, 5999]}, weight_kg: [0.1, 0.45], volume_litres: [0.2, 0.6],
+         warranty_months: 6, nouns: [Power Bank 10000mAh, Power Bank 20000mAh, Fast Charger 33W, Fast Charger 65W]}
+  - code: ELEC-CMP
+    name: Computers & Accessories
+    return_window_days: 10
+    children:
+      - {code: ELEC-CMP-LAP, name: Laptops, share: 5, hsn: "84713010", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [24999, 39999], MID: [40000, 69999], PREMIUM: [70000, 179999]}, weight_kg: [1.8, 3.2], volume_litres: [6.0, 12.0],
+         warranty_months: 12, nouns: [Laptop 14-inch, Laptop 15.6-inch], variants: [{label: 8GB/512GB, price_factor: 1.0}, {label: 16GB/512GB, price_factor: 1.15}, {label: 16GB/1TB, price_factor: 1.3}]}
+      - {code: ELEC-CMP-MON, name: Monitors, share: 4, hsn: "85285200", gst: {before: 28, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [6999, 10999], MID: [11000, 21999], PREMIUM: [22000, 64999]}, weight_kg: [3.0, 8.0], volume_litres: [25, 60],
+         warranty_months: 36, nouns: [Monitor 24-inch, Monitor 27-inch, Curved Monitor 32-inch]}
+      - {code: ELEC-CMP-ACC, name: Keyboards & Mice, share: 6, hsn: "84716060", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [299, 999], MID: [1000, 2999], PREMIUM: [3000, 9999]}, weight_kg: [0.08, 1.2], volume_litres: [0.3, 3.0],
+         warranty_months: 12, nouns: [Wireless Mouse, Mechanical Keyboard, Keyboard and Mouse Combo]}
+  - code: ELEC-TV
+    name: TV & Video
+    return_window_days: 10
+    children:
+      - {code: ELEC-TV-LED, name: Smart LED Televisions, share: 5, hsn: "85287217", gst: {before: 28, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [11999, 19999], MID: [20000, 44999], PREMIUM: [45000, 189999]}, weight_kg: [5.0, 22.0], volume_litres: [60, 260],
+         warranty_months: 12, nouns: [Smart TV], variants: [{label: 32-inch, price_factor: 1.0}, {label: 43-inch, price_factor: 1.55}, {label: 55-inch, price_factor: 2.4}],
+         seasonality: [1.0, 0.8, 0.8, 0.85, 0.9, 0.8, 0.8, 0.95, 1.1, 1.6, 1.5, 0.9]}
+  - code: ELEC-APL
+    name: Large Appliances
+    return_window_days: 10
+    children:
+      - {code: ELEC-APL-ACN, name: Air Conditioners, share: 4, hsn: "84151010", gst: {before: 28, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [26999, 32999], MID: [33000, 44999], PREMIUM: [45000, 79999]}, weight_kg: [35, 60], volume_litres: [250, 450],
+         warranty_months: 12, nouns: [Split AC 1 Ton, Split AC 1.5 Ton, Inverter Split AC 1.5 Ton],
+         seasonality: [0.5, 0.7, 1.4, 2.0, 2.2, 1.6, 0.9, 0.7, 0.6, 0.6, 0.4, 0.4]}
+      - {code: ELEC-APL-WSH, name: Washing Machines, share: 3, hsn: "84501100", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [12999, 17999], MID: [18000, 32999], PREMIUM: [33000, 64999]}, weight_kg: [25, 70], volume_litres: [250, 420],
+         warranty_months: 24, nouns: [Top Load Washing Machine 7kg, Front Load Washing Machine 8kg]}
+      - {code: ELEC-APL-REF, name: Refrigerators, share: 3, hsn: "84182100", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [14999, 21999], MID: [22000, 39999], PREMIUM: [40000, 99999]}, weight_kg: [35, 90], volume_litres: [400, 900],
+         warranty_months: 12, nouns: [Single Door Refrigerator 190L, Double Door Refrigerator 260L, Side-by-Side Refrigerator 600L]}
+  - code: ELEC-SAP
+    name: Small Appliances
+    return_window_days: 7
+    children:
+      - {code: ELEC-SAP-MIX, name: Mixer Grinders, share: 5, hsn: "85094010", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [1499, 2999], MID: [3000, 5999], PREMIUM: [6000, 14999]}, weight_kg: [2.5, 6.0], volume_litres: [10, 25],
+         warranty_months: 24, nouns: [Mixer Grinder 500W, Mixer Grinder 750W, Juicer Mixer Grinder]}
+      - {code: ELEC-SAP-IRN, name: Irons, share: 3, hsn: "85164000", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [499, 999], MID: [1000, 2499], PREMIUM: [2500, 6999]}, weight_kg: [0.8, 2.0], volume_litres: [2.0, 5.0],
+         warranty_months: 24, nouns: [Dry Iron, Steam Iron]}
+      - {code: ELEC-SAP-KET, name: Electric Kettles, share: 3, hsn: "85167990", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [599, 1199], MID: [1200, 2499], PREMIUM: [2500, 4999]}, weight_kg: [0.7, 1.6], volume_litres: [2.0, 5.0],
+         warranty_months: 12, nouns: [Electric Kettle 1.5L, Electric Kettle 1.8L]}
