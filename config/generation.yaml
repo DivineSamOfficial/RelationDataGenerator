@@ -116,3 +116,13 @@ master_data:
     history_years: 2                       # past campaigns generated for this many years before day 0
     cancelled_share: 0.05
     budget: [200000, 1500000]              # rupees per campaign, before the event's uplift
+
+# Daily engine (1G §2.2). Calendar: warehouses close on the weekly off day and national holidays (MM-DD).
+daily:
+  weekly_off: [SUNDAY]
+  national_holidays: ["01-26", "08-15", "10-02"]   # Republic Day, Independence Day, Gandhi Jayanti
+  period_close_day: 7              # a month is closed on this day of the next month (or the next working day)
+  progress_every_days: 7           # progress row update frequency (the control panel polls it)
+  new_products_per_year: 0.08      # launches per year as a share of the catalogue (1B: ~15% over the history)
+  discontinued_per_year: 0.04      # 1B: 3-5% of products discontinued per year
+  campaign_lead_days: 30           # campaigns are created this long before they start

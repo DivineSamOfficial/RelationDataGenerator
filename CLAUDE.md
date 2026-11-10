@@ -142,6 +142,7 @@ Priorities: correct architecture, relational integrity, realistic business proce
 - Faker only for master data attributes; transactions come from business logic.
 - Every journal entry balances. Inventory never goes negative. Returns never exceed delivered quantity.
 - Deterministic with a seed. Batch inserts, not row-by-row.
+- Engine memory must be derivable from committed rows (D66): every counter or cache is rebuilt from the database at run start; the one-run vs split-run checksum test guards it.
 - Validation rules live in the design docs (`| V-XX-NN | rule |`); every implemented check needs a passing case and a mutation test that makes it fail.
 - **Default mode always produces clean, valid data.** Anomalies only in the explicit Anomaly Simulation Mode, isolated in `scm_<code>_sim`. Never silently corrupt clean data.
 - All names, addresses and GSTINs are fictional.

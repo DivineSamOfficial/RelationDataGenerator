@@ -360,6 +360,45 @@ def generate_master_data_command(
         raise typer.Exit(1)
 
 
+@generate_app.command("history")
+def generate_history_command(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+    preset: Annotated[str | None, typer.Option("--preset", help="small, medium or large (default from config).")] = None,
+    days: Annotated[int | None, typer.Option("--days", help="Simulate only this many days.")] = None,
+    sets: Annotated[list[str], typer.Option("--set", help="Override a setting (repeatable).")] = [],
+    force: Annotated[bool, typer.Option("--force", help="Run although the last validation failed.")] = False,
+) -> None:
+    """Generate master data (if missing) and simulate day by day up to the configured end date."""
+    from scmgen.generation.engine import generate_history
+
+    settings = _bootstrap()
+    try:
+        config = load_generation_config(preset=preset, overrides=_parse_sets(sets))
+        result = generate_history(settings, code, config, days=days, force=force)
+    except ScmgenError as exc:
+        _fail(exc, "generate.history.error")
+    if result.master_data_rows:
+        typer.echo(f"Master data: {result.master_data_rows:,} rows on day 0")
+    if result.status == "NOTHING_TO_DO":
+        typer.echo("Nothing to simulate: the workspace is already up to the end date.")
+        return
+    typer.echo(f"Run {result.run_number}: {result.status}, {result.days} day(s) "
+               f"{result.first_day} .. {result.last_day} in {result.seconds:.1f}s")
+    for table, rows in sorted(result.rows_by_table.items()):
+        typer.echo(f"  {table:<28}{rows:>8,}")
+    counts = result.report.counts
+    colour = typer.colors.GREEN if result.report.passed else typer.colors.RED
+    typer.secho(f"Validation {'PASSED' if result.report.passed else 'FAILED'}: {counts['PASSED']} passed, "
+                f"{counts['FAILED']} failed, {counts['ERROR']} errors, {counts['PENDING']} pending "
+                f"-> {result.report_path}", fg=colour)
+    for check_result in result.report.results:
+        if check_result.status in ("FAILED", "ERROR"):
+            typer.echo(f"  {check_result.rule_id}: {check_result.message or ''} {check_result.sample[:2]}")
+    typer.echo(f"Workspace status: {result.workspace_status}")
+    if not result.report.passed:
+        raise typer.Exit(1)
+
+
 @generate_app.command("packs")
 def generate_packs(
     industries: Annotated[str | None, typer.Option(

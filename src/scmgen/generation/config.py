@@ -54,6 +54,9 @@ _MASTER_SCHEMA = {
     "suppliers": {"goods_registration", "msme_share", "dispatch_address_share", "per_product"},
     "campaigns": {"history_years", "cancelled_share", "budget"},
 }
+WEEKDAYS = ("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY")
+_DAILY_KEYS = {"weekly_off", "national_holidays", "period_close_day", "progress_every_days", "new_products_per_year",
+               "discontinued_per_year", "campaign_lead_days"}
 B2B_SEGMENTS = ("RETAILER", "WHOLESALER", "CORPORATE", "INSTITUTION", "WORKSHOP")
 _ORG_KEYS = {"job_levels", "warehouse_staff_share", "departments", "warehouse_titles", "chief_executive"}
 JOB_LEVELS = ("EXECUTIVE", "HEAD", "MANAGER", "LEAD", "STAFF")
@@ -107,6 +110,20 @@ class MasterDataSettings:
 
 
 @dataclass(frozen=True)
+class DailySettings:
+    weekly_off: tuple[int, ...]                  # date.weekday() numbers (Monday = 0)
+    national_holidays: tuple[tuple[int, int], ...]   # (month, day)
+    period_close_day: int
+    progress_every_days: int
+    new_products_per_year: float
+    discontinued_per_year: float
+    campaign_lead_days: int
+
+    def is_working_day(self, day: date) -> bool:
+        return day.weekday() not in self.weekly_off and (day.month, day.day) not in self.national_holidays
+
+
+@dataclass(frozen=True)
 class Organisation:
     job_levels: dict[str, JobLevel]
     warehouse_staff_share: float
@@ -128,6 +145,7 @@ class GenerationConfig:
     setup: Setup | None = None
     organisation: Organisation | None = None
     master_data: MasterDataSettings | None = None
+    daily: DailySettings | None = None
 
     @property
     def days(self) -> int:
@@ -228,7 +246,7 @@ def load_generation_config(
     ``today`` exists for tests; it defaults to the real date in IST.
     """
     raw = _read(config_dir / GENERATION_FILE)
-    _reject_unknown(raw, {"defaults", "presets", "setup", "organisation", "master_data"}, GENERATION_FILE)
+    _reject_unknown(raw, {"defaults", "presets", "setup", "organisation", "master_data", "daily"}, GENERATION_FILE)
     defaults, presets = raw.get("defaults"), raw.get("presets")
     if not isinstance(defaults, dict) or not isinstance(presets, dict) or not presets:
         raise ConfigError(f"{GENERATION_FILE} needs a 'defaults' mapping and at least one preset under 'presets'")
@@ -258,6 +276,7 @@ def load_generation_config(
         "setup": copy.deepcopy(raw.get("setup") or {}),
         "organisation": copy.deepcopy(raw.get("organisation") or {}),
         "master_data": copy.deepcopy(raw.get("master_data") or {}),
+        "daily": copy.deepcopy(raw.get("daily") or {}),
     }
     for dotted, value in (overrides or {}).items():
         _apply_override(effective, dotted, _parse_override_value(value) if isinstance(value, str) else value)
@@ -287,7 +306,9 @@ def load_generation_config(
     setup = _parse_setup(effective["setup"])
     organisation = _parse_organisation(effective["organisation"])
     master_data = _parse_master_data(effective["master_data"])
+    daily = _parse_daily(effective["daily"])
     return GenerationConfig(
+        daily=daily,
         master_data=master_data,
         setup=setup,
         organisation=organisation,
@@ -432,4 +453,30 @@ def _parse_master_data(raw: dict[str, Any]) -> MasterDataSettings:
         campaign_history_years=_int(k["history_years"], "master_data.campaigns.history_years", 0, 5),
         campaign_cancelled_share=_share(k["cancelled_share"], "master_data.campaigns.cancelled_share", 0.5),
         campaign_budget=_pair(k["budget"], "master_data.campaigns.budget", 1, 10**10),
+    )
+
+
+def _parse_daily(raw: dict[str, Any]) -> DailySettings:
+    _reject_unknown(raw, _DAILY_KEYS, "daily")
+    missing = sorted(_DAILY_KEYS - set(raw))
+    if missing:
+        raise ConfigError(f"daily is missing: {', '.join(missing)}")
+    off = raw["weekly_off"] or []
+    if not isinstance(off, list) or any(d not in WEEKDAYS for d in off) or len(off) > 2:
+        raise ConfigError(f"daily.weekly_off must list up to two of {', '.join(WEEKDAYS)}")
+    holidays = []
+    for item in raw["national_holidays"] or []:
+        try:
+            month, day = (int(part) for part in str(item).split("-"))
+            date(2001, month, day)
+        except ValueError:
+            raise ConfigError(f"daily.national_holidays: {item!r} is not an MM-DD date") from None
+        holidays.append((month, day))
+    return DailySettings(
+        weekly_off=tuple(WEEKDAYS.index(d) for d in off), national_holidays=tuple(holidays),
+        period_close_day=_int(raw["period_close_day"], "daily.period_close_day", 1, 28),
+        progress_every_days=_int(raw["progress_every_days"], "daily.progress_every_days", 1, 366),
+        new_products_per_year=_share(raw["new_products_per_year"], "daily.new_products_per_year"),
+        discontinued_per_year=_share(raw["discontinued_per_year"], "daily.discontinued_per_year", 0.5),
+        campaign_lead_days=_int(raw["campaign_lead_days"], "daily.campaign_lead_days", 1, 120),
     )

@@ -68,6 +68,8 @@ scmgen generate packs --industries beauty,electronics   # check a combination fo
 ```bash
 scmgen workspace create --code kaveri --company "Kaveri Nexus Distribution Pvt. Ltd." --industries electronics,home_kitchen --seed 42
 scmgen generate master-data -w kaveri --preset small     # day 0: company, GSTINs, warehouses, accounts, employees …
+scmgen generate history -w kaveri --preset small         # master data if missing, then day by day to the end date
+scmgen generate history -w kaveri --days 30              # only the next 30 days (resumes after the last committed day)
 ```
 Reference data lives in `config/seed/`, industry packs in `config/industries/` (`electronics.yaml` documents the format).
 

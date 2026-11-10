@@ -162,9 +162,13 @@ def build_suppliers(ctx: MasterContext) -> None:
 
 def build_supplier_products(ctx: MasterContext) -> None:
     """2-5 approved suppliers per product from its pack, one preferred; cost from the pack margin (1B §4.5)."""
-    rng = ctx.rng("supplier_products")
+    approve_suppliers(ctx, ctx.rng("supplier_products"), ctx.refs.get("products", []))
+
+
+def approve_suppliers(ctx: MasterContext, rng: random.Random, products: list[dict[str, Any]]) -> None:
+    """Approve 2-5 of the pack's goods suppliers for each product (also used for launches by the engine)."""
     low, high = ctx.config.master_data.suppliers_per_product
-    for product in ctx.refs.get("products", []):
+    for product in products:
         pack = product["pack"]
         candidates = ctx.ref("goods_suppliers")[pack.code]
         chosen = rng.sample(candidates, k=min(len(candidates), rng.randint(low, high)))
@@ -213,30 +217,36 @@ def build_campaigns(ctx: MasterContext) -> None:
     per_year: dict[int, int] = {}
     for start, end, pack, event in sorted(planned, key=lambda p: (p[0], p[2].code, p[3].name)):
         per_year[start.year] = per_year.get(start.year, 0) + 1
-        channel = rng.choice(event.channels)
-        if channel == "TRADE_SHOW" or pack.b2b_sales_share == 1:
-            target = "B2B"
-        else:
-            target = "B2C" if pack.b2b_sales_share < 1 else "B2B"
         if start > ctx.setup_day:
             status = "PLANNED"
         elif end >= ctx.setup_day:
             status = "ACTIVE"
         else:
             status = "CANCELLED" if rng.random() < settings.campaign_cancelled_share else "COMPLETED"
-        campaign_id = ctx.ids.next("marketing_campaigns")
-        tag = "".join(c if c.isalpha() else "_" for c in event.name.upper()).strip("_")[:30]
-        budget = Decimal(rng.randint(*settings.campaign_budget)) * event.uplift
-        ctx.add("marketing_campaigns", {
-            "marketing_campaign_id": campaign_id, "campaign_code": codes.campaign_code(start.year, per_year[start.year]),
-            "campaign_name": f"{event.name} {start.year}"[:150], "marketing_channel_id": ctx.ref("marketing_channel")[channel],
-            "business_unit_id": ctx.ref("business_unit")[pack.code], "target_customer_type": target,
-            "season_tag": tag if len(tag) >= 3 else None, "start_date": start, "end_date": end,
-            "budget_amount": money(Decimal(round(budget / 1000) * 1000)), "owner_employee_id": rng.choice(owners),
-            "campaign_status": status,
-        })
-        ctx.refs.setdefault("campaigns", []).append({"id": campaign_id, "channel": channel, "target": target,
-                                                     "start": start, "end": end, "status": status, "pack": pack.code})
+        create_campaign(ctx, rng, pack, event, start, status, per_year[start.year], owners)
+
+
+def create_campaign(ctx: MasterContext, rng: random.Random, pack, event, start: date, status: str, number: int,
+                    owners: list[int]) -> int:
+    """One campaign for a pack sale event (also used by the daily engine, 30 days ahead of the start)."""
+    settings = ctx.config.master_data
+    end = start + timedelta(days=event.days - 1)
+    channel = rng.choice(event.channels)
+    target = "B2B" if channel == "TRADE_SHOW" or pack.b2b_sales_share == 1 else "B2C"
+    campaign_id = ctx.ids.next("marketing_campaigns")
+    tag = "".join(c if c.isalpha() else "_" for c in event.name.upper()).strip("_")[:30]
+    budget = Decimal(rng.randint(*settings.campaign_budget)) * event.uplift
+    ctx.add("marketing_campaigns", {
+        "marketing_campaign_id": campaign_id, "campaign_code": codes.campaign_code(start.year, number),
+        "campaign_name": f"{event.name} {start.year}"[:150], "marketing_channel_id": ctx.ref("marketing_channel")[channel],
+        "business_unit_id": ctx.ref("business_unit")[pack.code], "target_customer_type": target,
+        "season_tag": tag if len(tag) >= 3 else None, "start_date": start, "end_date": end,
+        "budget_amount": money(Decimal(round(budget / 1000) * 1000)), "owner_employee_id": rng.choice(owners),
+        "campaign_status": status,
+    })
+    ctx.refs.setdefault("campaigns", []).append({"id": campaign_id, "channel": channel, "target": target,
+                                                 "start": start, "end": end, "status": status, "pack": pack.code})
+    return campaign_id
 
 
 # ------------------------------------------------------------------------------------------ customers
