@@ -80,33 +80,42 @@ def header_amounts_equal_lines(ctx: ValidationContext) -> Rows:
     return found
 
 
+def status_chain_problems(ctx: ValidationContext, document: str, table: str, key: str, status_column: str,
+                          transitions: set[tuple[str | None, str]]) -> Rows:
+    """Documents whose ``<document>_status_history`` isn't a continuous chain of allowed transitions ending at
+    the header's status (1C §2.2; shared by every process with a status history)."""
+    history: dict[int, list[tuple[str | None, str]]] = defaultdict(list)
+    for row in ctx.rows(f"SELECT {key} AS id, from_status, to_status FROM {document}_status_history "
+                        f"ORDER BY {key}, changed_at, {document}_status_history_id"):
+        history[row["id"]].append((row["from_status"], row["to_status"]))
+    found: Rows = []
+    for row in ctx.rows(f"SELECT {key} AS id, {status_column} AS status FROM {table} ORDER BY {key}"):
+        chain = history.get(row["id"], [])
+        problem = None
+        if not chain:
+            problem = "no status history"
+        elif chain[0][0] is not None:
+            problem = "first entry has a from-status"
+        elif any(chain[i][0] != chain[i - 1][1] for i in range(1, len(chain))):
+            problem = "chain broken"
+        elif chain[-1][1] != row["status"]:
+            problem = f"history ends at {chain[-1][1]}, header is {row['status']}"
+        else:
+            bad = [step for step in chain if step not in transitions]
+            if bad:
+                problem = f"transition {bad[0][0]} → {bad[0][1]} not allowed"
+        if problem:
+            found.append({"document": document, "document_id": row["id"], "problem": problem})
+    return found
+
+
 @check("V-PR-02")
 def status_histories_are_continuous(ctx: ValidationContext) -> Rows:
     """Each document's history starts with no from-status, each from-status is the previous to-status,
     the last to-status is the header's status, and every step is an allowed transition."""
     found: Rows = []
     for document, (table, key, status_column) in HEADERS.items():
-        history: dict[int, list[tuple[str | None, str]]] = defaultdict(list)
-        for row in ctx.rows(f"SELECT {key} AS id, from_status, to_status FROM {document}_status_history "
-                            f"ORDER BY {key}, changed_at, {document}_status_history_id"):
-            history[row["id"]].append((row["from_status"], row["to_status"]))
-        for row in ctx.rows(f"SELECT {key} AS id, {status_column} AS status FROM {table} ORDER BY {key}"):
-            chain = history.get(row["id"], [])
-            problem = None
-            if not chain:
-                problem = "no status history"
-            elif chain[0][0] is not None:
-                problem = "first entry has a from-status"
-            elif any(chain[i][0] != chain[i - 1][1] for i in range(1, len(chain))):
-                problem = "chain broken"
-            elif chain[-1][1] != row["status"]:
-                problem = f"history ends at {chain[-1][1]}, header is {row['status']}"
-            else:
-                bad = [step for step in chain if step not in TRANSITIONS[document]]
-                if bad:
-                    problem = f"transition {bad[0][0]} → {bad[0][1]} not allowed"
-            if problem:
-                found.append({"document": document, "document_id": row["id"], "problem": problem})
+        found += status_chain_problems(ctx, document, table, key, status_column, TRANSITIONS[document])
     return found
 
 

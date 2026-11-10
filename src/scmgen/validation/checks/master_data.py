@@ -381,6 +381,7 @@ EMPLOYEE_REFERENCES = (
     ("goods_inspections", "inspected_by_employee_id", "DATE(inspected_at)", None),
     ("supplier_invoices", "approved_by_employee_id", "DATE(approved_at)", "total_amount"),
     ("supplier_payments", "approved_by_employee_id", "payment_date", "amount"),
+    ("orders", "sales_employee_id", "order_date", None),
 )
 
 

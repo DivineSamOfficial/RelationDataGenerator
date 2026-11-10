@@ -161,6 +161,30 @@ def test_invalid_settings_are_refused(overrides, message):
         load_generation_config(today=TODAY, overrides=overrides)
 
 
+def test_sales_settings_load_and_weekday_factors_average_one():
+    sales = load_generation_config(preset="small", today=TODAY).sales
+    assert sales.cod_share == 0.30 and sales.max_payment_attempts == 3 and sales.b2c_lines[1] == 0.70
+    for kind in ("B2B", "B2C"):
+        assert abs(sum(sales.weekday_factors[kind]) - 7) < 1e-9                  # rescaled to average 1
+        assert len(sales.hours[kind]) == 24
+    assert set(sales.b2b_line_value) == {"RETAILER", "WHOLESALER", "CORPORATE", "INSTITUTION", "WORKSHOP"}
+
+
+@pytest.mark.parametrize("overrides, message", [
+    ({"sales.prepaid_methods": {"UPI": 0.5, "CARD": 0.2}}, "add up"),
+    ({"sales.prepaid_methods": {"UPI": 0.5, "CHEQUE": 0.5}}, "CHEQUE"),
+    ({"sales.hours.B2B": [1, 2, 3]}, "24"),
+    ({"sales.weekday_factors.B2C": [0, 0, 0, 0, 0, 0, 0]}, "not all 0"),
+    ({"sales.b2c_lines": {0: 1.0}}, "whole numbers"),
+    ({"sales.cod_max_value": 500000}, "between"),
+    ({"sales.payment_failure_share": 0.9}, "between 0 and 0.5"),
+    ({"sales.trend_per_year": 5}, "between -0.5 and 2"),
+])
+def test_invalid_sales_settings_are_refused(overrides, message):
+    with pytest.raises(ConfigError, match=message):
+        load_generation_config(today=TODAY, overrides=overrides)
+
+
 def test_future_dates_need_allow_future():
     config = load_generation_config(today=TODAY, overrides={"history.end_date": "2026-12-31",
                                                             "history.allow_future": True})

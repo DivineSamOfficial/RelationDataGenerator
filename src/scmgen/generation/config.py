@@ -68,6 +68,14 @@ _PROCUREMENT_KEYS = {"direct_reorder_max_value", "rfq_max_lines", "rfq_suppliers
                      "invoice_arrival_days", "price_variance_share", "price_variance", "invoice_approval_days",
                      "payment_weekday", "late_payment_share", "late_payment_weeks", "payment_failure_share",
                      "msme_payment_days"}
+_SALES_KEYS = {"trend_per_year", "weekday_factors", "holiday_factor", "hours", "pack_affinity", "b2b_frequency_sigma",
+               "b2b_max_order_share",
+               "b2c_lines", "b2c_quantity", "b2b_lines", "b2b_line_value", "store_pickup_share", "cod_share",
+               "cod_max_value", "prepaid_methods", "payment_failure_share", "payment_retry_share",
+               "max_payment_attempts", "campaign_attribution_share", "campaign_discount", "wholesaler_discount",
+               "volume_discount_min_value", "volume_discount", "b2c_free_shipping_above", "b2c_shipping_charge",
+               "requested_delivery_share", "requested_delivery_days", "credit_check_minutes", "overdue_grace_days",
+               "hold_expiry_days", "hold_override_share"}
 B2B_SEGMENTS = ("RETAILER", "WHOLESALER", "CORPORATE", "INSTITUTION", "WORKSHOP")
 _ORG_KEYS = {"job_levels", "warehouse_staff_share", "departments", "warehouse_titles", "chief_executive"}
 JOB_LEVELS = ("EXECUTIVE", "HEAD", "MANAGER", "LEAD", "STAFF")
@@ -185,6 +193,41 @@ class ProcurementSettings:
 
 
 @dataclass(frozen=True)
+class SalesSettings:
+    trend_per_year: float
+    weekday_factors: dict[str, tuple[float, ...]]   # customer type → Monday..Sunday, average 1
+    holiday_factor: dict[str, float]
+    hours: dict[str, tuple[float, ...]]             # B2B / B2C / STORE → 24 hourly weights
+    pack_affinity: float
+    b2b_frequency_sigma: float                      # spread of B2B ordering frequency around ∝ credit limit
+    b2b_max_order_share: float                      # largest B2B order as a share of the credit limit
+    b2c_lines: dict[int, float]
+    b2c_quantity: dict[int, float]
+    b2b_lines: tuple[int, int]
+    b2b_line_value: dict[str, int]                  # median line value per B2B segment
+    store_pickup_share: float
+    cod_share: float
+    cod_max_value: int
+    prepaid_methods: dict[str, float]
+    payment_failure_share: float
+    payment_retry_share: float
+    max_payment_attempts: int
+    campaign_attribution_share: float
+    campaign_discount: tuple[int, int]
+    wholesaler_discount: tuple[int, int]
+    volume_discount_min_value: int
+    volume_discount: tuple[int, int]
+    b2c_free_shipping_above: int
+    b2c_shipping_charge: int
+    requested_delivery_share: float
+    requested_delivery_days: tuple[int, int]
+    credit_check_minutes: tuple[int, int]
+    overdue_grace_days: int
+    hold_expiry_days: int
+    hold_override_share: float
+
+
+@dataclass(frozen=True)
 class Organisation:
     job_levels: dict[str, JobLevel]
     warehouse_staff_share: float
@@ -209,6 +252,7 @@ class GenerationConfig:
     daily: DailySettings | None = None
     opening_balances: OpeningBalances | None = None
     procurement: ProcurementSettings | None = None
+    sales: SalesSettings | None = None
 
     @property
     def days(self) -> int:
@@ -310,7 +354,7 @@ def load_generation_config(
     """
     raw = _read(config_dir / GENERATION_FILE)
     _reject_unknown(raw, {"defaults", "presets", "setup", "organisation", "master_data", "daily", "opening_balances",
-                          "procurement"}, GENERATION_FILE)
+                          "procurement", "sales"}, GENERATION_FILE)
     defaults, presets = raw.get("defaults"), raw.get("presets")
     if not isinstance(defaults, dict) or not isinstance(presets, dict) or not presets:
         raise ConfigError(f"{GENERATION_FILE} needs a 'defaults' mapping and at least one preset under 'presets'")
@@ -343,6 +387,7 @@ def load_generation_config(
         "daily": copy.deepcopy(raw.get("daily") or {}),
         "opening_balances": copy.deepcopy(raw.get("opening_balances") or {}),
         "procurement": copy.deepcopy(raw.get("procurement") or {}),
+        "sales": copy.deepcopy(raw.get("sales") or {}),
     }
     for dotted, value in (overrides or {}).items():
         _apply_override(effective, dotted, _parse_override_value(value) if isinstance(value, str) else value)
@@ -375,8 +420,10 @@ def load_generation_config(
     daily = _parse_daily(effective["daily"])
     opening = _parse_opening(effective["opening_balances"])
     procurement = _parse_procurement(effective["procurement"])
+    sales = _parse_sales(effective["sales"])
     return GenerationConfig(
         procurement=procurement,
+        sales=sales,
         opening_balances=opening,
         daily=daily,
         master_data=master_data,
@@ -635,4 +682,75 @@ def _parse_procurement(raw: dict[str, Any]) -> ProcurementSettings:
         late_payment_weeks=_pair(raw["late_payment_weeks"], "procurement.late_payment_weeks", 1, 26),
         payment_failure_share=_share(raw["payment_failure_share"], "procurement.payment_failure_share", 0.5),
         msme_payment_days=_int(raw["msme_payment_days"], "procurement.msme_payment_days", 15, 45),
+    )
+
+
+def _weights(value: Any, name: str, length: int) -> tuple[float, ...]:
+    if (not isinstance(value, list) or len(value) != length
+            or any(isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0 for v in value) or not sum(value)):
+        raise ConfigError(f"{name} must list {length} non-negative numbers, not all 0")
+    return tuple(float(v) for v in value)
+
+
+def _int_mix(value: Any, name: str, low: int, high: int) -> dict[int, float]:
+    if not isinstance(value, dict) or not value or any(not isinstance(k, int) or not low <= k <= high for k in value):
+        raise ConfigError(f"{name} must map whole numbers {low}..{high} to shares")
+    mix = {key: _share(share, f"{name}.{key}") for key, share in value.items()}
+    if abs(sum(mix.values()) - 1) > 1e-6:
+        raise ConfigError(f"{name}: shares add up to {sum(mix.values()):.4f}, not 1")
+    return mix
+
+
+def _parse_sales(raw: dict[str, Any]) -> SalesSettings:
+    _reject_unknown(raw, _SALES_KEYS, "sales")
+    missing = sorted(_SALES_KEYS - set(raw))
+    if missing:
+        raise ConfigError(f"sales is missing: {', '.join(missing)}")
+    types = ("B2B", "B2C")
+    for key in ("weekday_factors", "holiday_factor"):
+        if not isinstance(raw[key], dict) or set(raw[key]) != set(types):
+            raise ConfigError(f"sales.{key} needs exactly B2B and B2C")
+    weekdays = {}
+    for kind in types:
+        factors = _weights(raw["weekday_factors"][kind], f"sales.weekday_factors.{kind}", 7)
+        weekdays[kind] = tuple(f * 7 / sum(factors) for f in factors)        # average 1 over a week
+    if not isinstance(raw["hours"], dict) or set(raw["hours"]) != {"B2B", "B2C", "STORE"}:
+        raise ConfigError("sales.hours needs exactly B2B, B2C and STORE")
+    values = raw["b2b_line_value"]
+    if not isinstance(values, dict) or set(values) != set(B2B_SEGMENTS):
+        raise ConfigError(f"sales.b2b_line_value needs exactly {', '.join(B2B_SEGMENTS)}")
+    trend = raw["trend_per_year"]
+    if isinstance(trend, bool) or not isinstance(trend, (int, float)) or not -0.5 <= trend <= 2:
+        raise ConfigError(f"sales.trend_per_year must be between -0.5 and 2, got {trend!r}")
+    return SalesSettings(
+        trend_per_year=float(trend), weekday_factors=weekdays,
+        holiday_factor={kind: _share(raw["holiday_factor"][kind], f"sales.holiday_factor.{kind}") for kind in types},
+        hours={kind: _weights(raw["hours"][kind], f"sales.hours.{kind}", 24) for kind in ("B2B", "B2C", "STORE")},
+        pack_affinity=_share(raw["pack_affinity"], "sales.pack_affinity"),
+        b2b_frequency_sigma=_share(raw["b2b_frequency_sigma"], "sales.b2b_frequency_sigma", 2.0),
+        b2b_max_order_share=_share(raw["b2b_max_order_share"], "sales.b2b_max_order_share"),
+        b2c_lines=_int_mix(raw["b2c_lines"], "sales.b2c_lines", 1, 20),
+        b2c_quantity=_int_mix(raw["b2c_quantity"], "sales.b2c_quantity", 1, 20),
+        b2b_lines=_pair(raw["b2b_lines"], "sales.b2b_lines", 1, 50),
+        b2b_line_value={seg: _int(values[seg], f"sales.b2b_line_value.{seg}", 100, 10**8) for seg in B2B_SEGMENTS},
+        store_pickup_share=_share(raw["store_pickup_share"], "sales.store_pickup_share"),
+        cod_share=_share(raw["cod_share"], "sales.cod_share"),
+        cod_max_value=_int(raw["cod_max_value"], "sales.cod_max_value", 0, 199999),
+        prepaid_methods=_mix(raw["prepaid_methods"], "sales.prepaid_methods", ("UPI", "CARD", "NET_BANKING")),
+        payment_failure_share=_share(raw["payment_failure_share"], "sales.payment_failure_share", 0.5),
+        payment_retry_share=_share(raw["payment_retry_share"], "sales.payment_retry_share"),
+        max_payment_attempts=_int(raw["max_payment_attempts"], "sales.max_payment_attempts", 1, 9),
+        campaign_attribution_share=_share(raw["campaign_attribution_share"], "sales.campaign_attribution_share"),
+        campaign_discount=_pair(raw["campaign_discount"], "sales.campaign_discount", 0, 90),
+        wholesaler_discount=_pair(raw["wholesaler_discount"], "sales.wholesaler_discount", 0, 90),
+        volume_discount_min_value=_int(raw["volume_discount_min_value"], "sales.volume_discount_min_value", 0, 10**9),
+        volume_discount=_pair(raw["volume_discount"], "sales.volume_discount", 0, 90),
+        b2c_free_shipping_above=_int(raw["b2c_free_shipping_above"], "sales.b2c_free_shipping_above", 0, 10**7),
+        b2c_shipping_charge=_int(raw["b2c_shipping_charge"], "sales.b2c_shipping_charge", 0, 10**5),
+        requested_delivery_share=_share(raw["requested_delivery_share"], "sales.requested_delivery_share"),
+        requested_delivery_days=_pair(raw["requested_delivery_days"], "sales.requested_delivery_days", 1, 90),
+        credit_check_minutes=_pair(raw["credit_check_minutes"], "sales.credit_check_minutes", 0, 600),
+        overdue_grace_days=_int(raw["overdue_grace_days"], "sales.overdue_grace_days", 0, 365),
+        hold_expiry_days=_int(raw["hold_expiry_days"], "sales.hold_expiry_days", 1, 90),
+        hold_override_share=_share(raw["hold_override_share"], "sales.hold_override_share"),
     )

@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phase 2
-**Last updated:** 2026-11-08 (amended by Part 1E: D60, D63; Part 1H: D79 tax-inclusive B2C pricing, D80 composite FKs, F5)
+**Last updated:** 2026-11-10 (Phase 3 step 3.8a implementation notes §1.5; earlier: Part 1E D60, D63; Part 1H D79, D80, F5)
 **Builds on:** Part 1A (D1–D14, A1 attribution / stores), Part 1B (master data, D15–D24), Part 1C (procurement / inventory, D25–D36, document conventions §2)
 
 ---
@@ -67,6 +67,21 @@ Enforced in the DDL; no tables or relationships added.
 | Column tables caught up (step 2.7) | `delivered_key` and `inclusive_unit_price` were described in this table but missing from their column tables | Both rows added to §4 / §5; the schema-vs-design check now compares every column table with the database |
 | Defective-stock register | D45 | UNIQUE on each source FK: one register row per return inspection / damage adjustment line / damaged transfer line |
 
+### 1.5 Implementation notes (Phase 3 step 3.8a: orders, checkout, credit holds)
+
+No tables or columns change. How the engine fills the order side, and what it found:
+
+| Topic | Implementation |
+|---|---|
+| Demand | Per pack and customer type: `orders_per_day` × pack share of the active catalogue × monthly seasonality × trend × weekday factor (holiday factor on national holidays) × campaign uplift. The **count** split B2B / B2C is derived from the expected order values so that B2B reaches the pack's share of **net sales value** (D23; trial: 81.6% for a 0.8 pack mix). The uplift of a running, non-cancelled campaign applies to its target customer type, and the extra orders are attributed to it (last touch, A1). Settings: `sales:` in `config/generation.yaml` |
+| Prices | B2C (D79): shelf price = list price + GST on the order date, rounded down to the rupee and capped at MRP; campaign orders carry a `CAMPAIGN_PROMO` discount. B2B: list price excluding GST; `SEGMENT` discount for wholesalers, `VOLUME` above a line value. Shipped B2C orders under ₹499 (incl. GST) pay a ₹40 shipping charge (D42). The order estimate = items + GST + shipping + its GST at the highest line rate, **rounded up to the rupee**, so a prepayment covers the invoice total after its round-off |
+| Fulfilment and terms | `RETAIL_STORE` channel → `COUNTER_SALE` at the customer's city store, only on working days and only from products on the store's shelf; website / app orders of store-city customers are sometimes `STORE_PICKUP` (shelf stock only, otherwise shipped). Terms: B2B = the customer's term; counter sale = `IMMEDIATE`; store pickup = `ADVANCE`; shipped B2C = `COD` (~30%, up to ₹50,000) or `ADVANCE` |
+| Prepaid checkout (D5) | Up to 3 gateway attempts (UPI / card / net banking; UPI only up to its limit), ~8% fail each, a customer retries with 70% probability. Every attempt is a `customer_payments` row with its own `RCPT` number. SUCCESS → P08 Dr Payment Clearing / Cr AR (customer) and an unapplied AR payment item (D49, D53); all failed → `CANCELLED` / `PAYMENT_FAILED`. Gateway fee and settlement date are stored; both are booked by the bank module (P10) |
+| Credit check (D47) | Automatic, minutes after the order: overdue invoices beyond `overdue_grace_days` → `ON_HOLD` (`OVERDUE_BALANCE`); open AR + order estimate above the limit → `ON_HOLD` (`CREDIT_LIMIT`). Open AR = Σ open AR items, which equals the customer's AR control balance because allocations only move amounts between the customer's own items. Held orders are reviewed every working morning: released when the check passes, released by a **Finance override** (an approver whose limit covers the order; history reason `Finance override`) on ~10% of days, cancelled `CREDIT_HOLD_EXPIRED` after 14 days |
+| Finding: credit limits vs volume | Independent Pareto weights (first attempt) let a few accounts place most B2B orders whatever their limit: 13% of B2B orders went on hold before any invoice existed, and with invoices they would hold constantly. Ordering frequency is now tied to the credit limit (see `orders` "Populated") |
+| Finding: V-SO-06 and limit changes | A credit limit lowered later would make earlier, correct confirmations look wrong. Limits are kept without history (like prices, D37; analysts get the history from CDC / dbt snapshots), so the rule judges only confirmations made since the customer row last changed (`customers.updated_at`) |
+| Later in Phase 3 | Reservations, backorders, customer cancellations and new customers over time (3.8b); counter-sale payment and handover, shipments, invoices, COD collection (3.9) |
+
 ### 1.3 Open questions
 
 None new. Q6 is resolved by D37. Q3 (AP open items) remains for 1E.
@@ -128,12 +143,12 @@ delivered line ─► return request ─► approved ─► goods received (QUAR
 | `cancelled_at` | `DATETIME(6)` | | |
 | `cancellation_reason` | `VARCHAR(30)` | | `PAYMENT_FAILED` / `CUSTOMER_REQUEST` / `OUT_OF_STOCK` / `CREDIT_HOLD_EXPIRED` / `DUPLICATE_ORDER` |
 
-- **Statuses and transitions:** `PENDING_PAYMENT` (prepaid, awaiting payment) → `CONFIRMED`; `PENDING_CREDIT_CHECK` → `CONFIRMED` / `ON_HOLD`; `ON_HOLD` → `CONFIRMED` / `CANCELLED`; `CONFIRMED` ↔ `BACKORDERED`; `CONFIRMED` → `PARTIALLY_SHIPPED` → `SHIPPED` → `PARTIALLY_DELIVERED` → `DELIVERED` → `CLOSED` (return window over and fully invoiced); pre-dispatch states → `CANCELLED`. An order with some lines cancelled continues with the rest; the cancelled lines carry `quantity_cancelled`.
+- **Statuses and transitions:** An order starts as `PENDING_PAYMENT` (prepaid), `PENDING_CREDIT_CHECK` (B2B on credit, and COD orders, which pass an automatic COD eligibility check) or `CONFIRMED` (counter sales, keyed in at the till). `PENDING_PAYMENT` (prepaid, awaiting payment) → `CONFIRMED`; `PENDING_CREDIT_CHECK` → `CONFIRMED` / `ON_HOLD`; `ON_HOLD` → `CONFIRMED` / `CANCELLED`; `CONFIRMED` ↔ `BACKORDERED`; `CONFIRMED` → `PARTIALLY_SHIPPED` → `SHIPPED` → `PARTIALLY_DELIVERED` → `DELIVERED` → `CLOSED` (return window over and fully invoiced); pre-dispatch states → `CANCELLED`. An order with some lines cancelled continues with the rest; the cancelled lines carry `quantity_cancelled`.
 - **Constraints:** CHECK lists; CHECK `(fulfilment_type = 'SHIP') = (shipping_address_id IS NOT NULL)`; CHECK `(fulfilment_type = 'SHIP') = (store_warehouse_id IS NULL)`; CHECK `fulfilment_type <> 'COUNTER_SALE' OR shipping_charge_amount = 0`; CHECK `(order_status = 'ON_HOLD') = (hold_reason IS NOT NULL)`; CHECK `(order_status = 'CANCELLED') = (cancelled_at IS NOT NULL)`; CHECK `cancelled_at IS NULL OR cancellation_reason IS NOT NULL`; CHECK `order_date = DATE(order_placed_at)`; amounts `>= 0`.
 - **Rules (validation):** Addresses belong to the customer and were live at `order_placed_at`. Sales channel allowed for the customer type. Campaign on the same marketing channel, with `order_date` inside its window (A1). `COUNTER_SALE` only through `RETAIL_STORE`. The store is a `RETAIL_STORE` warehouse. Header amounts = Σ lines (V-SO-01).
 - **Keys:** UNIQUE `(order_id, customer_id)`, the target of the composite FKs from `invoices` and `customer_payments` (D80).
 - **Indexes:** `(customer_id, order_date)`, `(order_status, order_date)`, `(order_date)`, `(sales_channel_id, order_date)`, `(marketing_campaign_id)`.
-- **Populated:** By the daily demand engine. Orders/day = base × monthly seasonality (pack) × weekday factor × trend × campaign uplift. B2B/B2C share by **value** (D23). Customers are chosen with a Pareto skew (a minority of B2B accounts drives most revenue) and B2C repeat-purchase probability. Products are chosen by popularity (Zipf within BU, only launched and not discontinued). Basket size and quantities by segment. Channel and attribution from the pack's mix for the customer type (A1 rules). Defaults: ~4% of orders cancelled, ~3% backordered, ~5% of B2B orders pass through `ON_HOLD`.
+- **Populated:** By the daily demand engine. Orders/day = base × monthly seasonality (pack) × weekday factor × trend × campaign uplift. B2B/B2C share by **value** (D23). Customers are chosen by a stable per-customer weight: a B2B account orders with a frequency proportional to its credit limit (limits follow volume in real companies) with a log-normal spread, and its orders are sized to at most half the limit; with the wholesalers' bigger baskets a minority of B2B accounts drives most revenue (step 3.8a trial: top 20% ≈ 89% of B2B value). Consumers have a log-normal buying propensity (repeat buyers). Products are chosen by popularity (Zipf within BU, only launched and not discontinued). Basket size and quantities by segment. Channel and attribution from the pack's mix for the customer type (A1 rules). Defaults: ~4% of orders cancelled, ~3% backordered, ~5% of B2B orders pass through `ON_HOLD`.
 
 #### `order_line_items`
 
@@ -607,7 +622,7 @@ All FKs `RESTRICT` (D15). Forward references to 1E are marked.
 | ★ V-SO-03 | Order-line counters = Σ shipment lines (shipped), delivered shipments (delivered), invoice lines of ISSUED invoices (invoiced), RTO shipments (rto), approved return lines (return requested) |
 | ★ V-SO-04 | Orders vs invoices: every shipped or handed-over quantity is invoiced exactly once (net of cancelled invoices); no invoice without a dispatch or handover |
 | V-SO-05 | Order status agrees with line statuses and quantities; status-history chains are valid |
-| V-SO-06 | Credit hold: no B2B order is CONFIRMED while open AR + order value exceeds the credit limit, unless released by an override recorded in history |
+| V-SO-06 | Credit hold: no B2B order is CONFIRMED while open AR + order value exceeds the credit limit, unless released by an override recorded in history (credit limits have no history, so confirmations made since the customer row last changed are judged) |
 | ★ V-PY-01 | Invoices vs payments: Σ allocated SUCCESS payments + credit notes ≤ invoice total; outstanding = total − allocations − credits (1E) |
 | V-PY-02 | Prepaid orders are confirmed only after a SUCCESS payment ≥ the order estimate; COD payments exist exactly for delivered COD shipments, with amount = `cod_amount` |
 | V-SH-01 | Shipment timestamps follow the status order; dispatch after order confirmation; delivery after dispatch |

@@ -178,3 +178,49 @@ procurement:
   late_payment_weeks: [1, 3]
   payment_failure_share: 0.01
   msme_payment_days: 45                 # MSMED Act: MSME suppliers paid within 45 days
+
+# Order-to-cash, demand side (1D §3, 1G §2.3; D10, D23, D47, D79). Orders per pack per day =
+# orders_per_day × pack share × monthly seasonality (pack) × weekday factor × trend × campaign uplift.
+# The B2B / B2C order counts are set so that B2B reaches the pack's share of sales VALUE (D23).
+sales:
+  trend_per_year: 0.12                  # demand growth, compounded from the first simulated day
+  weekday_factors:                      # Monday..Sunday (rescaled to average 1 over the week)
+    B2B: [1.15, 1.10, 1.10, 1.10, 1.15, 0.90, 0.10]
+    B2C: [0.90, 0.90, 0.95, 0.95, 1.05, 1.20, 1.15]
+  holiday_factor: {B2B: 0.10, B2C: 0.90} # national holidays
+  hours:                                # relative order volume per hour 00..23
+    B2B: [0, 0, 0, 0, 0, 0, 0, 0, 1, 4, 8, 9, 8, 5, 6, 8, 8, 6, 4, 2, 1, 0, 0, 0]
+    B2C: [2, 1, 1, 0, 0, 0, 1, 2, 3, 4, 5, 6, 6, 5, 5, 5, 6, 6, 7, 9, 11, 12, 9, 5]
+    STORE: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 5, 6, 6, 5, 5, 6, 7, 9, 10, 9, 6, 0, 0]
+  pack_affinity: 0.80                   # share of a customer's orders from its home industry pack
+  b2b_frequency_sigma: 0.6              # B2B ordering frequency ∝ credit limit × log-normal spread (limits follow volume)
+  b2b_max_order_share: 0.5              # a B2B order is sized to at most this share of the customer's credit limit
+  b2c_lines: {1: 0.70, 2: 0.22, 3: 0.08}
+  b2c_quantity: {1: 0.85, 2: 0.12, 3: 0.03}
+  b2b_lines: [2, 8]
+  b2b_line_value:                       # median ex-GST value of a B2B order line, per segment (rupees)
+    RETAILER: 15000
+    WHOLESALER: 60000
+    CORPORATE: 30000
+    INSTITUTION: 25000
+    WORKSHOP: 10000
+  store_pickup_share: 0.08              # website / app orders of store-city customers collected in store
+  cod_share: 0.30                       # B2C shipped orders paid cash on delivery (D43)
+  cod_max_value: 50000                  # larger orders must be prepaid
+  prepaid_methods: {UPI: 0.55, CARD: 0.30, NET_BANKING: 0.15}
+  payment_failure_share: 0.08           # per prepaid attempt (D5)
+  payment_retry_share: 0.70             # a customer whose payment failed tries again
+  max_payment_attempts: 3
+  campaign_attribution_share: 0.30      # orders from a channel with a running campaign credited to it
+  campaign_discount: [5, 20]            # percent, campaign promo price on B2C lines
+  wholesaler_discount: [3, 6]           # percent, segment price for wholesalers
+  volume_discount_min_value: 50000      # B2B line value from which a volume discount applies
+  volume_discount: [2, 5]
+  b2c_free_shipping_above: 499          # rupees incl. GST; smaller shipped B2C orders pay the charge (D42)
+  b2c_shipping_charge: 40               # rupees ex-GST
+  requested_delivery_share: 0.30        # B2B orders naming a delivery date
+  requested_delivery_days: [3, 10]
+  credit_check_minutes: [5, 120]        # B2B credit check after the order is placed (D47)
+  overdue_grace_days: 15                # invoices this far past due put new orders on hold
+  hold_expiry_days: 14                  # held orders are cancelled after this many days
+  hold_override_share: 0.10             # per working day: Finance releases a held order by override
