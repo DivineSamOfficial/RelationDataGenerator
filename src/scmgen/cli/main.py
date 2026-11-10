@@ -328,6 +328,38 @@ def generate_config(
     typer.echo(f"config hash       {config.config_hash()}")
 
 
+@generate_app.command("master-data")
+def generate_master_data_command(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code (must be READY and empty).")],
+    preset: Annotated[str | None, typer.Option("--preset", help="small, medium or large (default from config).")] = None,
+    sets: Annotated[list[str], typer.Option("--set", help="Override a setting (repeatable).")] = [],
+) -> None:
+    """Generate the master data of an empty workspace on day 0 (the day before the first simulated day)."""
+    from scmgen.generation.master import generate_master_data
+
+    settings = _bootstrap()
+    try:
+        config = load_generation_config(preset=preset, overrides=_parse_sets(sets))
+        result = generate_master_data(settings, code, config)
+    except ScmgenError as exc:
+        _fail(exc, "generate.master_data.error")
+    typer.echo(f"Run {result.run_number}: master data on setup day {result.setup_day} "
+               f"({sum(result.rows_by_table.values()):,} rows in {result.seconds:.1f}s)")
+    for table, rows in sorted(result.rows_by_table.items()):
+        typer.echo(f"  {table:<28}{rows:>8,}")
+    counts = result.report.counts
+    colour = typer.colors.GREEN if result.report.passed else typer.colors.RED
+    typer.secho(f"Validation {'PASSED' if result.report.passed else 'FAILED'}: {counts['PASSED']} passed, "
+                f"{counts['FAILED']} failed, {counts['ERROR']} errors, {counts['PENDING']} pending "
+                f"-> {result.report_path}", fg=colour)
+    for check_result in result.report.results:
+        if check_result.status in ("FAILED", "ERROR"):
+            typer.echo(f"  {check_result.rule_id}: {check_result.message or ''} {check_result.sample[:2]}")
+    typer.echo(f"Workspace status: {result.workspace_status}")
+    if not result.report.passed:
+        raise typer.Exit(1)
+
+
 @generate_app.command("packs")
 def generate_packs(
     industries: Annotated[str | None, typer.Option(

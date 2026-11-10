@@ -408,3 +408,22 @@ def ensure_validated(settings: Settings, code: str, force: bool = False) -> Work
         raise WorkspaceError(f"Workspace '{code}' failed its last validation (NEEDS_ATTENTION). Fix the data and run "
                              f"`scmgen validate -w {code}`, or pass --force to continue anyway")
     return info
+
+
+def set_workspace_status(settings: Settings, code: str, status: str, last_committed_through=None) -> None:
+    """Move a workspace to ``status`` (e.g. GENERATING while a run writes), optionally recording the
+    latest committed simulated time for listings (1G §5.4)."""
+    code = validate_code(code)
+    engine = create_mysql_engine(settings, role="app")
+    try:
+        with engine.connect() as conn:
+            assignments = "workspace_status = :s, updated_at = NOW(6)"
+            if last_committed_through is not None:
+                assignments += ", last_committed_through = :t"
+            result = conn.execute(text(f"UPDATE {_registry(settings)} SET {assignments} WHERE workspace_code = :c"),
+                                  {"s": status, "t": last_committed_through, "c": code})
+            if result.rowcount != 1:
+                raise WorkspaceError(f"No workspace '{code}'. See `scmgen workspace list`")
+            conn.commit()
+    finally:
+        engine.dispose()

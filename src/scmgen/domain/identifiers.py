@@ -101,12 +101,17 @@ def ifsc(rng: random.Random, bank_code: str) -> str:
     return f"{bank_code}0{rng.randint(0, 999999):06d}"
 
 
-def pincode(rng: random.Random, prefix: str) -> str:
-    """A 6-digit PIN starting with the state's postal-circle prefix (1-3 digits, from seed data)."""
+def pincode(rng: random.Random, prefix: str, local_max: int | None = None) -> str:
+    """A 6-digit PIN starting with the area's prefix (1-3 digits, from seed data).
+
+    ``local_max`` limits the digits after the prefix: city PINs mostly sit low in their range
+    (Bengaluru 560001-560100…), so city addresses use a small value.
+    """
     if not re.fullmatch(r"[1-9][0-9]{0,2}", prefix):
         raise IdentifierError(f"PIN prefix must be 1-3 digits not starting with 0, got {prefix!r}")
     rest = 6 - len(prefix)
-    return prefix + f"{rng.randint(0, 10 ** rest - 1):0{rest}d}"
+    high = min(local_max, 10 ** rest - 1) if local_max else 10 ** rest - 1
+    return prefix + f"{rng.randint(1 if local_max else 0, high):0{rest}d}"
 
 
 def mobile(rng: random.Random) -> str:

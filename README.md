@@ -65,6 +65,10 @@ Settings live in `config/generation.yaml`; `--set` overrides any of them for one
 scmgen generate packs                                   # check seed data + every industry pack, summarise them
 scmgen generate packs --industries beauty,electronics   # check a combination for one workspace
 ```
+```bash
+scmgen workspace create --code kaveri --company "Kaveri Nexus Distribution Pvt. Ltd." --industries electronics,home_kitchen --seed 42
+scmgen generate master-data -w kaveri --preset small     # day 0: company, GSTINs, warehouses, accounts, employees …
+```
 Reference data lives in `config/seed/`, industry packs in `config/industries/` (`electronics.yaml` documents the format).
 
 ## Validation

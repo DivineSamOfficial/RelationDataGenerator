@@ -46,6 +46,44 @@ class Volumes:
 
 
 _VOLUME_KEYS = set(Volumes.__dataclass_fields__)
+_SETUP_KEYS = {"hq_city", "distribution_centres", "stores", "company_age_years", "cash_credit_limit"}
+_ORG_KEYS = {"job_levels", "warehouse_staff_share", "departments", "warehouse_titles", "chief_executive"}
+JOB_LEVELS = ("EXECUTIVE", "HEAD", "MANAGER", "LEAD", "STAFF")
+
+
+@dataclass(frozen=True)
+class Setup:
+    """Company identity inputs (1B §3.2 "Setup"); city names are checked against the seed by the builder."""
+
+    hq_city: str
+    distribution_centres: tuple[str, ...]
+    stores: tuple[str, ...]
+    company_age_years: tuple[int, int]
+    cash_credit_limit: int
+
+
+@dataclass(frozen=True)
+class JobLevel:
+    salary: tuple[int, int]
+    approval_limit: int
+
+
+@dataclass(frozen=True)
+class Department:
+    code: str
+    weight: float
+    head: str
+    manager: str
+    staff: str
+
+
+@dataclass(frozen=True)
+class Organisation:
+    job_levels: dict[str, JobLevel]
+    warehouse_staff_share: float
+    departments: tuple[Department, ...]
+    warehouse_titles: dict[str, dict[str, str]]
+    chief_executive: str
 
 
 @dataclass(frozen=True)
@@ -58,6 +96,8 @@ class GenerationConfig:
     batch_size: int
     volumes: Volumes
     gst_rate_revision: bool = True        # apply the packs' 22 Sep 2025 rate change (D17)
+    setup: Setup | None = None
+    organisation: Organisation | None = None
 
     @property
     def days(self) -> int:
@@ -158,7 +198,7 @@ def load_generation_config(
     ``today`` exists for tests; it defaults to the real date in IST.
     """
     raw = _read(config_dir / GENERATION_FILE)
-    _reject_unknown(raw, {"defaults", "presets"}, GENERATION_FILE)
+    _reject_unknown(raw, {"defaults", "presets", "setup", "organisation"}, GENERATION_FILE)
     defaults, presets = raw.get("defaults"), raw.get("presets")
     if not isinstance(defaults, dict) or not isinstance(presets, dict) or not presets:
         raise ConfigError(f"{GENERATION_FILE} needs a 'defaults' mapping and at least one preset under 'presets'")
@@ -185,6 +225,8 @@ def load_generation_config(
         "history_months": preset_cfg.get("history_months"),
         "history": {key: (defaults.get("history") or {}).get(key) for key in _HISTORY_KEYS},
         "volumes": copy.deepcopy(preset_cfg["volumes"]),
+        "setup": copy.deepcopy(raw.get("setup") or {}),
+        "organisation": copy.deepcopy(raw.get("organisation") or {}),
     }
     for dotted, value in (overrides or {}).items():
         _apply_override(effective, dotted, _parse_override_value(value) if isinstance(value, str) else value)
@@ -211,7 +253,11 @@ def load_generation_config(
     if (end - start).days + 1 > MAX_HISTORY_DAYS:
         raise ConfigError(f"History of {(end - start).days + 1} days exceeds the 3-year maximum (1G §3)")
 
+    setup = _parse_setup(effective["setup"])
+    organisation = _parse_organisation(effective["organisation"])
     return GenerationConfig(
+        setup=setup,
+        organisation=organisation,
         preset=chosen,
         start_date=start,
         end_date=end,
@@ -221,3 +267,73 @@ def load_generation_config(
         volumes=volumes,
         gst_rate_revision=gst_rate_revision,
     )
+
+
+def _pair(value: Any, name: str, low: int, high: int) -> tuple[int, int]:
+    if not isinstance(value, list) or len(value) != 2:
+        raise ConfigError(f"{name} must be [min, max]")
+    a, b = _int(value[0], f"{name} min", low, high), _int(value[1], f"{name} max", low, high)
+    if a > b:
+        raise ConfigError(f"{name}: min {a} is above max {b}")
+    return a, b
+
+
+def _parse_setup(raw: dict[str, Any]) -> Setup:
+    _reject_unknown(raw, _SETUP_KEYS, "setup")
+    missing = sorted(_SETUP_KEYS - set(raw))
+    if missing:
+        raise ConfigError(f"setup is missing: {', '.join(missing)}")
+    dcs = raw["distribution_centres"]
+    stores = raw["stores"] or []
+    if not isinstance(dcs, list) or not dcs or not all(isinstance(c, str) for c in dcs):
+        raise ConfigError("setup.distribution_centres must list at least one city")
+    if not isinstance(stores, list) or not all(isinstance(c, str) for c in stores):
+        raise ConfigError("setup.stores must be a list of cities")
+    if len(set(dcs)) != len(dcs):
+        raise ConfigError("setup.distribution_centres lists a city twice")
+    for city in stores:
+        if city not in dcs:
+            raise ConfigError(f"setup.stores: {city} has no distribution centre to replenish it (1B §4.3)")
+    if not isinstance(raw["hq_city"], str):
+        raise ConfigError("setup.hq_city must be a city name")
+    return Setup(raw["hq_city"], tuple(dcs), tuple(stores), _pair(raw["company_age_years"], "setup.company_age_years", 1, 80),
+                 _int(raw["cash_credit_limit"], "setup.cash_credit_limit", 1, 10**12))
+
+
+def _parse_organisation(raw: dict[str, Any]) -> Organisation:
+    _reject_unknown(raw, _ORG_KEYS, "organisation")
+    missing = sorted(_ORG_KEYS - set(raw))
+    if missing:
+        raise ConfigError(f"organisation is missing: {', '.join(missing)}")
+    levels_raw = raw["job_levels"] or {}
+    if set(levels_raw) != set(JOB_LEVELS):
+        raise ConfigError(f"organisation.job_levels must define exactly {', '.join(JOB_LEVELS)}")
+    levels = {}
+    for level in JOB_LEVELS:
+        entry = levels_raw[level] or {}
+        _reject_unknown(entry, {"salary", "approval_limit"}, f"organisation.job_levels.{level}")
+        levels[level] = JobLevel(_pair(entry.get("salary"), f"job_levels.{level}.salary", 1, 10**8),
+                                 _int(entry.get("approval_limit"), f"job_levels.{level}.approval_limit", 0, 10**12))
+    share = raw["warehouse_staff_share"]
+    if isinstance(share, bool) or not isinstance(share, (int, float)) or not 0 < share < 1:
+        raise ConfigError("organisation.warehouse_staff_share must be between 0 and 1")
+    departments = []
+    for code, entry in (raw["departments"] or {}).items():
+        entry = entry or {}
+        _reject_unknown(entry, {"weight", "head", "manager", "staff"}, f"organisation.departments.{code}")
+        weight = entry.get("weight")
+        if isinstance(weight, bool) or not isinstance(weight, (int, float)) or weight <= 0:
+            raise ConfigError(f"organisation.departments.{code}.weight must be positive")
+        titles = [entry.get(k) for k in ("head", "manager", "staff")]
+        if not all(isinstance(t, str) and t for t in titles):
+            raise ConfigError(f"organisation.departments.{code} needs head, manager and staff titles")
+        departments.append(Department(code, float(weight), *titles))
+    if not departments:
+        raise ConfigError("organisation.departments must list the central departments")
+    titles = raw["warehouse_titles"] or {}
+    if set(titles) != {"WHO", "store"} or set(titles["WHO"]) != {"head", "dc_manager", "lead", "staff"} \
+            or set(titles["store"]) != {"manager", "staff"}:
+        raise ConfigError("organisation.warehouse_titles needs WHO (head, dc_manager, lead, staff) and store (manager, staff)")
+    if not isinstance(raw["chief_executive"], str):
+        raise ConfigError("organisation.chief_executive must be a job title")
+    return Organisation(levels, float(share), tuple(departments), titles, raw["chief_executive"])

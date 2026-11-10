@@ -50,3 +50,37 @@ presets:
       locations_per_dc: 2000
       locations_per_store: 300
       orders_per_day: 350
+
+# Company identity (1B §3.2 "Setup"): fixed for a workspace once generated (A2). Cities must be in
+# config/seed/cities.yaml. One GSTIN per state with a warehouse (D3); the HQ state must be one of them.
+setup:
+  hq_city: Bengaluru
+  distribution_centres: [Bengaluru, Mumbai, New Delhi, Chennai, Kolkata]
+  stores: [Bengaluru, Mumbai, New Delhi]     # retail stores in DC cities, replenished by that DC
+  company_age_years: [6, 12]                # incorporated this many years before the history starts
+  cash_credit_limit: 50000000               # overdraft limit of the cash-credit account (rupees)
+
+# Organisation (1B §4.2): bands per job level and the central departments. Warehouse staffing follows
+# 1B: per DC 1 manager, 2-3 leads and staff; per store 1 manager and staff. The preset's employee count
+# is the target; central departments get the remainder by weight.
+organisation:
+  job_levels:                                # monthly gross salary range and approval limit (rupees)
+    EXECUTIVE: {salary: [600000, 900000], approval_limit: 50000000}
+    HEAD:      {salary: [250000, 450000], approval_limit: 5000000}
+    MANAGER:   {salary: [90000, 180000],  approval_limit: 1000000}
+    LEAD:      {salary: [45000, 80000],   approval_limit: 200000}
+    STAFF:     {salary: [18000, 40000],   approval_limit: 0}
+  warehouse_staff_share: 0.60                # of employees beyond the fixed roles: DC and store staff
+  departments:                               # central departments: weight of the remaining staff, titles
+    PUR: {weight: 0.12, head: Head of Procurement, manager: Purchase Manager, staff: Buyer}
+    LOG: {weight: 0.10, head: Head of Logistics, manager: Logistics Manager, staff: Logistics Coordinator}
+    SAL: {weight: 0.30, head: Head of Sales, manager: Regional Sales Manager, staff: Sales Executive}
+    MKT: {weight: 0.08, head: Head of Marketing, manager: Marketing Manager, staff: Marketing Executive}
+    CS:  {weight: 0.12, head: Head of Customer Service, manager: Customer Service Manager, staff: Customer Support Associate}
+    FIN: {weight: 0.14, head: Chief Financial Officer, manager: Finance Manager, staff: Accountant}
+    HR:  {weight: 0.06, head: Head of HR & Admin, manager: HR Manager, staff: HR Executive}
+    IT:  {weight: 0.08, head: Head of IT, manager: IT Manager, staff: Systems Engineer}
+  warehouse_titles:
+    WHO: {head: Head of Warehouse Operations, dc_manager: Warehouse Manager, lead: Shift Lead, staff: Warehouse Associate}
+    store: {manager: Store Manager, staff: Sales Associate}
+  chief_executive: Chief Executive Officer
