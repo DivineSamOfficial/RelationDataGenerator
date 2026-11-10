@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import random
 from datetime import date
+from decimal import Decimal
 
 import pytest
 
 from scmgen.core.errors import ConfigError
 from scmgen.domain.identifiers import pincode
 from scmgen.generation.config import load_generation_config
+from scmgen.generation.master.catalogue import _quotas, charm_price
 from scmgen.generation.master.context import city_code, domain_slug, trade_name_of
 
 TODAY = date(2026, 11, 10)
@@ -56,7 +58,20 @@ def test_setup_and_organisation_load():
     ({"setup.company_age_years": "[9, 3]"}, "min 9 is above max 3"),
     ({"setup.headquarters": "Pune"}, "unknown setting"),
     ({"organisation.warehouse_staff_share": "1.5"}, "between 0 and 1"),
+    ({"master_data.customers.b2b_segments.RETAILER": "0.9"}, "add up to"),
+    ({"master_data.suppliers.per_product": "[1, 3]"}, "per_product min"),
+    ({"master_data.campaigns.colour": "red"}, "unknown setting"),
 ])
 def test_invalid_setup_is_refused(overrides, message):
     with pytest.raises(ConfigError, match=message):
         load_generation_config(today=TODAY, overrides=overrides)
+
+
+@pytest.mark.parametrize("raw, charm", [(37, 39), (487, 489), (1234, 1299), (24310, 24999), (5, 9)])
+def test_charm_prices_end_like_indian_retail_prices(raw, charm):
+    assert charm_price(Decimal(raw)) == Decimal(charm)
+
+
+def test_quotas_split_exactly():
+    assert _quotas(10, [Decimal(1)] * 3) == [4, 3, 3]
+    assert sum(_quotas(2000, [Decimal(w) for w in (10, 4, 5, 8, 5, 6)])) == 2000

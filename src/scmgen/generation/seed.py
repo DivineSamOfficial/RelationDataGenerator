@@ -71,6 +71,7 @@ class SeedData:
     derived_accounts: Mapping[str, dict[str, Any]]
     expense_categories: tuple[dict[str, Any], ...]
     gst_rate_revision: Mapping[str, Any]            # {effective_date: date, notification_reference: str} (D17)
+    service_suppliers: tuple[dict[str, Any], ...] = ()   # vendor plan per expense category (1B §4.5)
 
     def state(self, state_code: str) -> dict[str, Any]:
         for row in self.states:
@@ -268,7 +269,28 @@ def load_seed(config_dir: Path = DEFAULT_CONFIG_DIR) -> SeedData:
         problems.append("reference.yaml: gst_rate_revision needs an effective_date and a notification_reference (<= 60)")
         revision = {}
 
+    services = reference.get("service_suppliers") or []
+    category_codes = {c["category_code"]: c for c in expense_categories}
+    for index, plan in enumerate(services, 1):
+        where = f"reference.yaml service_suppliers[{index}]"
+        if not isinstance(plan, dict):
+            problems.append(f"{where} must be a mapping")
+            continue
+        unknown = set(plan) - {"category", "per", "count", "suffixes", "individual_share", "utility"}
+        if unknown:
+            problems.append(f"{where}: unknown field(s) {sorted(unknown)}")
+        category = category_codes.get(plan.get("category"))
+        if category is None or category["payee_type"] != "SUPPLIER":
+            problems.append(f"{where}: {plan.get('category')!r} is not an expense category paid to suppliers")
+        if ("per" in plan) == ("count" in plan) or plan.get("per", "warehouse") not in ("warehouse", "city"):
+            problems.append(f"{where}: give either per: warehouse|city or a count")
+        if "count" in plan and (not isinstance(plan["count"], int) or not 1 <= plan["count"] <= 20):
+            problems.append(f"{where}: count must be 1-20")
+        if not plan.get("suffixes"):
+            problems.append(f"{where}: needs name suffixes")
+
     if problems:
         raise SeedError("Seed data problems:\n  - " + "\n  - ".join(problems))
     return SeedData(states=states, cities=cities, accounts=accounts, derived_accounts=dict(derived),
-                    expense_categories=expense_categories, gst_rate_revision=dict(revision), **tables)
+                    expense_categories=expense_categories, gst_rate_revision=dict(revision),
+                    service_suppliers=tuple(services), **tables)

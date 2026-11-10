@@ -98,3 +98,30 @@ banks:
 gst_rate_revision:
   effective_date: 2025-09-22
   notification_reference: GST Council 56th meeting - rate rationalisation
+
+# Service suppliers (1B §4.5): structural vendors behind the expense categories. `per` creates one per
+# warehouse, one per city with a warehouse, or a fixed `count`. Carriers get their own supplier each.
+service_suppliers:
+  - {category: RENT, per: warehouse, suffixes: [Estates, Properties, Realty, Landholdings], individual_share: 0.4}
+  - {category: ELECTRICITY, per: city, suffixes: [Urban Power Supply Co], utility: true}
+  - {category: WATER, per: city, suffixes: [Metro Water Services], utility: true}
+  - {category: INTERNET_PHONE, count: 2, suffixes: [Broadband, Telecom Services, Netlink]}
+  - {category: SAAS, count: 3, suffixes: [Software, Cloud Apps, Systems]}
+  - {category: AI_TOOLS, count: 2, suffixes: [AI Labs, Intelligence]}
+  - {category: CLOUD, count: 2, suffixes: [Cloud Services, Data Centres]}
+  - {category: CONTRACT_LABOUR, count: 2, suffixes: [Manpower Services, Staffing Solutions]}
+  - {category: STAFF_WELFARE, count: 2, suffixes: [Caterers, Food Services]}
+  - {category: REPAIRS, count: 2, suffixes: [Facility Services, Maintenance Co]}
+  - {category: SECURITY, count: 2, suffixes: [Security Services, Guarding Agency]}
+  - {category: HOUSEKEEPING, count: 2, suffixes: [Housekeeping Services, Cleaning Co]}
+  - {category: DIGITAL_ADS, count: 2, suffixes: [Digital Media, Ad Network]}
+  - {category: PRINT_EVENTS, count: 1, suffixes: [Events and Print]}
+  - {category: MARKETPLACE_FEES, count: 1, suffixes: [Marketplace]}
+  - {category: PACKAGING, count: 2, suffixes: [Packaging, Corrugated Boxes]}
+  - {category: AUDIT_FEES, count: 1, suffixes: [and Associates Chartered Accountants]}
+  - {category: LEGAL, count: 2, suffixes: [Legal Associates, Law Chambers]}
+  - {category: RECRUITMENT, count: 1, suffixes: [Talent Search]}
+  - {category: STATIONERY, count: 1, suffixes: [Stationers]}
+  - {category: OFFICE_SUPPLIES, count: 1, suffixes: [Office Solutions]}
+  - {category: INSURANCE, count: 1, suffixes: [General Insurance]}
+  - {category: GATEWAY_CHARGES, count: 1, suffixes: [Payments]}

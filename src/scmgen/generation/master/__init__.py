@@ -23,7 +23,9 @@ from scmgen.db.workspaces import get_workspace, record_validation_outcome, set_w
 from scmgen.generation.config import GenerationConfig
 from scmgen.generation.ids import IdAllocator
 from scmgen.generation.master.context import MasterContext
+from scmgen.generation.master.catalogue import build_catalogue
 from scmgen.generation.master.organisation import build_organisation
+from scmgen.generation.master.parties import build_parties
 from scmgen.generation.packs import load_packs
 from scmgen.generation.runs import RunRecorder
 from scmgen.generation.seed import load_seed
@@ -33,7 +35,7 @@ from scmgen.validation.framework import ValidationContext, ValidationReport, run
 
 log = logging.getLogger(__name__)
 
-BUILDERS = (build_organisation,)
+BUILDERS = (build_organisation, build_catalogue, build_parties)
 
 
 @dataclass(frozen=True)

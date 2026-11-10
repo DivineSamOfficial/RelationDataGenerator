@@ -15,6 +15,7 @@ defaults:
     allow_future: false
 
 # Volumes from Part 1B §3.4. Medium is the design baseline; Small ≈ ÷5 and Large ≈ ×5 for the tables that scale.
+# suppliers = goods suppliers + the structural service suppliers (≈60, see config/seed/reference.yaml).
 # Warehouses (5 DCs + 3 stores) are a setup input, not a preset value.
 presets:
   small:
@@ -22,7 +23,7 @@ presets:
     volumes:
       customers_b2b: 240
       customers_b2c: 1160
-      suppliers: 52
+      suppliers: 100            # goods + ~60 structural service suppliers (landlords, utilities, carriers …)
       products: 400
       employees: 36
       locations_per_dc: 80
@@ -84,3 +85,34 @@ organisation:
     WHO: {head: Head of Warehouse Operations, dc_manager: Warehouse Manager, lead: Shift Lead, staff: Warehouse Associate}
     store: {manager: Store Manager, staff: Sales Associate}
   chief_executive: Chief Executive Officer
+
+# Master-data behaviour (1B §4.4-§4.7). Mixes are shares that add up to 1.
+master_data:
+  customers:
+    b2b_segments: {RETAILER: 0.55, WHOLESALER: 0.15, CORPORATE: 0.15, INSTITUTION: 0.10, WORKSHOP: 0.05}
+    b2b_registration: {REGISTERED: 0.85, COMPOSITION: 0.08, UNREGISTERED: 0.07}
+    credit_limits:                         # rupees, per segment (customers on credit terms only)
+      RETAILER: [100000, 500000]
+      WHOLESALER: [1000000, 5000000]
+      CORPORATE: [500000, 2500000]
+      INSTITUTION: [500000, 2000000]
+      WORKSHOP: [100000, 500000]
+    name_suffixes:
+      RETAILER: [Traders, Stores, Enterprises, Mart, Retail, Agencies]
+      WHOLESALER: [Distributors, Wholesale, Trading Co, "& Sons"]
+      CORPORATE: [Technologies, Solutions, Industries, Infra, Services]
+      INSTITUTION: [Public School, Hospital, Institute, College, Hotels]
+      WORKSHOP: [Engineering Works, Auto Works, Fabricators, Service Centre]
+    extra_shipping_address_share: 0.30     # B2B customers with 1-3 more delivery addresses
+    campaign_attribution: {B2B: 0.15, B2C: 0.35}   # acquisitions credited to a campaign
+    acquisition_mean_years: 2.0            # customers joined on average this long before day 0
+    warehouse_region_weight: 3.0           # cities in a region with a warehouse get this weight multiplier
+  suppliers:
+    goods_registration: {REGISTERED: 0.90, COMPOSITION: 0.05, UNREGISTERED: 0.05}
+    msme_share: 0.35                       # MSME suppliers must be paid within 45 days (V-MD-14)
+    dispatch_address_share: 0.40
+    per_product: [2, 5]                    # approved suppliers per product (V-MD-15: at least 2)
+  campaigns:
+    history_years: 2                       # past campaigns generated for this many years before day 0
+    cancelled_share: 0.05
+    budget: [200000, 1500000]              # rupees per campaign, before the event's uplift

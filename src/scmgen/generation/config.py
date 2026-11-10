@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 from importlib.metadata import version as package_version
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Iterable, Mapping
 
 import yaml
 
@@ -47,6 +47,14 @@ class Volumes:
 
 _VOLUME_KEYS = set(Volumes.__dataclass_fields__)
 _SETUP_KEYS = {"hq_city", "distribution_centres", "stores", "company_age_years", "cash_credit_limit"}
+_MASTER_SCHEMA = {
+    "customers": {"b2b_segments", "b2b_registration", "credit_limits", "name_suffixes",
+                  "extra_shipping_address_share", "campaign_attribution", "acquisition_mean_years",
+                  "warehouse_region_weight"},
+    "suppliers": {"goods_registration", "msme_share", "dispatch_address_share", "per_product"},
+    "campaigns": {"history_years", "cancelled_share", "budget"},
+}
+B2B_SEGMENTS = ("RETAILER", "WHOLESALER", "CORPORATE", "INSTITUTION", "WORKSHOP")
 _ORG_KEYS = {"job_levels", "warehouse_staff_share", "departments", "warehouse_titles", "chief_executive"}
 JOB_LEVELS = ("EXECUTIVE", "HEAD", "MANAGER", "LEAD", "STAFF")
 
@@ -78,6 +86,27 @@ class Department:
 
 
 @dataclass(frozen=True)
+class MasterDataSettings:
+    """Behaviour of master-data generation (1B §4.4-§4.7); see ``master_data`` in generation.yaml."""
+
+    b2b_segments: dict[str, float]
+    b2b_registration: dict[str, float]
+    credit_limits: dict[str, tuple[int, int]]
+    customer_name_suffixes: dict[str, tuple[str, ...]]
+    extra_shipping_address_share: float
+    campaign_attribution: dict[str, float]
+    acquisition_mean_years: float
+    warehouse_region_weight: float
+    supplier_registration: dict[str, float]
+    msme_share: float
+    dispatch_address_share: float
+    suppliers_per_product: tuple[int, int]
+    campaign_history_years: int
+    campaign_cancelled_share: float
+    campaign_budget: tuple[int, int]
+
+
+@dataclass(frozen=True)
 class Organisation:
     job_levels: dict[str, JobLevel]
     warehouse_staff_share: float
@@ -98,6 +127,7 @@ class GenerationConfig:
     gst_rate_revision: bool = True        # apply the packs' 22 Sep 2025 rate change (D17)
     setup: Setup | None = None
     organisation: Organisation | None = None
+    master_data: MasterDataSettings | None = None
 
     @property
     def days(self) -> int:
@@ -198,7 +228,7 @@ def load_generation_config(
     ``today`` exists for tests; it defaults to the real date in IST.
     """
     raw = _read(config_dir / GENERATION_FILE)
-    _reject_unknown(raw, {"defaults", "presets", "setup", "organisation"}, GENERATION_FILE)
+    _reject_unknown(raw, {"defaults", "presets", "setup", "organisation", "master_data"}, GENERATION_FILE)
     defaults, presets = raw.get("defaults"), raw.get("presets")
     if not isinstance(defaults, dict) or not isinstance(presets, dict) or not presets:
         raise ConfigError(f"{GENERATION_FILE} needs a 'defaults' mapping and at least one preset under 'presets'")
@@ -227,6 +257,7 @@ def load_generation_config(
         "volumes": copy.deepcopy(preset_cfg["volumes"]),
         "setup": copy.deepcopy(raw.get("setup") or {}),
         "organisation": copy.deepcopy(raw.get("organisation") or {}),
+        "master_data": copy.deepcopy(raw.get("master_data") or {}),
     }
     for dotted, value in (overrides or {}).items():
         _apply_override(effective, dotted, _parse_override_value(value) if isinstance(value, str) else value)
@@ -255,7 +286,9 @@ def load_generation_config(
 
     setup = _parse_setup(effective["setup"])
     organisation = _parse_organisation(effective["organisation"])
+    master_data = _parse_master_data(effective["master_data"])
     return GenerationConfig(
+        master_data=master_data,
         setup=setup,
         organisation=organisation,
         preset=chosen,
@@ -337,3 +370,66 @@ def _parse_organisation(raw: dict[str, Any]) -> Organisation:
     if not isinstance(raw["chief_executive"], str):
         raise ConfigError("organisation.chief_executive must be a job title")
     return Organisation(levels, float(share), tuple(departments), titles, raw["chief_executive"])
+
+
+def _share(value: Any, name: str, high: float = 1.0) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= high:
+        raise ConfigError(f"{name} must be a number between 0 and {high}, got {value!r}")
+    return float(value)
+
+
+def _mix(value: Any, name: str, allowed: Iterable[str]) -> dict[str, float]:
+    if not isinstance(value, dict) or not value:
+        raise ConfigError(f"{name} must be a mapping of code: share")
+    _reject_unknown(value, set(allowed), name)
+    mix = {key: _share(share, f"{name}.{key}") for key, share in value.items()}
+    if abs(sum(mix.values()) - 1) > 1e-6:
+        raise ConfigError(f"{name}: shares add up to {sum(mix.values()):.4f}, not 1")
+    return mix
+
+
+def _parse_master_data(raw: dict[str, Any]) -> MasterDataSettings:
+    _reject_unknown(raw, set(_MASTER_SCHEMA), "master_data")
+    for section, keys in _MASTER_SCHEMA.items():
+        entry = raw.get(section)
+        if not isinstance(entry, dict):
+            raise ConfigError(f"master_data.{section} is missing")
+        _reject_unknown(entry, keys, f"master_data.{section}")
+        missing = sorted(keys - set(entry))
+        if missing:
+            raise ConfigError(f"master_data.{section} is missing: {', '.join(missing)}")
+    c, s_, k = raw["customers"], raw["suppliers"], raw["campaigns"]
+    limits = c["credit_limits"] or {}
+    suffixes = c["name_suffixes"] or {}
+    if set(limits) != set(B2B_SEGMENTS) or set(suffixes) != set(B2B_SEGMENTS):
+        raise ConfigError(f"master_data.customers credit_limits and name_suffixes need every segment: {', '.join(B2B_SEGMENTS)}")
+    for segment, names in suffixes.items():
+        if not isinstance(names, list) or not names or not all(isinstance(n, str) for n in names):
+            raise ConfigError(f"master_data.customers.name_suffixes.{segment} must list names")
+    attribution = c["campaign_attribution"] or {}
+    _reject_unknown(attribution, {"B2B", "B2C"}, "master_data.customers.campaign_attribution")
+    mean_years = c["acquisition_mean_years"]
+    if isinstance(mean_years, bool) or not isinstance(mean_years, (int, float)) or not 0 < mean_years <= 20:
+        raise ConfigError("master_data.customers.acquisition_mean_years must be between 0 and 20")
+    region_weight = c["warehouse_region_weight"]
+    if isinstance(region_weight, bool) or not isinstance(region_weight, (int, float)) or not 1 <= region_weight <= 20:
+        raise ConfigError("master_data.customers.warehouse_region_weight must be between 1 and 20")
+    return MasterDataSettings(
+        b2b_segments=_mix(c["b2b_segments"], "master_data.customers.b2b_segments", B2B_SEGMENTS),
+        b2b_registration=_mix(c["b2b_registration"], "master_data.customers.b2b_registration",
+                              ("REGISTERED", "COMPOSITION", "UNREGISTERED")),
+        credit_limits={seg: _pair(v, f"master_data.customers.credit_limits.{seg}", 1, 10**10) for seg, v in limits.items()},
+        customer_name_suffixes={seg: tuple(v) for seg, v in suffixes.items()},
+        extra_shipping_address_share=_share(c["extra_shipping_address_share"], "master_data.customers.extra_shipping_address_share"),
+        campaign_attribution={kind: _share(attribution.get(kind, 0), f"master_data.customers.campaign_attribution.{kind}")
+                              for kind in ("B2B", "B2C")},
+        acquisition_mean_years=float(mean_years), warehouse_region_weight=float(region_weight),
+        supplier_registration=_mix(s_["goods_registration"], "master_data.suppliers.goods_registration",
+                                   ("REGISTERED", "COMPOSITION", "UNREGISTERED")),
+        msme_share=_share(s_["msme_share"], "master_data.suppliers.msme_share"),
+        dispatch_address_share=_share(s_["dispatch_address_share"], "master_data.suppliers.dispatch_address_share"),
+        suppliers_per_product=_pair(s_["per_product"], "master_data.suppliers.per_product", 2, 20),
+        campaign_history_years=_int(k["history_years"], "master_data.campaigns.history_years", 0, 5),
+        campaign_cancelled_share=_share(k["cancelled_share"], "master_data.campaigns.cancelled_share", 0.5),
+        campaign_budget=_pair(k["budget"], "master_data.campaigns.budget", 1, 10**10),
+    )

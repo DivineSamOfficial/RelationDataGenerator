@@ -37,7 +37,7 @@ PLANNED_STEPS = {
     "MD": "3.5", "SY": "3.6", "PR": "3.7", "IN": "3.7", "SO": "3.8", "SH": "3.9", "IV": "3.9", "PY": "3.10",
     "AR": "3.10", "RT": "3.11", "EX": "3.13", "AP": "3.13", "BK": "3.14", "TX": "3.14", "AC": "3.14", "LD": "Phase 4",
 }
-PLANNED_OVERRIDES = {"V-MD-01": "3.5", "V-MD-06": "3.7", "V-SY-04": "3.16 (double-build test)"}
+PLANNED_OVERRIDES = {"V-MD-06": "3.7", "V-SY-04": "3.16 (double-build test)"}
 
 
 class ValidationError(RuntimeError):

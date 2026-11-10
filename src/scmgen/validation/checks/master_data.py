@@ -1,7 +1,6 @@
 """Master-data rules (1B §7, V-MD-*). Each check returns the violating rows; empty = the rule holds.
 
-Not implemented here yet: V-MD-01 (code patterns are defined by master-data generation, step 3.5)
-and V-MD-06 (approvers on documents, step 3.7).
+Not implemented here yet: V-MD-06 (approvers on documents, step 3.7).
 """
 
 from __future__ import annotations
@@ -11,11 +10,27 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
+import re
+
 from scmgen.domain.identifiers import SYNTHETIC_PAN_PREFIX, is_valid_gstin
+from scmgen.generation.master.codes import CODE_PATTERNS
 from scmgen.generation.packs import GST_SLABS
 from scmgen.validation.framework import ValidationContext, check
 
 Rows = list[dict[str, Any]]
+
+
+@check("V-MD-01", requires_master_data=True)
+def codes_follow_patterns(ctx: ValidationContext) -> Rows:
+    """Generated codes follow the generator's formats (generation/master/codes.py); company_code is the
+    workspace code (V-MD-04); pack and seed codes are fixed by their YAML."""
+    found: Rows = []
+    for (table, column), pattern in CODE_PATTERNS.items():
+        compiled = re.compile(pattern)
+        for (value,) in ctx.conn.exec_driver_sql(f"SELECT {column} FROM {table} WHERE {column} IS NOT NULL"):
+            if not compiled.match(value):
+                found.append({"table": table, "column": column, "value": value, "expected": pattern})
+    return found
 
 
 @check("V-MD-02", requires_master_data=True)

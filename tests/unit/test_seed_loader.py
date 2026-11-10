@@ -69,6 +69,8 @@ def _edit(config: Path, file: str, old: str, new: str) -> None:
     ("reference.yaml", "{department_code: IT, department_name: IT}", "{department_code: HR, department_name: IT}",
      "duplicate department_code"),
     ("states.yaml", 'gst_state_code: "29"', 'gst_state_code: "27"', "duplicate gst_state_code"),
+    ("reference.yaml", "{category: SAAS, count: 3,", "{category: SALARIES, count: 3,", "not an expense category paid to suppliers"),
+    ("reference.yaml", "{category: CLOUD, count: 2,", "{category: CLOUD, per: warehouse, count: 2,", "either per"),
 ])
 def test_seed_problems_are_reported(config, file, old, new, message):
     _edit(config, file, old, new)

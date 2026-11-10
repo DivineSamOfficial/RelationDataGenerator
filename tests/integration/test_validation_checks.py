@@ -23,6 +23,7 @@ from scmgen.db.workspace_ddl import apply_workspace_ddl
 from scmgen.db.workspaces import create_workspace, ensure_validated, record_validation_outcome
 from scmgen.domain.identifiers import gstin_check_character
 from scmgen.generation.config import load_generation_config
+from scmgen.generation.master.organisation import ZONE_PREFIX
 from scmgen.generation.runs import RunRecorder
 from scmgen.validation import framework
 from scmgen.validation.catalogue import load_catalogue
@@ -69,7 +70,10 @@ def _repair(conn, ids: dict[str, int]) -> None:
                          {"w": ids[warehouse], "z": zone}).scalar_one()
             if not exists:
                 _clone(conn, "warehouse_locations", "warehouse_location_id", ids["loc_rcv"],
-                       warehouse_id=ids[warehouse], zone=zone, location_code=f"{zone[:3]}-01")
+                       warehouse_id=ids[warehouse], zone=zone, location_code=f"{ZONE_PREFIX[zone]}-01")
+    # V-MD-01: the generator's code formats (5-digit SKU counter).
+    run(text("UPDATE products SET sku = CONCAT(LEFT(sku, LENGTH(sku) - 4), '0', RIGHT(sku, 4)) "
+             "WHERE sku REGEXP '-[0-9]{4}$'"))
     # V-MD-11: PIN inside the city's range.
     run(text("UPDATE warehouses SET pincode = '560100' WHERE pincode NOT LIKE '560%' AND city = 'Bengaluru'"))
     # V-MD-15: a second approved goods supplier for the product.
@@ -131,11 +135,13 @@ def test_consistent_master_data_passes_every_implemented_rule(db):
     failing = {r.rule_id: (r.status, r.message, r.sample[:2]) for r in report.results if r.status in ("FAILED", "ERROR")}
     assert failing == {}
     assert {rid for rid, r in results.items() if r.status == "PASSED"} == set(IMPLEMENTED)
-    assert {rid for rid, r in results.items() if r.status == "PENDING"} == {"V-MD-01", "V-MD-06", "V-SY-04"}
+    assert {rid for rid, r in results.items() if r.status == "PENDING"} == {"V-MD-06", "V-SY-04"}
     assert report.passed
 
 
 MUTATIONS = {
+    "V-MD-01": ["UPDATE customers SET customer_code = 'CUST-1234567' WHERE customer_id = (SELECT MIN(customer_id) FROM "
+                "(SELECT customer_id FROM customers) c)"],
     "V-MD-02": ["UPDATE customers SET gstin = CONCAT(LEFT(gstin, 14), IF(RIGHT(gstin, 1) = 'A', 'B', 'A')) "
                 "WHERE gstin IS NOT NULL"],
     "V-MD-03": ["UPDATE customer_addresses SET state_id = (SELECT state_id FROM states WHERE state_code = 'MH') "
@@ -227,12 +233,12 @@ def test_a_broken_check_is_reported_as_error_not_a_crash(db, monkeypatch):
     def broken(ctx):
         return ctx.rows("SELECT no_such_column FROM companies")
     registry = dict(framework._REGISTRY)
-    registry["V-MD-01"] = framework.RegisteredCheck("V-MD-01", broken, True)
+    registry["V-MD-06"] = framework.RegisteredCheck("V-MD-06", broken, True)
     monkeypatch.setattr(framework, "_REGISTRY", registry)
-    report = _run(conn, rule_ids=["V-MD-01", "V-MD-04"])
+    report = _run(conn, rule_ids=["V-MD-06", "V-MD-04"])
     statuses = {r.rule_id: r.status for r in report.results}
-    assert statuses == {"V-MD-01": "ERROR", "V-MD-04": "PASSED"} and not report.passed
-    assert "no_such_column" in report.results[0].message
+    assert statuses == {"V-MD-06": "ERROR", "V-MD-04": "PASSED"} and not report.passed
+    assert "no_such_column" in next(r for r in report.results if r.rule_id == "V-MD-06").message
 
 
 def test_run_records_its_validation_outcome(db):

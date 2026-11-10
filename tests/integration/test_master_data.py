@@ -81,8 +81,11 @@ def test_master_data_is_generated_on_day_zero_and_validates(settings, workspaces
     assert rows["companies"] == 1 and rows["warehouses"] == 8 and rows["company_gst_registrations"] == 5
     assert rows["business_units"] == 2 and rows["tax_accounts"] == 30 and rows["accounting_periods"] == 12
     assert rows["bank_accounts"] == 3 + 8 and rows["cost_centers"] == 1 + 2 + 8 + 10
+    assert rows["products"] == 400 and rows["customers"] == 240 + 1160 and rows["shipping_carriers"] == 6
+    assert rows["product_brands"] == 23 and rows["supplier_products"] >= 2 * 400
     statuses = {r.rule_id: r.status for r in result.report.results}
-    assert all(statuses[f"V-MD-{n:02d}"] == "PASSED" for n in (2, 3, 4, 5, 7, 8, 9, 11))
+    # Every master-data rule is checked on real rows now; only V-MD-06 (document approvers) waits for 3.7.
+    assert {rid: st for rid, st in statuses.items() if rid.startswith("V-MD") and st != "PASSED"} == {"V-MD-06": "PENDING"}
     ws = get_workspace(settings, code)
     assert ws.status == "READY" and str(ws.last_committed_through) == "2026-03-31 23:59:59.999999"
     engine = create_mysql_engine(settings, role="app", database=ws.oltp_schema)
@@ -144,4 +147,47 @@ def test_impossible_setup_fails_cleanly(settings, workspaces):
     with engine.connect() as conn:
         assert conn.execute(text("SELECT COUNT(*) FROM companies")).scalar_one() == 0
         assert conn.execute(text("SELECT run_status FROM generation_runs")).scalar_one() == "FAILED"
+    engine.dispose()
+
+
+def _rates(settings, code: str) -> dict[str, list[tuple]]:
+    engine = create_mysql_engine(settings, role="app", database=f"scm_{code}_oltp")
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT c.category_code, t.gst_rate, t.change_reason, t.effective_to IS NULL AS current_rate "
+            "FROM product_tax_rates t JOIN products p USING (product_id) "
+            "JOIN product_categories c ON c.product_category_id = p.product_category_id")).all()
+    engine.dispose()
+    by_category: dict[str, list[tuple]] = {}
+    for category, gst_rate, reason, current in rows:
+        by_category.setdefault(category, []).append((float(gst_rate), reason, bool(current)))
+    return by_category
+
+
+@pytest.mark.parametrize("dates, revision, expected_monitor_rates", [
+    # Day 0 after 22 Sep 2025: older monitors carry 28% INITIAL (closed) + 18% REVISION (current).
+    ({"history.start_date": "2026-04-01", "history.end_date": "2026-06-30"}, True, {28.0, 18.0}),
+    # Day 0 before the revision: one open 28% row; the daily engine applies the change on the day.
+    ({"history.start_date": "2025-04-01", "history.end_date": "2025-06-30"}, True, {28.0}),
+    # Revision switched off (D17): rates stay at the pre-revision slab.
+    ({"history.start_date": "2026-04-01", "history.end_date": "2026-06-30"}, False, {28.0}),
+])
+def test_gst_rate_history_follows_the_revision_date(settings, workspaces, dates, revision, expected_monitor_rates):
+    code = workspaces(industries=("electronics",))
+    generate_master_data(settings, code, load_generation_config(
+        preset="small", today=TODAY, overrides={**dates, "gst_rate_revision": revision}))
+    monitors = _rates(settings, code)["ELEC-CMP-MON"]
+    assert {rate for rate, _, _ in monitors} == expected_monitor_rates
+    assert all(rate == 18.0 for rate, _, current in monitors if current) == (expected_monitor_rates == {28.0, 18.0})
+    earbuds = _rates(settings, code)["ELEC-AUD-EAR"]                 # 18% before and after: never revised
+    assert {reason for _, reason, _ in earbuds} == {"INITIAL"}
+
+
+def test_a_b2b_only_company_has_no_consumers(settings, workspaces):
+    code = workspaces(industries=("industrial_mro",))
+    rows = generate_master_data(settings, code, _config()).rows_by_table
+    assert rows["customers"] == 240
+    engine = create_mysql_engine(settings, role="app", database=f"scm_{code}_oltp")
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM customers WHERE customer_type = 'B2C'")).scalar_one() == 0
     engine.dispose()

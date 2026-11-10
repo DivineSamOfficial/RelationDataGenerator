@@ -465,6 +465,8 @@ def build_employees(ctx: MasterContext, warehouses: list[PlannedWarehouse]) -> N
         employee_id = ctx.ids.next("employees")
         cost_center = ctx.ref("cost_center")[("WH", warehouse_id) if warehouse_id else ("DEPT", department)]
         ctx.ref("employees_by_department").setdefault(department, []).append(employee_id)
+        if department == "SAL" and warehouse_id is None and level == "STAFF":
+            ctx.refs.setdefault("sales_executives", []).append(employee_id)       # B2B account managers
         ctx.add("employees", {
             "employee_id": employee_id, "employee_code": f"EMP-{number:05d}", "first_name": first[:60],
             "last_name": last[:60], "email": address, "phone": mobile(rng),
