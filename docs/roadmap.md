@@ -7,10 +7,10 @@ Last updated: 2026-11-10
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Architecture & database design | **Done — approved by owner 2026-11-08** (incl. interpretations I1–I6, Part 1H §4) |
-| 2 | Database implementation (MySQL schema, constraints, indexes, workspace management) | **Steps 2.1–2.7 done** — approved 2026-11-08; awaiting owner sign-off before Phase 3 |
-| 3 | Data generation engine (master data, transactions, industry packs, scenarios, historical + continuous, progress reporting) | Not started |
+| 2 | Database implementation (MySQL schema, constraints, indexes, workspace management) | **Done** — steps 2.1–2.7; signed off by owner 2026-11-10 |
+| 3 | Data generation engine (master data, transactions, industry packs, scenarios, historical + continuous, progress reporting) | **In progress** — approved 2026-11-10; step plan below |
 | 4 | DuckDB loader (full, incremental, metadata, reconciliation) | Not started |
-| 5 | Control Panel UI (Streamlit) | Not started |
+| 5 | Control Panel UI (Streamlit), incl. the **Table guide** (owner request O1 below) | Not started |
 | 6 | Testing consolidation & documentation | Not started |
 | 7 | Advanced simulation (CDC, anomalies, late data, schema evolution, recovery) | Not started |
 
@@ -39,6 +39,35 @@ Last updated: 2026-11-10
 | 2.5 | Workspace commands (`db init`, `workspace create/list/show/delete`) | **Done** — create builds `scm_<code>_oltp` (92 tables + view) and `scm_<code>_sim`, registry row READY, DDL fingerprint recorded; named lock; failed create fully rolled back; delete archives (or `--purge`); 122 tests pass |
 | 2.6 | Constraint test suite | **Done** — baseline dataset fills all 92 tables (every constraint accepts valid data); sweeps: 301 FKs never accept a dangling reference, 807 NOT NULL columns reject NULL, 114 enumerations reject lower-case/unknown; 69 business-rule cases fire their exact named constraint. **Found a MySQL 26.10 defect** (FK not enforced via an index with a nullable tail) → D85, 9 index fixes, guard test + A12. 200 tests pass |
 | 2.7 | Schema-vs-design check | **Done** — `scmgen db check-design` (module `db/design_check.py`) parses every column table in Parts 1B–1E and 1G §5 (incl. the status-history template, 1C §2.3 amount ranges, grouped rows, the view's SELECT list) and compares 1,478 design columns with `information_schema`: existence both ways, type, NULL, generated, PK, documented FK target. First run found 5 doc drifts from Phase 2 (`delivery_attempts.delivered_key`, `invoice_line_items.inclusive_unit_price`, `tax_transactions.is_cancellation` missing from column tables; `tax_transactions.return_period` NOT NULL since D85; two `v_general_ledger` columns): docs corrected, now 0 differences. `-w CODE` checks a live workspace for drift. 228 tests pass (25 + 3 new) |
+
+## Phase 3 steps (scope from Part 1G §2–§3, §10–§12)
+
+Working principle: from step 3.6 on, a **Small** workspace generates end to end after every step and passes every constraint and every validation implemented so far. Data is always valid; each step only makes the business more complete (for example, after 3.8 orders exist but stay open until 3.9 ships them). Each step: plan → implement → tests and validations with real output → docs → commit.
+
+| Step | Content | Status |
+|---|---|---|
+| 3.1 | Generation foundations: generation config (`config/generation.yaml`: Small/Medium/Large presets, dates, seed, batch size); simulated clock; RNG streams keyed by (seed, date, stream) (D65); `Decimal` money helpers (D84); deterministic ID allocator (D20); batch writer; document-number service (D75, D38); run bookkeeping (`generation_runs`, `generation_run_steps`). Adds Faker | Next |
+| 3.2 | Domain rules, pure functions without the database: GST line and header maths incl. inclusive back-calculation (D79) and CGST/SGST vs IGST split (D39); moving-average cost (D27); GSTIN/PAN/IFSC/CIN generators (D36); journal builder with balance guard (D62) and account lookup by role (D16). Cross-checked against the DDL's CHECK formulas | |
+| 3.3 | Seed data and industry packs: `config/seed/*.yaml` (states, COA skeleton, UoM, payment methods/terms, channels, departments, expense categories); pack format + validator; first 3 packs: Consumer Electronics, Beauty & Personal Care, Home & Kitchen | |
+| 3.4 | Validation framework: registry of the 101 V-* checks by ID, SQL runner, JSON report in `data/reports/<code>/`, `scmgen validate`. Starts with the V-MD and V-SY checks; every later step adds its own | |
+| 3.5 | Master data (day 0): dependency levels 0–8 (1B §3.1) from seed + setup inputs + packs + Faker (`en_IN`); derived COA, tax accounts, periods, cost centres, supplier products. V-MD checks pass | |
+| 3.6 | Daily engine skeleton + opening position: run phases (1G §2.1), one MySQL transaction per simulated day (D64), calendar, period open/close, `committed_through`, cancel, single-writer lock, progress rows; opening journal (P01) and opening stock (P02) | |
+| 3.7 | Procurement: replenishment → RFQ or direct PO (D30) → quotations → award → PO → GRN + dock inspection (D31, P03) → supplier invoice match + PPV (D35, P04) → AP → payment runs (P05) | |
+| 3.8 | Sales demand: orders from the demand model (seasonality, weekday/hour, campaigns, D10), B2C inclusive pricing (D79), prepaid payment attempts (D5), credit holds (D47), reservations, cancellations | |
+| 3.9 | Fulfilment and invoicing: pick/pack/dispatch, one invoice per shipment (D4) with shipping line (D42), stock issue + COGS (D52, P06), cancellation within 24 h (D40, P07), carrier tracking, delivery attempts, COD (D43), RTO (D41, P13), e-invoice IRN (D46) | |
+| 3.10 | Collections and AR: B2B payments by behaviour profile, partial payments, allocations (D49), clearing receipts (D53, P08), cheques, chargebacks (P09) | |
+| 3.11 | Returns: requests, approvals, pickups, receipts (P12), inspections, defective register (D45), credit notes (D44, P11), refunds (P14) | |
+| 3.12 | Inventory housekeeping: store replenishment and rebalancing transfers incl. inter-GSTIN transfer invoices (D29, D55, P16/P17), cycle counts and adjustments (P15), expiry sweep, defective dispositions (P18) | |
+| 3.13 | Expenses and payroll: recurring, usage and ad-hoc bills, petty cash and claims via AP (D57), monthly payroll (D56), approvals (P19), payments (P20) | |
+| 3.14 | Bank and period end: gateway settlements and COD remittances (P10), charges and interest (P21), bank reconciliations, depreciation (P23), GSTR-1 / GSTR-3B with ITC set-off and settlement (D58, P22), period close, `gl_period_balances` (D54) | |
+| 3.15 | Scenarios and remaining packs: `config/scenarios.yaml` rates for every master prompt §6 scenario + a distribution report; packs Fashion & Apparel, Packaged Food & FMCG, Industrial & MRO, Office & Stationery | |
+| 3.16 | Continue, Rebuild, Plan: `generate continue / rebuild / plan` (D14, D68), validation gate (D76), determinism proof (same seed ⇒ same checksums; a run split in two ⇒ same data, V-SY-04), Medium-preset throughput measured against the 15-minute target (1G §2.5) | |
+
+## Owner requests (scheduled)
+
+| # | Request | Scheduled |
+|---|---|---|
+| O1 | **Table guide in the UI** (requested 2026-11-10, "at the end"): for every table, what it holds, its columns and keys, how it relates to other tables (diagrams), how it's populated and how to use it in analysis (example queries). | Phase 5 (UI), after the main screens. Built from `docs/design/` (the step 2.7 parser already reads every column table), so the guide and the design can never disagree |
 
 ## Open questions
 

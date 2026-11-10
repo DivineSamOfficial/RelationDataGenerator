@@ -6,7 +6,7 @@ All company, person and tax identifiers it generates are fictional.
 
 ## Status
 
-Phase 1 (architecture and design) is complete and approved. Phase 2 (MySQL schema) steps are complete, awaiting sign-off before Phase 3 (data generation). See [`docs/roadmap.md`](docs/roadmap.md).
+Phases 1 (design) and 2 (MySQL schema) are complete. Phase 3 (data generation engine) is in progress. See [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Documentation
 
