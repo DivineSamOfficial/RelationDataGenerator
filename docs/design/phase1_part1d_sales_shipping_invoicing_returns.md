@@ -64,6 +64,7 @@ Enforced in the DDL; no tables or relationships added.
 | **New column** `invoice_line_items.inclusive_unit_price` (batch 5) | D79 said the invoice back-calculates from the inclusive price but didn't store it | Snapshot of the GST-inclusive price on B2C lines. Same two-branch formula CHECK as order lines, so taxable value is verifiable at the invoice-date rate (without it, `qty × rounded ex-GST price` can differ from the back-calculation by a paisa) |
 | Credit note ↔ invoice, return line ↔ invoice line (batch 5) | D80 | Composite FKs `credit_notes (invoice_id, customer_id, company_gst_registration_id)` → `invoices`; `sales_return_line_items (invoice_line_item_id, order_line_item_id)` → `invoice_line_items` |
 | Credit-note line amounts | — | Tax split and line total are CHECKed. Taxable value isn't formula-checked, because credits can be value-only (quantity 0); limits stay in V-IV-04 |
+| Column tables caught up (step 2.7) | `delivered_key` and `inclusive_unit_price` were described in this table but missing from their column tables | Both rows added to §4 / §5; the schema-vs-design check now compares every column table with the database |
 | Defective-stock register | D45 | UNIQUE on each source FK: one register row per return inspection / damage adjustment line / damaged transfer line |
 
 ### 1.3 Open questions
@@ -297,6 +298,7 @@ Carrier scan events from the carrier's feed (R12). High volume and external, so 
 | `received_by_name` | `VARCHAR(120)` | | Person who signed |
 | `proof_of_delivery_reference` | `VARCHAR(40)` | | OTP / signature reference |
 | `cod_collected_amount` | `DECIMAL(18,2)` | | COD shipments, delivered attempt |
+| `delivered_key` | generated `BIGINT UNSIGNED` | | `IF(attempt_outcome = 'DELIVERED', shipment_id, NULL)` STORED. UNIQUE: at most one successful delivery per shipment (§1.4) |
 
 - **Keys:** UNIQUE `(shipment_id, attempt_number)`.
 - **Constraints:** CHECK `attempt_number BETWEEN 1 AND 3`; CHECK `(attempt_outcome = 'FAILED') = (failure_reason IS NOT NULL)`; CHECK `attempt_outcome = 'FAILED' OR received_by_name IS NOT NULL`.
@@ -356,6 +358,7 @@ Tax invoice: one per shipment at dispatch, or one per handover for store sales (
 | `product_id` | `BIGINT UNSIGNED` | | FK → `products`. Snapshot for PRODUCT lines, so tax reports don't need a three-table join |
 | `hsn_code` | `VARCHAR(8)` | ✓ | Snapshot (legal requirement). SAC `996812` for shipping charges |
 | `quantity` | `DECIMAL(18,3)` | ✓ | 1 for SHIPPING_CHARGE |
+| `inclusive_unit_price` | `DECIMAL(18,4)` | | GST-inclusive price snapshot from the order line (D79); set iff the order `prices_include_tax`. PRODUCT lines only (§1.4) |
 | `unit_price` … `line_total` | | ✓ | 1C §2.3. Price and discount copied from the order line |
 
 - **Keys:** UNIQUE `(invoice_id, line_number)`; UNIQUE `(shipment_line_item_id)`. Composite FK `(order_line_item_id, product_id)` → `order_line_items` (the line's product is always the order line's); UNIQUE `(invoice_line_item_id, order_line_item_id)`, the target for return lines (D80). For tax-inclusive orders, the invoice recomputes the ex-GST price at the invoice-date rate so the inclusive price is unchanged (D79; amends V-IV-02).

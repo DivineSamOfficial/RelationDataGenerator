@@ -6,7 +6,7 @@ All company, person and tax identifiers it generates are fictional.
 
 ## Status
 
-Phase 1 (architecture and design) is complete and approved. Phase 2 (MySQL schema) is in progress. See [`docs/roadmap.md`](docs/roadmap.md).
+Phase 1 (architecture and design) is complete and approved. Phase 2 (MySQL schema) steps are complete, awaiting sign-off before Phase 3 (data generation). See [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Documentation
 
@@ -46,6 +46,12 @@ Python 3.11+, MySQL 8.0.16+, DuckDB, SQLAlchemy/PyMySQL, Faker, YAML config, Typ
    scmgen workspace delete -w kaveri            # asks you to type the code; --purge frees the code for reuse
    ```
    `create` builds `scm_<code>_oltp` with all 92 tables (empty until data generation, Phase 3) and an empty `scm_<code>_sim`.
+7. **Check the schema against the design docs** (run after any DDL or design change):
+   ```bash
+   scmgen db check-design               # builds the DDL in a scratch schema, compares, drops it
+   scmgen db check-design -w kaveri     # checks a live workspace for drift
+   ```
+   Lists every difference (missing/extra table or column, type, NULL, generated, PK, FK target) and exits with code 1 if there is any.
 
 ## Tests
 

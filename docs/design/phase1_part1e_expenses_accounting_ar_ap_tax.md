@@ -57,6 +57,8 @@ Enforced in the DDL. One column added (`tax_transactions.is_cancellation`); no t
 | Same party in AR / AP | Validation V-AR-01 / V-AP-01 | Composite FKs: AR item ↔ invoice / credit note / payment on `(id, customer_id)`; AP item ↔ supplier invoice / supplier payment on `(id, supplier_id)`, expense on `(id, supplier_id)` or `(id, employee_id)`. New UNIQUE keys on those source tables (1C, 1D) |
 | Journal integrity | Rules in §3 / §6 | CHECKs: `journal_type` ↔ `journal_source` (OPENING / RECURRING / MANUAL / REVERSAL); each `journal_source` links its own document FK (§6 table); sourceless journals link none |
 | Bank-line direction | Implied | CHECK: receipts are bank credits, payments/charges/GST are bank debits; type ↔ linked document; at most one document |
+| `v_general_ledger` columns | §3 SQL | Adds `entry_status` (filter or show reversed entries) and `account_id` (join key for reports) |
+| Column tables caught up (step 2.7) | `is_cancellation` was described here but missing from the `tax_transactions` column table; `return_period` shown nullable although step 2.6 (D85) made it NOT NULL | Column table corrected; the schema-vs-design check now compares every column table with the database |
 | GST returns | §5 | CHECK `output_cgst = output_sgst`, `itc_cgst = itc_sgst`; settlement identity enforced only for a filed GSTR-3B (a GSTR-1 reports outputs but never pays) |
 | Attachment storage | D24 | CHECK `storage_uri` is on the fictional `.example` domain |
 
@@ -242,8 +244,8 @@ The general ledger as a derived view (R6), so it never competes with journal lin
 
 ```sql
 SELECT jel.journal_entry_line_id, je.journal_entry_id, je.journal_number, je.posting_date,
-       je.document_date, ap.fiscal_year, ap.period_code, je.journal_source, je.description,
-       coa.account_code, coa.account_name, at.account_type_code,
+       je.document_date, ap.fiscal_year, ap.period_code, je.journal_source, je.entry_status, je.description,
+       coa.account_id, coa.account_code, coa.account_name, at.account_type_code,
        jel.debit_amount, jel.credit_amount,
        jel.debit_amount - jel.credit_amount AS net_amount,
        SUM(jel.debit_amount - jel.credit_amount) OVER (
@@ -432,6 +434,7 @@ GST per taxable document line and direction: the basis for GST reports and retur
 | `company_gst_registration_id` | `SMALLINT UNSIGNED` | ✓ | FK. Our GSTIN on this side of the transaction |
 | `tax_direction` | `VARCHAR(10)` | ✓ | `OUTPUT` / `INPUT` |
 | `document_type` | `VARCHAR(30)` | ✓ | `SALES_INVOICE` / `CREDIT_NOTE` / `SUPPLIER_INVOICE` / `EXPENSE` / `TRANSFER_OUT` / `TRANSFER_IN` |
+| `is_cancellation` | `BOOLEAN` | ✓ | Default FALSE. TRUE on the negative mirror row a cancelled invoice adds per line (§1.1) |
 | `invoice_line_item_id` | `BIGINT UNSIGNED` | | Source FK |
 | `credit_note_line_item_id` | `BIGINT UNSIGNED` | | Source FK |
 | `supplier_invoice_line_item_id` | `BIGINT UNSIGNED` | | Source FK |
@@ -439,7 +442,7 @@ GST per taxable document line and direction: the basis for GST reports and retur
 | `stock_transfer_line_item_id` | `BIGINT UNSIGNED` | | Source FK (two rows per line: OUT at source, IN at destination) |
 | `document_number` | `VARCHAR(40)` | ✓ | Snapshot (invoice / credit note / bill number) |
 | `document_date` | `DATE` | ✓ | |
-| `return_period` | generated `CHAR(7)` | | `DATE_FORMAT(document_date, '%Y-%m')` STORED |
+| `return_period` | generated `CHAR(7)` | ✓ | `DATE_FORMAT(document_date, '%Y-%m')` STORED NOT NULL (D85: it follows the GSTIN FK in an index, so it must never be NULL) |
 | `counterparty_gstin` | `CHAR(15)` | | Snapshot; NULL for unregistered parties |
 | `customer_id` | `BIGINT UNSIGNED` | | FK (output side) |
 | `supplier_id` | `BIGINT UNSIGNED` | | FK (input side) |

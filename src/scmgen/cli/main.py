@@ -16,6 +16,7 @@ from scmgen.core.logging_setup import setup_logging
 from scmgen.core.settings import ALL_ROLES, DEFAULT_ENV_FILE, Settings, load_settings
 from scmgen.db.bootstrap import init_database
 from scmgen.db.connection import create_mysql_engine, verify_connection
+from scmgen.db.design_check import run_design_check
 from scmgen.db.server_check import evaluate_server, fetch_server_info
 from scmgen.db.workspaces import WorkspaceInfo, create_workspace, delete_workspace, get_workspace, list_workspaces
 
@@ -103,6 +104,34 @@ def db_init() -> None:
     # Each action was already printed by the console log handler as it happened.
     typer.secho(f"Database initialised ({len(report.actions)} actions).", fg=typer.colors.GREEN)
     typer.echo("Verify with: scmgen db check --as app")
+
+
+@db_app.command("check-design")
+def db_check_design(
+    workspace: Annotated[str | None, typer.Option(
+        "--workspace", "-w", help="Check this workspace's live schema instead of a fresh build of the DDL.")] = None,
+) -> None:
+    """Compare the schema with the table definitions in docs/design/ and list every difference.
+
+    Exit code 1 if any difference is found.
+    """
+    settings = _bootstrap()
+    try:
+        scopes = run_design_check(settings, workspace=workspace)
+    except ScmgenError as exc:
+        _fail(exc, "db.check_design.error")
+    total = 0
+    for scope in scopes:
+        count = len(scope.differences)
+        total += count
+        colour = typer.colors.GREEN if count == 0 else typer.colors.RED
+        typer.secho(f"[{'OK' if count == 0 else 'DIFF'}] {scope.summary()}: {count} difference(s)", fg=colour)
+        for difference in scope.differences:
+            typer.echo(f"  {difference.describe()}")
+    if total:
+        log.error("schema differs from design", extra={"event": "db.check_design.diff"})
+        raise typer.Exit(1)
+    typer.secho("Schema matches the design.", fg=typer.colors.GREEN)
 
 
 # --- workspace commands -----------------------------------------------------------------------

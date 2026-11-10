@@ -124,6 +124,7 @@ Priorities: correct architecture, relational integrity, realistic business proce
 - Status columns `VARCHAR(30)` + enumeration `CHECK (REGEXP_LIKE(col, '^(A|B)$', 'c'))` (D82), never a plain IN list.
 - Format CHECKs use `REGEXP_LIKE(col, pattern, 'c')`, never plain `REGEXP` (case-insensitive under our collation; proven in step 2.3).
 - No index may start with a foreign key's columns and then contain a nullable column (D85; MySQL 26.10 then stops enforcing the FK). A structural test enforces it.
+- After any DDL or design-doc change, `scmgen db check-design` must report 0 differences (an integration test enforces it). Column tables in `docs/design/` are what it reads: amend the table itself, not only the prose.
 - CHECK bodies must be boolean expressions: no `IF(...)` (MySQL 3812); write `(a AND x) OR (NOT a AND y)`.
 - MySQL silently rounds excess DECIMAL digits: the engine must quantize every amount itself (Python `Decimal`, half-up) before insert.
 - Any SQL containing `%` runs through `scmgen.db.sql_files.execute_raw` (PyMySQL %-formats statements otherwise).

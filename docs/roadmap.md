@@ -1,13 +1,13 @@
 # Roadmap and Status
 
-Last updated: 2026-11-08
+Last updated: 2026-11-10
 
 ## Phases
 
 | Phase | Scope | Status |
 |---|---|---|
 | 1 | Architecture & database design | **Done — approved by owner 2026-11-08** (incl. interpretations I1–I6, Part 1H §4) |
-| 2 | Database implementation (MySQL schema, constraints, indexes, workspace management) | **In progress** — approved 2026-11-08 |
+| 2 | Database implementation (MySQL schema, constraints, indexes, workspace management) | **Steps 2.1–2.7 done** — approved 2026-11-08; awaiting owner sign-off before Phase 3 |
 | 3 | Data generation engine (master data, transactions, industry packs, scenarios, historical + continuous, progress reporting) | Not started |
 | 4 | DuckDB loader (full, incremental, metadata, reconciliation) | Not started |
 | 5 | Control Panel UI (Streamlit) | Not started |
@@ -38,7 +38,7 @@ Last updated: 2026-11-08
 | 2.4 | DDL for all 92 tables + `v_general_ledger` | **Done** — 7 batches, 20 files (`ddl/workspace/0101`–`0701`): 92 tables + 1 view, 302 FKs, 585 CHECKs, 189 unique keys, 17 computed columns. No deferred FK left; every `…_id` column has an FK except 3 documented external identifiers. Structural convention tests pass (97 tests). Decisions D82–D84; refinements recorded in 1B, 1C, 1D §1.4, 1E §1.1 |
 | 2.5 | Workspace commands (`db init`, `workspace create/list/show/delete`) | **Done** — create builds `scm_<code>_oltp` (92 tables + view) and `scm_<code>_sim`, registry row READY, DDL fingerprint recorded; named lock; failed create fully rolled back; delete archives (or `--purge`); 122 tests pass |
 | 2.6 | Constraint test suite | **Done** — baseline dataset fills all 92 tables (every constraint accepts valid data); sweeps: 301 FKs never accept a dangling reference, 807 NOT NULL columns reject NULL, 114 enumerations reject lower-case/unknown; 69 business-rule cases fire their exact named constraint. **Found a MySQL 26.10 defect** (FK not enforced via an index with a nullable tail) → D85, 9 index fixes, guard test + A12. 200 tests pass |
-| 2.7 | Schema-vs-design check | Next |
+| 2.7 | Schema-vs-design check | **Done** — `scmgen db check-design` (module `db/design_check.py`) parses every column table in Parts 1B–1E and 1G §5 (incl. the status-history template, 1C §2.3 amount ranges, grouped rows, the view's SELECT list) and compares 1,478 design columns with `information_schema`: existence both ways, type, NULL, generated, PK, documented FK target. First run found 5 doc drifts from Phase 2 (`delivery_attempts.delivered_key`, `invoice_line_items.inclusive_unit_price`, `tax_transactions.is_cancellation` missing from column tables; `tax_transactions.return_period` NOT NULL since D85; two `v_general_ledger` columns): docs corrected, now 0 differences. `-w CODE` checks a live workspace for drift. 228 tests pass (25 + 3 new) |
 
 ## Open questions
 

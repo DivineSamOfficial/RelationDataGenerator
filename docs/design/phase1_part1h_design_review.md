@@ -191,4 +191,6 @@ Phase 2 writes one test per item against the installed MySQL version and records
 
 Each step follows the CLAUDE.md process: plan → implement → run tests (with real output) → commit → update the roadmap.
 
+**Outcome (2026-11-10):** steps 2.1–2.7 done. The 2.7 check (`scmgen db check-design`) found five places where Phase 2 had changed the DDL and only the prose of a part was amended, not its column table (1D §1.4, 1E §1.1 now record the corrections); it reports 0 differences since, and an integration test keeps it that way.
+
 **Approval requested:** please confirm (a) Phase 1 is approved as the baseline, including interpretations I1–I6, and (b) Phase 2 may start with step 2.1.
