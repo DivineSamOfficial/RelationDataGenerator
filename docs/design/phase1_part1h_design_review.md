@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Review complete. **Phase 1 awaiting owner approval** (CLAUDE.md rule 1, D9)
-**Last updated:** 2026-11-08
+**Last updated:** 2026-11-10 (Phase 3 step 3.2: assumption A13)
 **Reviews:** Parts 1A–1G against `docs/master_prompt.md`
 
 ---
@@ -120,6 +120,8 @@ These aren't defects. They're places where the master prompt could be read more 
 Phase 2 writes one test per item against the installed MySQL version and records the outcome in the roadmap. Any failure is redesigned through the change process before continuing.
 
 **Outcome (Phase 2 step 2.3, MySQL 26.10.0, 2026-11-08):** A1–A7 all **confirmed** by `tests/integration/test_mysql_assumptions.py` (17 tests). Two facts found along the way change *how* the DDL and engine are written, not the design: (1) plain `REGEXP` is case-insensitive under `utf8mb4_0900_ai_ci`, so format CHECKs use `REGEXP_LIKE(…, 'c')` (1B §2.3 updated); (2) `DECIMAL` silently rounds extra fractional digits (half away from zero, Note 1265 only, even in strict mode), so the engine must quantize every amount itself. Also observed: explicit `ON DELETE RESTRICT` plus a CHECK on the same column is accepted on this server; D81 is kept for portability to 8.0.x. No design identifier is a MySQL reserved word (808 names checked against `information_schema.KEYWORDS`). A8 and A9 are tested in Phases 3 and 4.
+
+**Server behaviour found in Phase 3 step 3.2 (test A13, D87):** a DECIMAL division is rounded to the dividend's scale + `div_precision_increment` digits before any outer `ROUND`, so `ROUND(stock_value / qty, 4)` differs from a single rounding in ~0.6% of cases. The engine reproduces the double rounding; `div_precision_increment = 4` is now a blocking server check.
 
 **Server defect found in Phase 2 step 2.6 (test A12):** on MySQL 26.10.0, a foreign key is **not enforced** when the index MySQL chooses for it starts with the FK columns and continues with a column that is NULL in the row: a dangling reference is silently accepted on INSERT and UPDATE. The constraint suite's FK sweep found it on two tables; a static scan found 9 index/FK combinations at risk. Fixed by rule **D85** (no index may start with an FK's columns and continue with a nullable column), enforced by a structural test. If a future MySQL fixes the defect, test A12 fails and D85 can be relaxed.
 

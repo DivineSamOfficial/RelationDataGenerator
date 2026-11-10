@@ -64,5 +64,7 @@ def test_other_charset_is_only_a_warning() -> None:
 
 
 def test_wrong_session_time_zone_fails() -> None:
+    checks = _evaluate(ServerInfo(**{**GOOD.__dict__, "div_precision_increment": "6"}))
+    assert checks["decimal division precision"] == (False, True)
     checks = _evaluate(ServerInfo(**{**GOOD.__dict__, "session_time_zone": "SYSTEM"}))
     assert checks["session time zone"] == (False, True)

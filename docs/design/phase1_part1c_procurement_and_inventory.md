@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phase 2
-**Last updated:** 2026-11-08 (amended by Part 1D: D38 tax document numbers, D41 RTO movement, ledger volume; Part 1H: D80 composite FKs; Phase 2 step 2.4: D84 formula CHECKs, PO cancellation fix, zero-rate unregistered suppliers)
+**Last updated:** 2026-11-08 (amended by Part 1D: D38 tax document numbers, D41 RTO movement, ledger volume; Part 1H: D80 composite FKs; Phase 2 step 2.4: D84 formula CHECKs, PO cancellation fix, zero-rate unregistered suppliers; Phase 3 step 3.2: D87 MAC rounding)
 **Builds on:** Part 1A (entities, D1–D14), Part 1B (master data, D15–D24, conventions §2)
 
 ---
@@ -460,6 +460,7 @@ Notation for one `inventory` row (warehouse W × product P): `Q` = on-hand quant
 | Adjustment in (found stock) | MAC (or the reference cost if Q = 0) | `V += q × cost` → adjustment gain |
 | Opening stock (D34) | Preferred supplier reference cost | Sets the initial V and MAC |
 
+- **MAC exactly as stored (D87, Phase 3 step 3.2):** MAC = `ROUND(V / Q, 4)` computed the way MySQL evaluates the generated column `inventory.moving_average_cost`: the division is first rounded to 6 digits (value scale 2 + `div_precision_increment` 4), then to 4. An issue uses that MAC as `unit_cost` and takes `ROUND(q × MAC, 2)`.
 - **Rounding:** Values are rounded to 2 decimals per movement and MAC is shown to 4. When an issue brings Q to exactly 0, the issue value is set to the remaining V, so V becomes exactly 0 (no residual paise).
 - **When Q = 0:** MAC is undefined. `inventory.last_unit_cost` keeps the last known cost for reference and for found-stock valuation.
 - **Defective stock** stays valued at MAC until disposed of (write-off, scrap or return to supplier). Disposal is the moment the loss is recognised. This keeps inventory value = GL Inventory at all times.

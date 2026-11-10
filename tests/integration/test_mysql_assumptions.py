@@ -9,6 +9,7 @@ A2 REGEXP in CHECK (case-sensitive)     A6 date arithmetic / boolean sums in CHE
 A3 generated columns: UNIQUE + CHECK    A7 explicit values in AUTO_INCREMENT keys
 A4 partly-NULL composite FK not checked E1–E4 strictness facts the generator must respect
 A10 MySQL ROUND arithmetic = Python Decimal ROUND_HALF_UP for the tax formulas (D84)
+A13 DECIMAL division rounds to dividend scale + div_precision_increment before ROUND (D87)
 
 Runs as scm_app in the throwaway schema scm_assume_oltp (dropped afterwards).
 """
@@ -382,3 +383,19 @@ def test_a12_fk_enforced_only_when_its_index_has_no_nullable_tail(conn) -> None:
     run(conn, "INSERT INTO risky VALUES (1, 999, NULL)")  # the defect: dangling reference accepted
     assert scalar(conn, "SELECT COUNT(*) FROM risky WHERE pid NOT IN (SELECT id FROM parent)") == 1
     expect_error(conn, "INSERT INTO safe VALUES (1, 999, NULL)", FK_CHILD_WITHOUT_PARENT)  # D85 shape: enforced
+
+
+# --- A13: DECIMAL division is rounded before the outer ROUND (D87) ------------------------------
+
+def test_a13_decimal_division_rounds_twice(conn) -> None:
+    """Found in Phase 3 step 3.2: ROUND(v / q, 4) is not "round once". MySQL first rounds v / q to the
+    dividend's scale + div_precision_increment (2 + 4 = 6 digits), then ROUND takes it to 4. The engine
+    reproduces this (scmgen.core.money.sql_divide); if MySQL changes it, this fails before data drifts."""
+    from scmgen.core.money import round_half_up, sql_divide
+
+    assert scalar(conn, "SELECT @@SESSION.div_precision_increment") == 4
+    # 2859702.57 / 3837.994 = 745.10344986...: once → 745.1034, MySQL → 745.103450 → 745.1035.
+    assert str(scalar(conn, "SELECT CAST('2859702.57' AS DECIMAL(18,2)) / CAST('3837.994' AS DECIMAL(18,3))")) == "745.103450"
+    assert str(scalar(conn, "SELECT ROUND(CAST('2859702.57' AS DECIMAL(18,2)) / CAST('3837.994' AS DECIMAL(18,3)), 4)")) == "745.1035"
+    assert round_half_up(sql_divide(Decimal("2859702.57"), Decimal("3837.994"), 2), 4) == Decimal("745.1035")
+    assert (Decimal("2859702.57") / Decimal("3837.994")).quantize(Decimal("0.0001"), ROUND_HALF_UP) == Decimal("745.1034")

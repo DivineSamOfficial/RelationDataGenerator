@@ -115,6 +115,7 @@ Priorities: correct architecture, relational integrity, realistic business proce
 | D84 | Line-amount formulas (taxable, CGST/SGST/IGST, line total) and header totals are CHECK constraints; generator must use `Decimal` ROUND_HALF_UP (matches MySQL ROUND exactly, test A10) |
 | D85 | No index may start with a foreign key's columns and continue with a nullable column (MySQL 26.10 defect silently disables such FKs, test A12) |
 | D86 | Two FK cycles via nullable "late links" (`stock_adjustment_line_items.inventory_batch_id`, `customer_payments.settlement_bank_transaction_id`): the writer inserts them NULL and sets them by UPDATE in the same transaction; any other cycle is an error (1G §2.6) |
+| D87 | Engine reproduces MySQL DECIMAL division (round to dividend scale + `div_precision_increment` 4, then ROUND) via `core.money.sql_divide`; `db check` requires `div_precision_increment = 4` (test A13) |
 
 ## Database standards
 
@@ -127,7 +128,7 @@ Priorities: correct architecture, relational integrity, realistic business proce
 - No index may start with a foreign key's columns and then contain a nullable column (D85; MySQL 26.10 then stops enforcing the FK). A structural test enforces it.
 - After any DDL or design-doc change, `scmgen db check-design` must report 0 differences (an integration test enforces it). Column tables in `docs/design/` are what it reads: amend the table itself, not only the prose.
 - CHECK bodies must be boolean expressions: no `IF(...)` (MySQL 3812); write `(a AND x) OR (NOT a AND y)`.
-- MySQL silently rounds excess DECIMAL digits: the engine must quantize every amount itself (Python `Decimal`, half-up) before insert.
+- MySQL silently rounds excess DECIMAL digits: the engine must quantize every amount itself (Python `Decimal`, half-up) before insert. Any formula mirroring a SQL division uses `sql_divide` (D87), and products use `money.product` (no 28-digit context limit).
 - Any SQL containing `%` runs through `scmgen.db.sql_files.execute_raw` (PyMySQL %-formats statements otherwise).
 - `created_at`, `updated_at` `DATETIME(6)` on every table; `deleted_at` on soft-deletable master data.
 - Business dates (`order_date`, `invoice_date`…) are separate from audit timestamps.

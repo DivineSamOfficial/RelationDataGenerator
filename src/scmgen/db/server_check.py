@@ -25,6 +25,7 @@ class ServerInfo:
     character_set_server: str
     collation_server: str
     session_time_zone: str
+    div_precision_increment: str = "4"
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,7 @@ def fetch_server_info(engine: Engine) -> ServerInfo:
         row = conn.execute(
             text(
                 "SELECT VERSION(), @@GLOBAL.sql_mode, @@default_storage_engine, "
-                "@@character_set_server, @@collation_server, @@SESSION.time_zone"
+                "@@character_set_server, @@collation_server, @@SESSION.time_zone, @@SESSION.div_precision_increment"
             )
         ).one()
     return ServerInfo(*[str(value) for value in row])
@@ -94,6 +95,13 @@ def evaluate_server(
             info.collation_server == expected_collation,
             f"{info.collation_server} (schemas set {expected_collation} explicitly, so advisory)",
             blocking=False,
+        ),
+        CheckResult(
+            "decimal division precision",
+            info.div_precision_increment == "4",
+            f"div_precision_increment = {info.div_precision_increment} (the engine reproduces MySQL's DECIMAL "
+            f"division with 4 extra digits, D87)",
+            blocking=True,
         ),
         CheckResult(
             "session time zone",

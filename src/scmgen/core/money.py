@@ -4,13 +4,18 @@ MySQL silently rounds excess DECIMAL digits, and the DDL's formula CHECKs compar
 ``ROUND`` (half away from zero). So every amount the engine writes must already be quantized, the
 same way, before the INSERT. Python's ``ROUND_HALF_UP`` is that rule (proven in test A10/A11).
 
+Division needs one more rule (D87, proven in step 3.2): MySQL rounds a DECIMAL division to the
+dividend's scale + ``div_precision_increment`` (4) digits *before* any outer ``ROUND``. That double
+rounding differs from rounding once in about 1 of 170 moving-average costs, so every formula that
+mirrors a MySQL division uses ``sql_divide`` instead of ``/``.
+
 Floats are refused everywhere: ``0.1 + 0.2`` is not ``0.3`` in binary floating point, and one stray
 float would make a tax line a paisa off and the database would reject it.
 """
 
 from __future__ import annotations
 
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
 from typing import Iterable
 
 # Column scales from the database standards (CLAUDE.md).
@@ -21,7 +26,9 @@ RATE_PLACES = 4         # DECIMAL(7,4)
 
 _DECIMAL_18_LIMIT = {places: Decimal(10) ** (18 - places) for places in range(0, 7)}
 _RATE_LIMIT = Decimal(1000)                       # DECIMAL(7,4) holds up to 999.9999
-_EXPONENT = {places: Decimal(1).scaleb(-places) for places in range(0, 7)}
+_EXPONENT = {places: Decimal(1).scaleb(-places) for places in range(0, 31)}
+DIV_PRECISION_INCREMENT = 4     # MySQL default; `scmgen db check` requires it (D87)
+MAX_SCALE = 30                  # MySQL's maximum DECIMAL scale
 
 ZERO = Decimal("0")
 
@@ -50,6 +57,33 @@ def dec(value: Decimal | int | str) -> Decimal:
 def round_half_up(value: Decimal | int | str, places: int) -> Decimal:
     """Round like MySQL ``ROUND(value, places)`` on DECIMAL: halves go away from zero."""
     return dec(value).quantize(_EXPONENT[places], rounding=ROUND_HALF_UP)
+
+
+def sql_divide(dividend: Decimal | int | str, divisor: Decimal | int | str, dividend_scale: int) -> Decimal:
+    """``dividend / divisor`` exactly as MySQL computes it for DECIMAL operands (D87).
+
+    ``dividend_scale`` is the scale of the dividend expression in SQL: e.g. 2 for a DECIMAL(18,2)
+    column, 15 for ``qty(3) * price(4) * (1 - disc(4) / 100)`` (scales add up in multiplication, and
+    ``x / 100`` adds 4). The result is rounded half-up to ``dividend_scale + 4`` digits.
+    """
+    divisor_value = dec(divisor)
+    if divisor_value == 0:
+        raise MoneyError("Division by zero")
+    with localcontext() as context:
+        context.prec = 80
+        exact = dec(dividend) / divisor_value
+        return exact.quantize(_EXPONENT[min(dividend_scale + DIV_PRECISION_INCREMENT, MAX_SCALE)],
+                              rounding=ROUND_HALF_UP)
+
+
+def product(*values: Decimal | int | str) -> Decimal:
+    """Exact product (no 28-digit context limit), as MySQL multiplies DECIMALs without rounding."""
+    with localcontext() as context:
+        context.prec = 80
+        result = Decimal(1)
+        for value in values:
+            result *= dec(value)
+        return result
 
 
 def _checked(value: Decimal, places: int) -> Decimal:
