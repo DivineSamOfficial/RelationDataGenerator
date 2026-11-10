@@ -17,11 +17,20 @@ from scmgen.core.settings import ALL_ROLES, DEFAULT_ENV_FILE, Settings, load_set
 from scmgen.db.bootstrap import init_database
 from scmgen.db.connection import create_mysql_engine, verify_connection
 from scmgen.db.design_check import run_design_check
+from scmgen.validation.catalogue import load_catalogue
+from scmgen.validation.framework import ValidationContext, run_checks
 from scmgen.generation.config import load_generation_config
 from scmgen.generation.packs import available_packs, load_packs
 from scmgen.generation.seed import load_seed
 from scmgen.db.server_check import evaluate_server, fetch_server_info
-from scmgen.db.workspaces import WorkspaceInfo, create_workspace, delete_workspace, get_workspace, list_workspaces
+from scmgen.db.workspaces import (
+    WorkspaceInfo,
+    create_workspace,
+    delete_workspace,
+    get_workspace,
+    list_workspaces,
+    record_validation_outcome,
+)
 
 app = typer.Typer(help="Synthetic supply-chain OLTP generator.", no_args_is_help=True)
 db_app = typer.Typer(help="MySQL server and schema commands.", no_args_is_help=True)
@@ -229,6 +238,56 @@ def workspace_delete(
     except ScmgenError as exc:
         _fail(exc, "workspace.delete.error")
     typer.secho(f"Workspace '{code}' deleted ({outcome}).", fg=typer.colors.GREEN)
+
+
+# --- validate ---------------------------------------------------------------------------------
+
+@app.command("validate")
+def validate(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+    checks: Annotated[list[str], typer.Option("--check", help="Run only this rule, e.g. V-MD-02 (repeatable).")] = [],
+    modules: Annotated[list[str], typer.Option("--module", help="Run only this module, e.g. MD (repeatable).")] = [],
+    show_all: Annotated[bool, typer.Option("--all", help="Also list passed, pending and not-applicable rules.")] = False,
+) -> None:
+    """Check a workspace's clean data against the design's validation rules and write a JSON report.
+
+    A failure marks the workspace NEEDS_ATTENTION, which blocks Continue and loading until it passes (D76).
+    Exit code 1 if any rule fails.
+    """
+    settings = _bootstrap()
+    try:
+        ws = get_workspace(settings, code)
+        engine = create_mysql_engine(settings, role="app", database=ws.oltp_schema)
+        try:
+            with engine.connect() as conn:
+                report = run_checks(ValidationContext(conn, workspace_code=ws.code), load_catalogue(),
+                                    rule_ids=checks or None, modules=modules or None, schema=ws.oltp_schema)
+                conn.rollback()
+        finally:
+            engine.dispose()
+        path = report.write(settings.data_dir / "reports" / ws.code,
+                            f"validation_{report.started_at:%Y%m%d_%H%M%S}")
+        status = record_validation_outcome(settings, ws.code, report.passed)
+    except ScmgenError as exc:
+        _fail(exc, "validate.error")
+    for result in report.results:
+        if show_all or result.status in ("FAILED", "ERROR"):
+            colour = {"PASSED": typer.colors.GREEN, "FAILED": typer.colors.RED, "ERROR": typer.colors.RED}.get(
+                result.status, typer.colors.YELLOW)
+            detail = f"{result.violations} violation(s)" if result.status == "FAILED" else (result.message or "")
+            typer.secho(f"  [{result.status:<14}] {result.rule_id}  {detail}", fg=colour)
+            if result.status in ("FAILED", "ERROR"):
+                typer.echo(f"      {result.rule[:110]}")
+                for row in result.sample[:3]:
+                    typer.echo(f"      e.g. {row}")
+    counts = report.counts
+    summary = ", ".join(f"{counts[s]} {s.lower().replace('_', ' ')}" for s in counts if counts[s])
+    colour = typer.colors.GREEN if report.passed else typer.colors.RED
+    typer.secho(f"Validation {'PASSED' if report.passed else 'FAILED'}: {summary}", fg=colour)
+    typer.echo(f"Report: {path}")
+    typer.echo(f"Workspace status: {status}")
+    if not report.passed:
+        raise typer.Exit(1)
 
 
 # --- generate commands ------------------------------------------------------------------------

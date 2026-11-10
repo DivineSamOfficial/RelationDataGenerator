@@ -67,6 +67,14 @@ scmgen generate packs --industries beauty,electronics   # check a combination fo
 ```
 Reference data lives in `config/seed/`, industry packs in `config/industries/` (`electronics.yaml` documents the format).
 
+## Validation
+
+```bash
+scmgen validate -w kaveri                 # all rules; writes data/reports/kaveri/validation_<time>.json
+scmgen validate -w kaveri --check V-MD-02 # one rule (or --module MD); --all also lists passed / pending rules
+```
+A failed validation marks the workspace `NEEDS_ATTENTION`, which blocks Continue and loading until it passes again (D76).
+
 ## Tests
 
 ```bash

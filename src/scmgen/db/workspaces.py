@@ -372,3 +372,39 @@ def delete_workspace(settings: Settings, code: str, purge: bool = False) -> str:
             return outcome
     finally:
         engine.dispose()
+
+
+# --- validation gate (D76) ----------------------------------------------------------------------
+
+def record_validation_outcome(settings: Settings, code: str, passed: bool) -> str:
+    """Flag a READY workspace NEEDS_ATTENTION when its clean data fails validation, and clear the flag
+    when it passes again (D76). Other states (GENERATING, ARCHIVED …) are left alone. Returns the status."""
+    code = validate_code(code)
+    engine = create_mysql_engine(settings, role="app")
+    try:
+        with engine.connect() as conn:
+            _require_registry(conn, settings)
+            row = _fetch(conn, settings, code)
+            if row is None:
+                raise WorkspaceError(f"No workspace '{code}'. See `scmgen workspace list`")
+            status = row["workspace_status"]
+            new_status = {("READY", False): "NEEDS_ATTENTION", ("NEEDS_ATTENTION", True): "READY"}.get((status, passed), status)
+            if new_status != status:
+                conn.execute(text(f"UPDATE {_registry(settings)} SET workspace_status = :s, updated_at = NOW(6) "
+                                  "WHERE workspace_code = :c"), {"s": new_status, "c": code})
+                conn.commit()
+                log.info("workspace validation status changed",
+                         extra={"event": "workspace.validation", "workspace": code, "status": new_status})
+            return new_status
+    finally:
+        engine.dispose()
+
+
+def ensure_validated(settings: Settings, code: str, force: bool = False) -> WorkspaceInfo:
+    """Gate for Continue and the DuckDB load (D76): refuse a workspace whose clean data failed validation
+    unless ``force``. Returns the workspace."""
+    info = get_workspace(settings, code)
+    if info.status == "NEEDS_ATTENTION" and not force:
+        raise WorkspaceError(f"Workspace '{code}' failed its last validation (NEEDS_ATTENTION). Fix the data and run "
+                             f"`scmgen validate -w {code}`, or pass --force to continue anyway")
+    return info

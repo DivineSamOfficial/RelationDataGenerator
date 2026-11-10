@@ -97,6 +97,17 @@ class RunRecorder:
         self._set_run(conn, "committed_through = :through", {"through": through}, expect="RUNNING")
         return through
 
+    def record_validation(self, conn: Connection, passed: bool, report_path: str) -> None:
+        """Store the run's validation outcome and report location (D76); the run may still be RUNNING."""
+        if not report_path:
+            raise RunError("A validation outcome needs its report path")
+        result = conn.execute(text(
+            "UPDATE generation_runs SET validation_status = :v, validation_report_path = :p, updated_at = :now "
+            "WHERE generation_run_id = :r"),
+            {"v": "PASSED" if passed else "FAILED", "p": report_path, "now": wall_clock(), "r": self.run_id})
+        if result.rowcount != 1:
+            raise RunError(f"Run {self.run_id} doesn't exist")
+
     def cancel_requested(self, conn: Connection) -> bool:
         return bool(conn.execute(text("SELECT cancel_requested FROM generation_runs WHERE generation_run_id = :r"),
                                  {"r": self.run_id}).scalar_one())
