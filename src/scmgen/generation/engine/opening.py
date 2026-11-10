@@ -22,7 +22,7 @@ from decimal import Decimal
 from scmgen.core.money import money, quantity
 from scmgen.domain.costing import StockPosition
 from scmgen.domain.journal import JournalBuilder
-from scmgen.generation.engine.accounting import load_account_book, post_journal
+from scmgen.generation.engine.accounting import account_book, post_journal
 from scmgen.generation.engine.day import DayContext
 from scmgen.generation.numbering import Registration
 
@@ -34,7 +34,7 @@ def opening_step(day: DayContext) -> None:
         return
     if day.rows("SELECT 1 FROM journal_entries WHERE journal_type = 'OPENING' LIMIT 1"):
         return
-    book = load_account_book(day.conn)
+    book = account_book(day)
     day.world.refs["account_book"] = book
     opening_journal(day, book)
     opening_stock(day, book)

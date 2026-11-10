@@ -252,6 +252,16 @@ def create_campaign(ctx: MasterContext, rng: random.Random, pack, event, start: 
 # ------------------------------------------------------------------------------------------ customers
 
 
+def customer_cities(ctx: MasterContext, warehouse_states: set[str]) -> tuple[list[dict[str, Any]], list[float]]:
+    """Cities customers live in, weighted by market size and more in regions with a warehouse (1B §4.4)."""
+    settings = ctx.config.master_data
+    regions = {ctx.refs["state_row"][state]["region"] for state in warehouse_states}
+    cities = [c for c in ctx.seed.cities if c["state_code"] != "OT"]
+    weights = [c["weight"] * (settings.warehouse_region_weight
+                              if ctx.refs["state_row"][c["state_code"]]["region"] in regions else 1) for c in cities]
+    return cities, weights
+
+
 def build_customers(ctx: MasterContext) -> None:
     rng, fake = ctx.rng("customers"), ctx.faker("customers")
     ids = ctx.refs.setdefault("pan_registry", _Identifiers(ctx.rng("pans")))
@@ -262,12 +272,7 @@ def build_customers(ctx: MasterContext) -> None:
     b2c_packs = {p.code: 1 - p.b2b_sales_share for p in ctx.packs if p.b2b_sales_share < 1}
     packs = {p.code: p for p in ctx.packs}
     counts = {"B2B": volumes.customers_b2b if b2b_packs else 0, "B2C": volumes.customers_b2c if b2c_packs else 0}
-
-    # Cities weighted by market size, and more in regions where the company has warehouses (1B §4.4).
-    regions = {ctx.refs["state_row"][w.city["state_code"]]["region"] for w in ctx.refs["warehouses"].values()}
-    cities = [c for c in ctx.seed.cities if c["state_code"] != "OT"]
-    weights = [c["weight"] * (settings.warehouse_region_weight
-                              if ctx.refs["state_row"][c["state_code"]]["region"] in regions else 1) for c in cities]
+    cities, weights = customer_cities(ctx, {w.city["state_code"] for w in ctx.refs["warehouses"].values()})
     sales_reps = ctx.refs.get("sales_executives") or ctx.ref("employees_by_department")["SAL"]
     campaigns = [c for c in ctx.refs.get("campaigns", []) if c["status"] != "CANCELLED" and c["start"] < ctx.setup_day]
     first_day = company["incorporated"] + timedelta(days=60)
@@ -290,58 +295,68 @@ def build_customers(ctx: MasterContext) -> None:
                     campaign, channel = chosen["id"], chosen["channel"]
                     acquired = _between(rng, chosen["start"], min(chosen["end"], ctx.setup_day - timedelta(days=1)))
             city = rng.choices(cities, weights=weights)[0]
-            customer_id = ctx.ids.next("customers")
-            term = _pick(rng, pack.credit_terms[kind])
-            due_days = next(t["due_days"] for t in ctx.seed.payment_terms if t["term_code"] == term)
-            if kind == "B2B":
-                segment = _pick(rng, settings.b2b_segments)
-                registration = _pick(rng, settings.b2b_registration)
-                surname = fake.last_name()
-                suffix = rng.choice(settings.customer_name_suffixes[segment])
-                name = f"{city['city']} {suffix}" if segment == "INSTITUTION" and rng.random() < 0.5 else f"{surname} {suffix}"
-                holder = rng.choice(HOLDER_TYPES[segment])
-                holder_pan = ids.pan(holder, name) if registration != "UNREGISTERED" or rng.random() < 0.6 else None
-                customer_gstin = (gstin(ctx.refs["state_row"][city["state_code"]]["gst_state_code"], holder_pan)
-                                  if registration in ("REGISTERED", "COMPOSITION") else None)
-                low, high = settings.credit_limits[segment]
-                limit = money(Decimal(rng.randint(low // 10_000, high // 10_000) * 10_000)) if due_days > 0 else None
-                row = {"customer_type": "B2B", "customer_segment": segment, "customer_name": name[:200],
-                       "contact_person_name": fake.name()[:120], "email": email("purchase", domain_slug(name)),
-                       "gst_registration_type": registration, "gstin": customer_gstin, "pan": holder_pan,
-                       "credit_limit": limit, "sales_employee_id": rng.choice(sales_reps)}
-                contact = row["contact_person_name"]
-            else:
-                first, last = fake.first_name(), fake.last_name()
-                row = {"customer_type": "B2C", "customer_segment": "CONSUMER", "customer_name": f"{first} {last}"[:200],
-                       "contact_person_name": None,
-                       "email": email(f"{first}.{last}{rng.randint(1, 99)}", "mailbox"),
-                       "gst_registration_type": "CONSUMER", "gstin": None, "pan": None, "credit_limit": None,
-                       "sales_employee_id": None}
-                contact = row["customer_name"]
-            phone = mobile(rng)
-            ctx.add("customers", {
-                "customer_id": customer_id, "customer_code": codes.customer_code(number), **row, "phone": phone,
-                "payment_term_id": ctx.ref("payment_term")[term],
-                "acquisition_marketing_channel_id": ctx.ref("marketing_channel")[channel],
-                "acquisition_marketing_campaign_id": campaign, "acquisition_date": acquired,
-                "customer_status": "ACTIVE", "deleted_at": None,
-            })
-            label = "Home" if kind == "B2C" else rng.choice(("Registered Office", "Shop", "Head Office"))
-            addresses = [(label, True, city)]
-            if kind == "B2B" and rng.random() < settings.extra_shipping_address_share:
-                same_state = [c for c in cities if c["state_code"] == city["state_code"]]
-                for n in range(rng.randint(1, 3)):
-                    other = rng.choice(same_state) if rng.random() < 0.7 else rng.choices(cities, weights=weights)[0]
-                    addresses.append((f"Delivery Point {n + 2} - {other['city']}"[:60], False, other))
-            for address_label, is_main, address_city in addresses:
-                ctx.add("customer_addresses", {
-                    "customer_address_id": ctx.ids.next("customer_addresses"), "customer_id": customer_id,
-                    "address_label": address_label, "is_billing_address": is_main, "is_shipping_address": True,
-                    "is_default_billing": is_main, "is_default_shipping": is_main, "contact_name": contact[:120],
-                    "contact_phone": phone if is_main else mobile(rng), **_address(ctx, rng, fake, address_city),
-                    "landmark": f"Near {rng.choice(LANDMARKS)}" if rng.random() < 0.3 else None,
-                    "previous_customer_address_id": None, "valid_from": acquired, "deleted_at": None,
-                })
+            create_customer(ctx, rng, fake, ids, kind, pack, number, acquired, channel, campaign, city, cities,
+                            weights, sales_reps)
+
+
+def create_customer(ctx: MasterContext, rng: random.Random, fake, ids: "_Identifiers", kind: str, pack, number: int,
+                    acquired: date, channel: str, campaign: int | None, city: dict[str, Any],
+                    cities: list[dict[str, Any]], weights: list[float], sales_reps: list[int]) -> int:
+    """One customer with its addresses (day 0, and new customers acquired during the history)."""
+    settings = ctx.config.master_data
+    customer_id = ctx.ids.next("customers")
+    term = _pick(rng, pack.credit_terms[kind])
+    due_days = next(t["due_days"] for t in ctx.seed.payment_terms if t["term_code"] == term)
+    if kind == "B2B":
+        segment = _pick(rng, settings.b2b_segments)
+        registration = _pick(rng, settings.b2b_registration)
+        surname = fake.last_name()
+        suffix = rng.choice(settings.customer_name_suffixes[segment])
+        name = f"{city['city']} {suffix}" if segment == "INSTITUTION" and rng.random() < 0.5 else f"{surname} {suffix}"
+        holder = rng.choice(HOLDER_TYPES[segment])
+        holder_pan = ids.pan(holder, name) if registration != "UNREGISTERED" or rng.random() < 0.6 else None
+        customer_gstin = (gstin(ctx.refs["state_row"][city["state_code"]]["gst_state_code"], holder_pan)
+                          if registration in ("REGISTERED", "COMPOSITION") else None)
+        low, high = settings.credit_limits[segment]
+        limit = money(Decimal(rng.randint(low // 10_000, high // 10_000) * 10_000)) if due_days > 0 else None
+        row = {"customer_type": "B2B", "customer_segment": segment, "customer_name": name[:200],
+               "contact_person_name": fake.name()[:120], "email": email("purchase", domain_slug(name)),
+               "gst_registration_type": registration, "gstin": customer_gstin, "pan": holder_pan,
+               "credit_limit": limit, "sales_employee_id": rng.choice(sales_reps)}
+        contact = row["contact_person_name"]
+    else:
+        first, last = fake.first_name(), fake.last_name()
+        row = {"customer_type": "B2C", "customer_segment": "CONSUMER", "customer_name": f"{first} {last}"[:200],
+               "contact_person_name": None,
+               "email": email(f"{first}.{last}{rng.randint(1, 99)}", "mailbox"),
+               "gst_registration_type": "CONSUMER", "gstin": None, "pan": None, "credit_limit": None,
+               "sales_employee_id": None}
+        contact = row["customer_name"]
+    phone = mobile(rng)
+    ctx.add("customers", {
+        "customer_id": customer_id, "customer_code": codes.customer_code(number), **row, "phone": phone,
+        "payment_term_id": ctx.ref("payment_term")[term],
+        "acquisition_marketing_channel_id": ctx.ref("marketing_channel")[channel],
+        "acquisition_marketing_campaign_id": campaign, "acquisition_date": acquired,
+        "customer_status": "ACTIVE", "deleted_at": None,
+    })
+    label = "Home" if kind == "B2C" else rng.choice(("Registered Office", "Shop", "Head Office"))
+    addresses = [(label, True, city)]
+    if kind == "B2B" and rng.random() < settings.extra_shipping_address_share:
+        same_state = [c for c in cities if c["state_code"] == city["state_code"]]
+        for n in range(rng.randint(1, 3)):
+            other = rng.choice(same_state) if rng.random() < 0.7 else rng.choices(cities, weights=weights)[0]
+            addresses.append((f"Delivery Point {n + 2} - {other['city']}"[:60], False, other))
+    for address_label, is_main, address_city in addresses:
+        ctx.add("customer_addresses", {
+            "customer_address_id": ctx.ids.next("customer_addresses"), "customer_id": customer_id,
+            "address_label": address_label, "is_billing_address": is_main, "is_shipping_address": True,
+            "is_default_billing": is_main, "is_default_shipping": is_main, "contact_name": contact[:120],
+            "contact_phone": phone if is_main else mobile(rng), **_address(ctx, rng, fake, address_city),
+            "landmark": f"Near {rng.choice(LANDMARKS)}" if rng.random() < 0.3 else None,
+            "previous_customer_address_id": None, "valid_from": acquired, "deleted_at": None,
+        })
+    return customer_id
 
 
 def build_parties(ctx: MasterContext) -> None:

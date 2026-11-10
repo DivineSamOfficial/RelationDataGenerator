@@ -39,6 +39,13 @@ def load_account_book(conn: Connection) -> AccountBook:
                        bank_accounts=banks)
 
 
+def account_book(day: DayContext) -> AccountBook:
+    """The account book, read once a day (chart of accounts and its links don't change within a day)."""
+    if "account_book" not in day.notes:
+        day.notes["account_book"] = load_account_book(day.conn)
+    return day.notes["account_book"]
+
+
 def posting_period(day: DayContext, event_date: date) -> tuple[int, date]:
     """D59: (period id, posting date) for an event: its own period if OPEN, else the earliest OPEN period.
     The OPEN periods are read once a day (only the periods step, which runs first, changes them)."""

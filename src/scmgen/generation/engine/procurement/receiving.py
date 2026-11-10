@@ -19,7 +19,7 @@ from typing import Any
 from scmgen.core.money import quantity, unit_price
 from scmgen.domain.costing import StockPosition
 from scmgen.domain.journal import JournalBuilder
-from scmgen.generation.engine.accounting import load_account_book, post_journal
+from scmgen.generation.engine.accounting import account_book, post_journal
 from scmgen.generation.engine.day import DayContext
 from scmgen.generation.engine.documents import record_status
 from scmgen.generation.engine.procurement.sourcing import _dcs, _supplier
@@ -146,7 +146,7 @@ class _Receiver:
 
     def __init__(self, day: DayContext, lines: list[dict[str, Any]], warehouses: list[int]) -> None:
         self.day = day
-        self.book = load_account_book(day.conn)
+        self.book = account_book(day)
         self.positions: dict[tuple[int, int], dict[str, Any]] = {}
         in_warehouses = ", ".join(map(str, warehouses)) or "0"
         products = sorted({l["product_id"] for l in lines})

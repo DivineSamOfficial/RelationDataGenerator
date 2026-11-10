@@ -91,14 +91,14 @@ def test_sourcing_produces_the_whole_document_chain(generated):
 
 
 def test_stock_is_never_ordered_twice(generated):
-    """Stock on order and being sourced counts in the reorder position: at most one open PO per DC × product
-    at a time (reordering after a receipt is normal)."""
+    """Stock on order and being sourced counts in the reorder position, so one stock check never orders a DC ×
+    product twice. (A second open PO on a later day is normal once sales reservations have used up the stock
+    the first one covers, step 3.8b.)"""
     _, conn = generated
     duplicates = _rows(conn, """
-        SELECT h.delivery_warehouse_id, l.product_id, COUNT(*) FROM purchase_order_line_items l
+        SELECT h.delivery_warehouse_id, l.product_id, h.po_date, COUNT(*) FROM purchase_order_line_items l
         JOIN purchase_order_headers h USING (purchase_order_id)
-        WHERE h.po_status IN ('PENDING_APPROVAL', 'SENT', 'PARTIALLY_RECEIVED') AND l.quantity_open > 0
-        GROUP BY 1, 2 HAVING COUNT(*) > 1""")
+        WHERE h.po_status <> 'CANCELLED' GROUP BY 1, 2, 3 HAVING COUNT(*) > 1""")
     assert duplicates == []
 
 

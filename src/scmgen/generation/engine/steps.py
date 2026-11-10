@@ -14,6 +14,7 @@ from scmgen.generation.master.parties import approve_suppliers, create_campaign
 from scmgen.generation.engine.opening import opening_step
 from scmgen.generation.engine.procurement import procurement_step
 from scmgen.generation.engine.sales import sales_step
+from scmgen.generation.engine.sales.customers import acquisition_step
 from scmgen.generation.master.catalogue import create_style
 
 
@@ -159,6 +160,7 @@ DAY_STEPS = (
     ("gst_revision", gst_revision_step),
     ("catalogue", catalogue_step),
     ("campaigns", campaigns_step),
+    ("customers", acquisition_step),                 # 3.8b new customers over time
     ("procurement", procurement_step),               # 3.7 procure-to-pay
     ("sales", sales_step),                           # 3.8 demand: orders, prepayments, credit holds
 )

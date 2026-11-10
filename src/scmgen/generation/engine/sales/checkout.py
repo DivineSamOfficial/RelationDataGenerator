@@ -26,9 +26,10 @@ from typing import Any
 
 from scmgen.core.money import money
 from scmgen.domain.journal import JournalBuilder
-from scmgen.generation.engine.accounting import load_account_book, post_journal
+from scmgen.generation.engine.accounting import account_book, post_journal
 from scmgen.generation.engine.day import DayContext
 from scmgen.generation.engine.documents import approver, record_status
+from scmgen.generation.engine.sales.allocation import Stock, allocate_lines, mark_backordered, sources
 from scmgen.generation.engine.sales.demand import Draft
 from scmgen.generation.engine.sales.model import SalesModel
 from scmgen.generation.numbering import Registration
@@ -51,23 +52,35 @@ class Checkout:
         self.methods = {r["method_code"]: r for r in day.rows(
             "SELECT payment_method_id, method_code, settlement_lag_days, gateway_fee_percent, max_amount "
             "FROM payment_methods WHERE usable_for_receipts")}
-        self.book = load_account_book(day.conn)
+        self.book = account_book(day)
         self.end_of_day = datetime.combine(day.day, time(23, 59, 59))
-        grace = day.day - timedelta(days=day.world.config.sales.overdue_grace_days)
-        self.ar: dict[int, dict[str, Any]] = {r["customer_id"]: r for r in day.rows("""
+        self.grace = day.day - timedelta(days=day.world.config.sales.overdue_grace_days)
+        self.ar: dict[int, dict[str, Any]] = {}          # customer → AR balance and overdue items, read on demand
+
+    def preload_ar(self, customer_ids: set[int]) -> None:
+        """AR balance and overdue invoices of the customers checked today, in one query (a query per check would
+        flush the write buffer in many small batches)."""
+        missing = sorted(customer_ids - self.ar.keys())
+        if not missing:
+            return
+        found = {r["customer_id"]: r for r in self.day.rows(f"""
             SELECT customer_id, SUM(open_amount) AS balance,
                    SUM(item_type = 'INVOICE' AND open_amount > 0 AND due_date < :g) AS overdue
-            FROM accounts_receivable WHERE item_status <> 'REVERSED' GROUP BY customer_id""", g=grace)}
+            FROM accounts_receivable WHERE customer_id IN ({", ".join(map(str, missing))}) AND item_status <> 'REVERSED'
+            GROUP BY customer_id""", g=self.grace)}
+        for customer_id in missing:
+            self.ar[customer_id] = found.get(customer_id, {"balance": Decimal(0), "overdue": 0})
 
     def clamp(self, moment: datetime) -> datetime:
         return min(moment, self.end_of_day)
 
     def hold_reason(self, customer_id: int, credit_limit: Decimal | None, amount: Decimal) -> str | None:
         """D47: OVERDUE_BALANCE, CREDIT_LIMIT or None (passes)."""
-        ar = self.ar.get(customer_id)
-        if ar and ar["overdue"]:
+        self.preload_ar({customer_id})
+        ar = self.ar[customer_id]
+        if ar["overdue"]:
             return "OVERDUE_BALANCE"
-        balance = ar["balance"] if ar else Decimal(0)
+        balance = ar["balance"]
         if credit_limit is not None and balance + amount > credit_limit:
             return "CREDIT_LIMIT"
         return None
@@ -76,7 +89,7 @@ class Checkout:
 # ------------------------------------------------------------------------------------------ new orders
 
 
-def place(day: DayContext, checkout: Checkout, draft: Draft) -> None:
+def place(day: DayContext, checkout: Checkout, stock: Stock, draft: Draft) -> None:
     """Insert one order with its lines, run its checkout and record every status it passed through."""
     model = checkout.model
     order_id = day.ids.next("orders")
@@ -109,6 +122,17 @@ def place(day: DayContext, checkout: Checkout, draft: Draft) -> None:
         events.append(("CONFIRMED", checkout.clamp(placed + timedelta(seconds=rng.randint(1, 20))), None,
                        "COD check passed"))
     status, last = events[-1][0], events[-1][1]
+    line_ids = [day.ids.next("order_line_items") for _ in draft.lines]
+    waiting: list[int] = []
+    if status == "CONFIRMED":                # reserve stock at once (1C §5); short lines wait as backorders
+        warehouses = sources(day, draft.fulfilment, draft.store_id, model.address_city.get(draft.shipping_address_id))
+        waiting = allocate_lines(stock, warehouses, [
+            {"order_line_item_id": line_id, "product_id": line["product_id"], "quantity": line["quantity_ordered"]}
+            for line_id, line in zip(line_ids, draft.lines)], last)
+        if waiting:
+            last = checkout.clamp(last + timedelta(seconds=1))
+            events.append(("BACKORDERED", last, None, "Stock short: waiting for receipts"))
+            status = "BACKORDERED"
     model_channels = model.sales_channels
     refs = day.world.refs
     day.writer.insert("orders", {
@@ -125,11 +149,12 @@ def place(day: DayContext, checkout: Checkout, draft: Draft) -> None:
         "cancelled_at": cancel[1] if cancel else None, "cancellation_reason": cancel[0] if cancel else None,
         "created_at": placed, "updated_at": last,
     })
-    for line in draft.lines:
+    for line_id, line in zip(line_ids, draft.lines):
         day.writer.insert("order_line_items", {
-            "order_line_item_id": day.ids.next("order_line_items"), "order_id": order_id, **line,
+            "order_line_item_id": line_id, "order_id": order_id, **line,
             "quantity_cancelled": line["quantity_ordered"] if cancel else Decimal(0),
-            "line_status": "CANCELLED" if cancel else "OPEN", "created_at": placed, "updated_at": last,
+            "line_status": "CANCELLED" if cancel else ("BACKORDERED" if line_id in waiting else "OPEN"),
+            "created_at": placed, "updated_at": last,
         })
     previous = None
     for to_status, at, by, reason in events:
@@ -200,38 +225,37 @@ def _post_receipt(day: DayContext, checkout: Checkout, payment_id: int, customer
 # ------------------------------------------------------------------------------------------ credit holds
 
 
-def review_holds(day: DayContext, checkout: Checkout) -> None:
-    """Every working morning, Credit Control looks at the held orders (D47)."""
-    if not day.is_working_day:
+def review_holds(day: DayContext, checkout: Checkout, stock: Stock, held: dict[int, dict[str, Any]]) -> None:
+    """Every working morning, Credit Control looks at the held orders (D47). A released order reserves stock."""
+    if not day.is_working_day or not held:
         return
     settings = day.world.config.sales
-    held = day.rows("""
-        SELECT o.order_id, o.customer_id, o.order_total_estimate, o.updated_at, c.credit_limit FROM orders o
-        JOIN customers c ON c.customer_id = o.customer_id
-        WHERE o.order_status = 'ON_HOLD' ORDER BY o.order_id""")
-    if not held:
-        return
     rng = day.rng("sales.holds")
-    for order in held:
+    for order_id, order in sorted(held.items()):
         at = day.at(10, rng.randint(0, 59), rng.randint(0, 59))
         reason = checkout.hold_reason(order["customer_id"], order["credit_limit"], order["order_total_estimate"])
         if reason is None:
-            _release(day, order["order_id"], at, None, "Credit check passed")
+            _release(day, checkout, stock, order, at, None, "Credit check passed")
         elif (day.day - order["updated_at"].date()).days >= settings.hold_expiry_days:
             day.execute("UPDATE orders SET order_status = 'CANCELLED', hold_reason = NULL, cancelled_at = :t, "
                         "cancellation_reason = 'CREDIT_HOLD_EXPIRED', updated_at = :t WHERE order_id = :o",
-                        {"t": at, "o": order["order_id"]})
+                        {"t": at, "o": order_id})
             day.execute("UPDATE order_line_items SET quantity_cancelled = quantity_ordered - quantity_shipped, "
-                        "line_status = 'CANCELLED', updated_at = :t WHERE order_id = :o",
-                        {"t": at, "o": order["order_id"]})
-            record_status(day, "order", order["order_id"], "ON_HOLD", "CANCELLED", at, None,
+                        "line_status = 'CANCELLED', updated_at = :t WHERE order_id = :o", {"t": at, "o": order_id})
+            record_status(day, "order", order_id, "ON_HOLD", "CANCELLED", at, None,
                           f"Credit hold expired after {settings.hold_expiry_days} days")
         elif rng.random() < settings.hold_override_share:
             by = approver(day, order["order_total_estimate"], ("FIN",), day.day)
-            _release(day, order["order_id"], at, by, OVERRIDE_REASON)
+            _release(day, checkout, stock, order, at, by, OVERRIDE_REASON)
 
 
-def _release(day: DayContext, order_id: int, at: datetime, by: int | None, reason: str) -> None:
+def _release(day: DayContext, checkout: Checkout, stock: Stock, order: dict[str, Any], at: datetime, by: int | None,
+             reason: str) -> None:
+    order_id = order["order_id"]
     day.execute("UPDATE orders SET order_status = 'CONFIRMED', hold_reason = NULL, updated_at = :t "
                 "WHERE order_id = :o", {"t": at, "o": order_id})
     record_status(day, "order", order_id, "ON_HOLD", "CONFIRMED", at, by, reason)
+    warehouses = sources(day, order["fulfilment_type"], order["store_warehouse_id"], order["shipping_city"])
+    waiting = allocate_lines(stock, warehouses, order["lines"], at)
+    if waiting:
+        mark_backordered(day, order_id, waiting, checkout.clamp(at + timedelta(seconds=1)), "CONFIRMED")

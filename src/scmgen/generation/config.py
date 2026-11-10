@@ -56,7 +56,7 @@ _MASTER_SCHEMA = {
 }
 WEEKDAYS = ("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY")
 _DAILY_KEYS = {"weekly_off", "national_holidays", "period_close_day", "progress_every_days", "new_products_per_year",
-               "discontinued_per_year", "campaign_lead_days"}
+               "discontinued_per_year", "campaign_lead_days", "new_customers_per_year"}
 _OPENING_KEYS = {"share_capital", "bank_balances", "cash_credit_drawn", "petty_cash", "fixed_assets",
                  "accumulated_depreciation_share", "store_assortment_share"}
 _PROCUREMENT_KEYS = {"direct_reorder_max_value", "rfq_max_lines", "rfq_suppliers", "rfq_response_days", "response_mix",
@@ -75,7 +75,8 @@ _SALES_KEYS = {"trend_per_year", "weekday_factors", "holiday_factor", "hours", "
                "max_payment_attempts", "campaign_attribution_share", "campaign_discount", "wholesaler_discount",
                "volume_discount_min_value", "volume_discount", "b2c_free_shipping_above", "b2c_shipping_charge",
                "requested_delivery_share", "requested_delivery_days", "credit_check_minutes", "overdue_grace_days",
-               "hold_expiry_days", "hold_override_share"}
+               "hold_expiry_days", "hold_override_share", "backorder_cancel_days", "customer_cancel_share",
+               "cancel_delay_hours", "duplicate_order_share"}
 B2B_SEGMENTS = ("RETAILER", "WHOLESALER", "CORPORATE", "INSTITUTION", "WORKSHOP")
 _ORG_KEYS = {"job_levels", "warehouse_staff_share", "departments", "warehouse_titles", "chief_executive"}
 JOB_LEVELS = ("EXECUTIVE", "HEAD", "MANAGER", "LEAD", "STAFF")
@@ -137,6 +138,7 @@ class DailySettings:
     new_products_per_year: float
     discontinued_per_year: float
     campaign_lead_days: int
+    new_customers_per_year: dict[str, float]     # B2B / B2C acquisitions per year as a share of the preset's count
 
     def is_working_day(self, day: date) -> bool:
         return day.weekday() not in self.weekly_off and (day.month, day.day) not in self.national_holidays
@@ -225,6 +227,10 @@ class SalesSettings:
     overdue_grace_days: int
     hold_expiry_days: int
     hold_override_share: float
+    backorder_cancel_days: int                      # backordered lines are cancelled OUT_OF_STOCK after this
+    customer_cancel_share: float                    # orders the customer cancels before dispatch
+    cancel_delay_hours: tuple[int, int]             # after placing the order
+    duplicate_order_share: float                    # of customer cancellations: duplicate orders
 
 
 @dataclass(frozen=True)
@@ -596,7 +602,14 @@ def _parse_daily(raw: dict[str, Any]) -> DailySettings:
         new_products_per_year=_share(raw["new_products_per_year"], "daily.new_products_per_year"),
         discontinued_per_year=_share(raw["discontinued_per_year"], "daily.discontinued_per_year", 0.5),
         campaign_lead_days=_int(raw["campaign_lead_days"], "daily.campaign_lead_days", 1, 120),
+        new_customers_per_year=_customer_rates(raw["new_customers_per_year"]),
     )
+
+
+def _customer_rates(value: Any) -> dict[str, float]:
+    if not isinstance(value, dict) or set(value) != {"B2B", "B2C"}:
+        raise ConfigError("daily.new_customers_per_year needs exactly B2B and B2C")
+    return {kind: _share(value[kind], f"daily.new_customers_per_year.{kind}", 2.0) for kind in ("B2B", "B2C")}
 
 
 def _parse_opening(raw: dict[str, Any]) -> OpeningBalances:
@@ -753,4 +766,8 @@ def _parse_sales(raw: dict[str, Any]) -> SalesSettings:
         overdue_grace_days=_int(raw["overdue_grace_days"], "sales.overdue_grace_days", 0, 365),
         hold_expiry_days=_int(raw["hold_expiry_days"], "sales.hold_expiry_days", 1, 90),
         hold_override_share=_share(raw["hold_override_share"], "sales.hold_override_share"),
+        backorder_cancel_days=_int(raw["backorder_cancel_days"], "sales.backorder_cancel_days", 1, 180),
+        customer_cancel_share=_share(raw["customer_cancel_share"], "sales.customer_cancel_share", 0.5),
+        cancel_delay_hours=_pair(raw["cancel_delay_hours"], "sales.cancel_delay_hours", 1, 240),
+        duplicate_order_share=_share(raw["duplicate_order_share"], "sales.duplicate_order_share"),
     )

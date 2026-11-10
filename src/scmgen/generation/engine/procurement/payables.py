@@ -23,7 +23,7 @@ from typing import Any
 
 from scmgen.core.money import money, product, unit_price
 from scmgen.domain.journal import JournalBuilder
-from scmgen.generation.engine.accounting import load_account_book, post_journal
+from scmgen.generation.engine.accounting import account_book, post_journal
 from scmgen.generation.engine.day import DayContext
 from scmgen.generation.engine.documents import approver, max_approval, price_lines, record_status, totals
 from scmgen.generation.engine.procurement.sourcing import _dcs
@@ -173,7 +173,7 @@ def invoice_approvals(day: DayContext) -> None:
             b["received_date"], f"procurement.approval.{b['supplier_invoice_id']}").randint(*settings.invoice_approval_days))]
     if not bills:
         return
-    book = load_account_book(day.conn)
+    book = account_book(day)
     finance_cc = day.rows("SELECT c.cost_center_id FROM cost_centers c JOIN departments d USING (department_id) "
                           "WHERE d.department_code = 'FIN'")[0]["cost_center_id"]
     bu_cc = {r["business_unit_id"]: r["cost_center_id"] for r in day.rows(
@@ -267,7 +267,7 @@ def payment_run(day: DayContext) -> None:
     if not items:
         return
     rng = day.rng("procurement.payments")
-    book = load_account_book(day.conn)
+    book = account_book(day)
     bank = day.rows("SELECT bank_account_id FROM bank_accounts WHERE account_purpose = 'PAYMENTS' "
                     "AND account_status = 'ACTIVE' ORDER BY bank_account_id LIMIT 1")[0]["bank_account_id"]
     methods = {r["method_code"]: r for r in day.rows("SELECT payment_method_id, method_code, min_amount FROM payment_methods "
@@ -300,7 +300,9 @@ def _pay(day: DayContext, rng: random.Random, book, bank: int, methods: dict[str
     amount = sum((i["open_amount"] for i in open_items), Decimal(0))
     method = methods["RTGS"] if amount >= methods["RTGS"]["min_amount"] else methods["NEFT"]
     payment_id = day.ids.next("supplier_payments")
-    initiated, processed = day.at(10), day.at(rng.randint(11, 16), rng.randint(0, 59))
+    # The run starts after the day's invoice approvals (15:00), so it can pay what was approved today.
+    initiated = day.at(16)
+    processed = initiated + timedelta(minutes=rng.randint(15, 115))
     failed = rng.random() < settings.payment_failure_share
     approved_by = approver(day, amount, ("FIN",), day.day)
     day.writer.insert("supplier_payments", {

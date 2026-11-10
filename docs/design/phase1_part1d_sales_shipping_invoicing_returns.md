@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phase 2
-**Last updated:** 2026-11-10 (Phase 3 step 3.8a implementation notes §1.5; earlier: Part 1E D60, D63; Part 1H D79, D80, F5)
+**Last updated:** 2026-11-10 (Phase 3 step 3.8 implementation notes §1.5; earlier: Part 1E D60, D63; Part 1H D79, D80, F5)
 **Builds on:** Part 1A (D1–D14, A1 attribution / stores), Part 1B (master data, D15–D24), Part 1C (procurement / inventory, D25–D36, document conventions §2)
 
 ---
@@ -67,7 +67,7 @@ Enforced in the DDL; no tables or relationships added.
 | Column tables caught up (step 2.7) | `delivered_key` and `inclusive_unit_price` were described in this table but missing from their column tables | Both rows added to §4 / §5; the schema-vs-design check now compares every column table with the database |
 | Defective-stock register | D45 | UNIQUE on each source FK: one register row per return inspection / damage adjustment line / damaged transfer line |
 
-### 1.5 Implementation notes (Phase 3 step 3.8a: orders, checkout, credit holds)
+### 1.5 Implementation notes (Phase 3 step 3.8: orders, checkout, credit holds, reservations, cancellations)
 
 No tables or columns change. How the engine fills the order side, and what it found:
 
@@ -80,7 +80,11 @@ No tables or columns change. How the engine fills the order side, and what it fo
 | Credit check (D47) | Automatic, minutes after the order: overdue invoices beyond `overdue_grace_days` → `ON_HOLD` (`OVERDUE_BALANCE`); open AR + order estimate above the limit → `ON_HOLD` (`CREDIT_LIMIT`). Open AR = Σ open AR items, which equals the customer's AR control balance because allocations only move amounts between the customer's own items. Held orders are reviewed every working morning: released when the check passes, released by a **Finance override** (an approver whose limit covers the order; history reason `Finance override`) on ~10% of days, cancelled `CREDIT_HOLD_EXPIRED` after 14 days |
 | Finding: credit limits vs volume | Independent Pareto weights (first attempt) let a few accounts place most B2B orders whatever their limit: 13% of B2B orders went on hold before any invoice existed, and with invoices they would hold constantly. Ordering frequency is now tied to the credit limit (see `orders` "Populated") |
 | Finding: V-SO-06 and limit changes | A credit limit lowered later would make earlier, correct confirmations look wrong. Limits are kept without history (like prices, D37; analysts get the history from CDC / dbt snapshots), so the rule judges only confirmations made since the customer row last changed (`customers.updated_at`) |
-| Later in Phase 3 | Reservations, backorders, customer cancellations and new customers over time (3.8b); counter-sale payment and handover, shipments, invoices, COD collection (3.9) |
+| Reservations (step 3.8b) | At confirmation each line reserves sellable − reserved stock: shipped orders at the DC nearest the shipping address (distance between city coordinates), split over the next nearest when one can't cover it; store pickup and counter sales at their store. A line is reserved completely or not at all; short lines wait `BACKORDERED` (the order `CONFIRMED` → `BACKORDERED`). Reserving changes `inventory.qty_reserved` only (1C) |
+| Backorders (3.8b) | Each morning, after the receiving dock, backordered lines of shipped orders reserve again, oldest order first; when none is left the order returns to `CONFIRMED`. Lines still short after `backorder_cancel_days` (21) are cancelled `OUT_OF_STOCK`, the whole order when nothing else is left. Store backorders wait for store replenishment (3.12). The daily stock check subtracts backordered quantity from the nearest DC's position, so it is ordered. Medium trial: 3.2% of orders backordered, 18 cancelled out of stock in two years |
+| Customer cancellations (3.8b) | Drawn once per order from a stream keyed by the order: ~2.5% of shipped and pickup orders, 1–48 h after placing (10% `DUPLICATE_ORDER` within the hour), applied while the order is still before dispatch; reservations are released (`RELEASED`, reason kept). Prepaid cancelled orders keep the customer's payment as an open AR credit until the refund (3.11). Medium trial: 3.5% of orders cancelled for all reasons |
+| New customers (3.8b) | Daily acquisitions (`daily.new_customers_per_year`, following pack seasonality) are built by the day-0 customer builder; some are credited to a running campaign; they order from the next day on |
+| Later in Phase 3 | Counter-sale payment and handover, shipments, invoices, COD collection (3.9); refunds of cancelled prepaid orders (3.11) |
 
 ### 1.3 Open questions
 

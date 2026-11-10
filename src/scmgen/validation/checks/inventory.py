@@ -1,7 +1,7 @@
 """Inventory rules (1C §8, V-IN-*). Each check returns the violating rows.
 
-Implemented: ★ V-IN-01, V-IN-02, V-IN-04 (opening stock, 3.6b); V-IN-05, V-IN-10 (receipts, 3.7b). The others need the documents
-of later steps (reservations, transfers, issue costs, source dates).
+Implemented: ★ V-IN-01, V-IN-02, V-IN-04 (opening stock, 3.6b); V-IN-05, V-IN-10 (receipts, 3.7b); ★ V-IN-03
+(reservations, 3.8b). The others need the documents of later steps (transfers, issue costs, source dates).
 """
 
 from __future__ import annotations
@@ -128,4 +128,45 @@ def ledger_times_follow_their_source(ctx: ValidationContext) -> Rows:
         SELECT t.inventory_transaction_id, t.transaction_at, r.sim_start_date, r.sim_end_date
         FROM inventory_transactions t JOIN generation_runs r ON r.generation_run_id = t.generation_run_id
         WHERE DATE(t.transaction_at) NOT BETWEEN r.sim_start_date AND r.sim_end_date""")]
+    return found
+
+
+@check("V-IN-03")
+def reservations_reconcile(ctx: ValidationContext) -> Rows:
+    """★ ``inventory.qty_reserved`` = Σ outstanding reservations of the warehouse × product; a reservation's
+    fulfilled quantity = the quantity issued (SALES_ISSUE, net of reversals) for its order line at its warehouse;
+    a reservation's status agrees with its quantities; reservations only for lines of open orders' products."""
+    found = [{**r, "problem": "qty_reserved ≠ Σ outstanding reservations"} for r in ctx.rows("""
+        SELECT k.warehouse_id, k.product_id, COALESCE(i.qty_reserved, 0) AS reserved, COALESCE(r.outstanding, 0) AS outstanding
+        FROM (SELECT warehouse_id, product_id FROM inventory WHERE qty_reserved <> 0
+              UNION SELECT r.warehouse_id, l.product_id FROM inventory_reservations r
+                    JOIN order_line_items l ON l.order_line_item_id = r.order_line_item_id) k
+        LEFT JOIN inventory i ON i.warehouse_id = k.warehouse_id AND i.product_id = k.product_id
+        LEFT JOIN (SELECT r.warehouse_id, l.product_id, SUM(r.outstanding_quantity) AS outstanding
+                   FROM inventory_reservations r JOIN order_line_items l ON l.order_line_item_id = r.order_line_item_id
+                   GROUP BY r.warehouse_id, l.product_id) r ON r.warehouse_id = k.warehouse_id AND r.product_id = k.product_id
+        WHERE COALESCE(i.qty_reserved, 0) <> COALESCE(r.outstanding, 0)""")]
+    found += [{**r, "problem": "fulfilled ≠ Σ issued for the order line at the warehouse"} for r in ctx.rows("""
+        SELECT r.inventory_reservation_id, r.fulfilled_quantity, COALESCE(x.issued, 0) AS issued
+        FROM inventory_reservations r
+        LEFT JOIN (SELECT t.warehouse_id, COALESCE(s.order_line_item_id, v.order_line_item_id) AS order_line_item_id,
+                          -SUM(t.quantity) AS issued
+                   FROM inventory_transactions t
+                   LEFT JOIN shipment_line_items s ON s.shipment_line_item_id = t.shipment_line_item_id
+                   LEFT JOIN invoice_line_items v ON v.invoice_line_item_id = t.invoice_line_item_id
+                   WHERE t.transaction_type = 'SALES_ISSUE'
+                   GROUP BY t.warehouse_id, COALESCE(s.order_line_item_id, v.order_line_item_id)) x
+               ON x.warehouse_id = r.warehouse_id AND x.order_line_item_id = r.order_line_item_id
+        WHERE r.fulfilled_quantity <> COALESCE(x.issued, 0)""")]
+    found += [{**r, "problem": "status doesn't match the quantities"} for r in ctx.rows("""
+        SELECT inventory_reservation_id, reservation_status, reserved_quantity, fulfilled_quantity, released_quantity
+        FROM inventory_reservations
+        WHERE NOT ((reservation_status = 'ACTIVE' AND fulfilled_quantity = 0 AND released_quantity = 0)
+                OR (reservation_status = 'PARTIALLY_FULFILLED' AND fulfilled_quantity > 0 AND outstanding_quantity > 0)
+                OR (reservation_status = 'FULFILLED' AND outstanding_quantity = 0 AND fulfilled_quantity > 0)
+                OR (reservation_status = 'RELEASED' AND outstanding_quantity = 0 AND released_quantity > 0))""")]
+    found += [{**r, "problem": "outstanding reservation on a cancelled order or line"} for r in ctx.rows("""
+        SELECT r.inventory_reservation_id, o.order_status, l.line_status FROM inventory_reservations r
+        JOIN order_line_items l ON l.order_line_item_id = r.order_line_item_id JOIN orders o ON o.order_id = l.order_id
+        WHERE r.outstanding_quantity > 0 AND (o.order_status = 'CANCELLED' OR l.line_status = 'CANCELLED')""")]
     return found

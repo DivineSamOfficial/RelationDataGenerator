@@ -51,12 +51,12 @@ class Pool:
     cumulative: list[float]
 
     def pick(self, rng, day: date) -> Customer | None:
-        """A customer acquired on or before ``day`` (first order on or after the acquisition date)."""
+        """A customer acquired before ``day`` (customers acquired during the history order from the next day)."""
         if not self.customers:
             return None
         for _ in range(20):
             chosen = self.customers[bisect_right(self.cumulative, rng.random() * self.cumulative[-1])]
-            if chosen.acquired <= day:
+            if chosen.acquired < day:
                 return chosen
         return None
 
@@ -68,6 +68,7 @@ class SalesModel:
     store_pools: dict[tuple[str, int], Pool]                 # (pack, store warehouse) → B2C customers of that city
     stores: dict[str, int]                                   # city → RETAIL_STORE warehouse id
     sales_channels: dict[str, dict[str, Any]]                # code → row
+    address_city: dict[int, str]                             # customer address id → city
     payment_terms: dict[str, dict[str, Any]]                 # code → row
     popularity: dict[int, float] = field(default_factory=dict)   # product id → stable weight
     product_rows: dict[int, dict[str, Any]] = field(default_factory=dict)   # list price, MRP, category
@@ -93,17 +94,18 @@ def _pool(customers: list[Customer], pack: str, others: int, affinity: float) ->
     return Pool(chosen, list(itertools.accumulate(weights)))
 
 
-def sales_model(day: DayContext) -> SalesModel:
-    """The model of this run, built once from the database (D66)."""
+def _load_customers(day: DayContext, only: list[int] | None = None) -> tuple[dict[int, Customer], dict[int, str]]:
+    """Active customers (all, or the given ids) with their live addresses, as the demand model sees them."""
     world = day.world
-    if "sales_model" in world.refs:
-        return world.refs["sales_model"]
     settings = world.config.sales
+    filter_ = f"AND customer_id IN ({', '.join(map(str, only))})" if only else ""
     addresses: dict[int, dict[str, Any]] = {}
-    for row in day.rows("""
+    address_city: dict[int, str] = {}
+    for row in day.rows(f"""
             SELECT customer_address_id, customer_id, city, is_default_billing, is_default_shipping,
                    is_shipping_address FROM customer_addresses
-            WHERE deleted_at IS NULL ORDER BY customer_id, customer_address_id"""):
+            WHERE deleted_at IS NULL {filter_} ORDER BY customer_id, customer_address_id"""):
+        address_city[row["customer_address_id"]] = row["city"]
         entry = addresses.setdefault(row["customer_id"], {"billing": None, "city": None, "shipping": []})
         if row["is_default_billing"]:
             entry["billing"], entry["city"] = row["customer_address_id"], row["city"]
@@ -112,10 +114,10 @@ def sales_model(day: DayContext) -> SalesModel:
         elif row["is_shipping_address"]:
             entry["shipping"].append(row["customer_address_id"])
     customers: dict[int, Customer] = {}
-    for row in day.rows("""
+    for row in day.rows(f"""
             SELECT customer_id, customer_type, customer_segment, acquisition_date, payment_term_id, credit_limit,
                    sales_employee_id FROM customers
-            WHERE customer_status = 'ACTIVE' AND deleted_at IS NULL ORDER BY customer_id"""):
+            WHERE customer_status = 'ACTIVE' AND deleted_at IS NULL {filter_} ORDER BY customer_id"""):
         rng = day.streams.stream(row["acquisition_date"], f"sales.customer.{row['customer_id']}")
         if row["customer_type"] == "B2B":
             low, high = world.config.master_data.credit_limits[row["customer_segment"]]
@@ -133,30 +135,56 @@ def sales_model(day: DayContext) -> SalesModel:
             credit_limit=row["credit_limit"], sales_employee_id=row["sales_employee_id"],
             billing_address_id=address["billing"], city=address["city"],
             shipping_address_ids=address["shipping"] or [address["billing"]], weight=weight, home_pack=home)
+    return customers, address_city
 
+
+def _build_pools(day: DayContext, model: SalesModel) -> None:
+    world = day.world
+    settings = world.config.sales
+    model.pools, model.store_pools = {}, {}
+    model.b2b_order_value.clear()                 # depends on the pools
+    for kind in ("B2B", "B2C"):
+        of_kind = [c for c in model.customers.values() if c.kind == kind]
+        serving = [p for p in world.packs if (p.b2b_sales_share if kind == "B2B" else 1 - p.b2b_sales_share) > 0]
+        for pack in serving:
+            model.pools[(pack.code, kind)] = _pool(of_kind, pack.code, len(serving) - 1, settings.pack_affinity)
+            if kind == "B2C":
+                for city, store in model.stores.items():
+                    model.store_pools[(pack.code, store)] = _pool([c for c in of_kind if c.city == city], pack.code,
+                                                                  len(serving) - 1, settings.pack_affinity)
+
+
+def sales_model(day: DayContext) -> SalesModel:
+    """The model of this run, built once from the database (D66)."""
+    world = day.world
+    if "sales_model" in world.refs:
+        return world.refs["sales_model"]
+    customers, address_city = _load_customers(day)
     stores = {r["city"]: r["warehouse_id"] for r in day.rows(
         "SELECT warehouse_id, city FROM warehouses WHERE warehouse_type = 'RETAIL_STORE' "
         "AND warehouse_status = 'ACTIVE' ORDER BY warehouse_id")}
-    pools: dict[tuple[str, str], Pool] = {}
-    store_pools: dict[tuple[str, int], Pool] = {}
-    for kind in ("B2B", "B2C"):
-        of_kind = [c for c in customers.values() if c.kind == kind]
-        serving = [p for p in world.packs if (p.b2b_sales_share if kind == "B2B" else 1 - p.b2b_sales_share) > 0]
-        for pack in serving:
-            pools[(pack.code, kind)] = _pool(of_kind, pack.code, len(serving) - 1, settings.pack_affinity)
-            if kind == "B2C":
-                for city, store in stores.items():
-                    store_pools[(pack.code, store)] = _pool([c for c in of_kind if c.city == city], pack.code,
-                                                            len(serving) - 1, settings.pack_affinity)
     channels = {r["channel_code"]: r for r in day.rows(
         "SELECT sales_channel_id, channel_code, requires_shipment, allowed_customer_type FROM sales_channels "
         "WHERE is_active")}
     terms = {r["term_code"]: r for r in day.rows(
         "SELECT payment_term_id, term_code, due_days, is_prepaid FROM payment_terms")}
-    model = SalesModel(customers=customers, pools=pools, store_pools=store_pools, stores=stores,
-                       sales_channels=channels, payment_terms=terms)
+    model = SalesModel(customers=customers, pools={}, store_pools={}, stores=stores, sales_channels=channels,
+                       payment_terms=terms, address_city=address_city)
+    _build_pools(day, model)
     world.refs["sales_model"] = model
     return model
+
+
+def add_customers(day: DayContext, customer_ids: list[int]) -> None:
+    """New customers join a model that is already built (exactly as a rebuild from the database would see them)."""
+    model = day.world.refs.get("sales_model")
+    if model is None or not customer_ids:
+        return
+    customers, address_city = _load_customers(day, customer_ids)
+    model.customers.update(customers)
+    model.customers = dict(sorted(model.customers.items()))
+    model.address_city.update(address_city)
+    _build_pools(day, model)
 
 
 def popularity(day: DayContext, model: SalesModel, product_id: int, launched: date) -> float:

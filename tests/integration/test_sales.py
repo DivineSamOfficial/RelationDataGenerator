@@ -1,10 +1,12 @@
-"""Phase 3 step 3.8a: customer orders from the demand model, prepaid checkout (P08 + AR), COD and counter
-sales, B2B credit checks and holds, on generated data.
+"""Phase 3 step 3.8: customer orders from the demand model, prepaid checkout (P08 + AR), COD and counter
+sales, B2B credit checks and holds (3.8a); stock reservations, backorders, customer cancellations, new customers
+and replenishment of backordered demand (3.8b), on generated data.
 
 Window: August–November 2025 (includes the 22 Sep 2025 GST rate change and the festive campaigns). After four
 weeks the fixture lowers the credit limit of a few busy B2B accounts (a credit-control decision), so holds,
 Finance overrides and expired holds all occur. Every sales and receivables rule must pass, and each mutation
-(rolled back) must make its rule fail.
+(rolled back) must make its rule fail. Backordered lines are cancelled after 7 days here (21 by default), so
+the out-of-stock path occurs in a short window.
 """
 
 from __future__ import annotations
@@ -29,8 +31,8 @@ from scmgen.validation.framework import ValidationContext, run_checks
 pytestmark = pytest.mark.integration
 
 CATALOGUE = load_catalogue()
-RULES = sorted(r for r in framework.registered_checks() if r.startswith(("V-SO", "V-PY", "V-AR")))
-WINDOW = {"history.start_date": "2025-08-01", "history.end_date": "2025-11-30"}
+RULES = sorted(r for r in framework.registered_checks() if r.startswith(("V-SO", "V-PY", "V-AR")) or r == "V-IN-03")
+WINDOW = {"history.start_date": "2025-08-01", "history.end_date": "2025-11-30", "sales.backorder_cancel_days": 7}
 
 
 @pytest.fixture(scope="module")
@@ -180,6 +182,67 @@ def test_credit_holds(generated):
                          ON h.order_id = o.order_id WHERE h.to_status = 'ON_HOLD' AND c.customer_type <> 'B2B'""") == 0
 
 
+def test_confirmed_orders_reserve_stock(generated):
+    _, conn = generated
+    # Every open line of a confirmed order is reserved in full; backordered lines have no reservation.
+    assert _one(conn, """SELECT COUNT(*) FROM order_line_items l JOIN orders o USING (order_id)
+                         LEFT JOIN (SELECT order_line_item_id, SUM(outstanding_quantity) AS q FROM inventory_reservations
+                                    GROUP BY 1) r ON r.order_line_item_id = l.order_line_item_id
+                         WHERE o.order_status IN ('CONFIRMED', 'BACKORDERED')
+                           AND ((l.line_status = 'OPEN' AND COALESCE(r.q, 0) <> l.quantity_ordered)
+                             OR (l.line_status = 'BACKORDERED' AND COALESCE(r.q, 0) <> 0))""") == 0
+    # Shipped orders reserve at distribution centres (several when the nearest is short), store orders at the store.
+    assert _one(conn, """SELECT COUNT(*) FROM inventory_reservations r JOIN order_line_items l USING (order_line_item_id)
+                         JOIN orders o USING (order_id) JOIN warehouses w ON w.warehouse_id = r.warehouse_id
+                         WHERE (o.fulfilment_type = 'SHIP') <> (w.warehouse_type = 'DISTRIBUTION_CENTRE')
+                            OR (o.fulfilment_type <> 'SHIP' AND r.warehouse_id <> o.store_warehouse_id)""") == 0
+    assert _one(conn, """SELECT COUNT(*) FROM (SELECT order_line_item_id FROM inventory_reservations GROUP BY 1
+                                               HAVING COUNT(*) > 1) x""") > 0
+    # Cancelled orders hold nothing back.
+    assert _one(conn, """SELECT COUNT(*) FROM inventory_reservations r JOIN order_line_items l USING (order_line_item_id)
+                         JOIN orders o USING (order_id) WHERE o.order_status = 'CANCELLED'
+                           AND r.reservation_status <> 'RELEASED'""") == 0
+
+
+def test_backorders_wait_for_stock(generated):
+    _, conn = generated
+    ever = _one(conn, "SELECT COUNT(DISTINCT order_id) FROM order_status_history WHERE to_status = 'BACKORDERED'")
+    total = _one(conn, "SELECT COUNT(*) FROM orders")
+    assert 0 < ever < total * Decimal("0.10")                                  # ~3% by design
+    outcomes = {reason for (reason,) in _rows(conn, "SELECT DISTINCT change_reason FROM order_status_history "
+                                                    "WHERE from_status = 'BACKORDERED'")}
+    assert "Backorder released: stock reserved" in outcomes
+    assert outcomes & {"Out of stock for 7 days", "Backordered lines cancelled: out of stock"}
+    # The stock check orders backordered demand: every line backordered before the last day has supply coming.
+    assert _one(conn, """SELECT COUNT(*) FROM order_line_items l JOIN orders o USING (order_id)
+                         WHERE l.line_status = 'BACKORDERED' AND o.fulfilment_type = 'SHIP' AND o.updated_at < '2025-11-30'
+                           AND NOT EXISTS (SELECT 1 FROM purchase_order_line_items pl JOIN purchase_order_headers h
+                                           USING (purchase_order_id) WHERE pl.product_id = l.product_id
+                                           AND h.po_status IN ('PENDING_APPROVAL', 'APPROVED', 'SENT', 'PARTIALLY_RECEIVED'))
+                           AND NOT EXISTS (SELECT 1 FROM rfq_line_items rl JOIN rfq_headers r USING (rfq_id)
+                                           WHERE rl.product_id = l.product_id AND r.rfq_status IN ('ISSUED', 'UNDER_EVALUATION'))""") == 0
+
+
+def test_customer_cancellations(generated):
+    _, conn = generated
+    reasons = dict(_rows(conn, "SELECT cancellation_reason, COUNT(*) FROM orders WHERE order_status = 'CANCELLED' GROUP BY 1"))
+    assert reasons.get("CUSTOMER_REQUEST", 0) > 0 and reasons.get("DUPLICATE_ORDER", 0) > 0
+    # Customers cancel before dispatch, never at the counter, and after the order's last earlier status.
+    assert _one(conn, """SELECT COUNT(*) FROM orders WHERE cancellation_reason IN ('CUSTOMER_REQUEST', 'DUPLICATE_ORDER')
+                         AND (fulfilment_type = 'COUNTER_SALE' OR cancelled_at <= order_placed_at)""") == 0
+
+
+def test_new_customers_join_and_order(generated):
+    _, conn = generated
+    new, credited = _rows(conn, """SELECT COUNT(*), SUM(acquisition_marketing_campaign_id IS NOT NULL) FROM customers
+                                   WHERE acquisition_date >= '2025-08-01'""")[0]
+    assert new > 0 and credited > 0
+    assert _one(conn, """SELECT COUNT(*) FROM orders o JOIN customers c USING (customer_id)
+                         WHERE c.acquisition_date >= '2025-08-01'""") > 0
+    assert _one(conn, """SELECT COUNT(*) FROM orders o JOIN customers c USING (customer_id)
+                         WHERE o.order_date <= c.acquisition_date AND c.acquisition_date >= '2025-08-01'""") == 0
+
+
 _ORDER = "(SELECT x FROM (SELECT MIN(order_id) x FROM orders WHERE order_status = 'CONFIRMED') t)"
 _B2C = ("(SELECT x FROM (SELECT MIN(o.order_id) x FROM orders o JOIN customers c USING (customer_id) "
         "WHERE c.customer_type = 'B2C') t)")
@@ -201,6 +264,10 @@ MUTATIONS = {
     "V-AR-01": [f"UPDATE accounts_receivable SET original_amount = original_amount + 1, open_amount = open_amount + 1 "
                 f"WHERE accounts_receivable_id = {_ITEM}"],
     "V-AR-02": [f"UPDATE accounts_receivable SET customer_id = customer_id + 1 WHERE accounts_receivable_id = {_ITEM}"],
+    "V-IN-03": ["UPDATE inventory SET qty_reserved = qty_reserved + 1 WHERE (warehouse_id, product_id) = "
+                "(SELECT w, p FROM (SELECT r.warehouse_id w, l.product_id p FROM inventory_reservations r "
+                "JOIN order_line_items l USING (order_line_item_id) WHERE r.reservation_status = 'ACTIVE' "
+                "ORDER BY r.inventory_reservation_id LIMIT 1) t)"],
     "V-AR-03": [f"UPDATE accounts_receivable SET open_amount = open_amount + 1, item_status = 'PARTIALLY_SETTLED' "
                 f"WHERE accounts_receivable_id = {_ITEM}"],
 }

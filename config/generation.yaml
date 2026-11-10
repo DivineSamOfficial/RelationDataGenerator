@@ -126,6 +126,7 @@ daily:
   new_products_per_year: 0.08      # launches per year as a share of the catalogue (1B: ~15% over the history)
   discontinued_per_year: 0.04      # 1B: 3-5% of products discontinued per year
   campaign_lead_days: 30           # campaigns are created this long before they start
+  new_customers_per_year: {B2B: 0.10, B2C: 0.35}   # acquisitions per year, share of the preset's customer count
 
 # Opening position on the first simulated day (1E P01, P02; D22, D34). Rupee amounts are for the Medium
 # preset and scale with the preset's product count. Fixed assets are named by account code (codes live in
@@ -224,3 +225,8 @@ sales:
   overdue_grace_days: 15                # invoices this far past due put new orders on hold
   hold_expiry_days: 14                  # held orders are cancelled after this many days
   hold_override_share: 0.10             # per working day: Finance releases a held order by override
+  # Reservations and cancellations (1C §5, 1D §2): lines reserve at confirmation or wait as backorders.
+  backorder_cancel_days: 21             # backordered lines still short after this are cancelled OUT_OF_STOCK
+  customer_cancel_share: 0.025          # shipped / pickup orders the customer cancels before dispatch
+  cancel_delay_hours: [1, 48]           # after placing the order
+  duplicate_order_share: 0.10           # of those cancellations: duplicate orders (cancelled within the hour)

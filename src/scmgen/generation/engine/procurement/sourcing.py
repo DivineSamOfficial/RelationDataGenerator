@@ -19,6 +19,7 @@ from scmgen.core.money import money, quantity, unit_price
 from scmgen.generation.engine.day import DayContext
 from scmgen.generation.engine.documents import (approver, preload_rates, price_lines, rate_on, record_status,
                                                  staff, totals)
+from scmgen.generation.engine.sales.allocation import backorder_demand
 from scmgen.generation.numbering import Registration
 
 OPEN_PO_STATUSES = ("DRAFT", "PENDING_APPROVAL", "APPROVED", "SENT", "PARTIALLY_RECEIVED")
@@ -430,6 +431,18 @@ def replenishment(day: DayContext) -> None:
         WHERE i.warehouse_id IN ({in_dc}) AND p.product_status = 'ACTIVE' AND i.is_stocked
           AND i.qty_sellable - i.qty_reserved <= i.reorder_level
         ORDER BY i.warehouse_id, p.product_id""")
+    # Backordered sales lines count against their nearest DC's position (1D §2, step 3.8b).
+    backorders = backorder_demand(day)
+    seen = {(r["warehouse_id"], r["product_id"]) for r in candidates}
+    extra = sorted(k for k in backorders if k not in seen and k[0] in dcs)
+    if extra:
+        candidates += day.rows(f"""
+            SELECT i.warehouse_id, p.product_id, p.business_unit_id, i.max_stock_level, i.reorder_level,
+                   i.qty_sellable - i.qty_reserved AS available
+            FROM inventory i JOIN products p ON p.product_id = i.product_id
+            WHERE p.product_status = 'ACTIVE' AND i.is_stocked
+              AND (i.warehouse_id, i.product_id) IN ({", ".join(f"({w}, {p})" for w, p in extra)})
+            ORDER BY i.warehouse_id, p.product_id""")
     on_order: dict[tuple[int, int], Decimal] = defaultdict(Decimal)    # stock on order or being sourced
     if candidates:
         products = ", ".join(sorted({str(r["product_id"]) for r in candidates}))
@@ -444,7 +457,8 @@ def replenishment(day: DayContext) -> None:
             on_order[(row["warehouse_id"], row["product_id"])] += row["qty"]
     below = []
     for row in candidates:
-        position = row["available"] + on_order[(row["warehouse_id"], row["product_id"])]
+        key = (row["warehouse_id"], row["product_id"])
+        position = row["available"] + on_order[key] - backorders.get(key, Decimal(0))
         if position <= row["reorder_level"]:
             below.append({**row, "position": position})
     # New products (no stock row in the DC yet) and nothing on order or being sourced: one anti-join.
