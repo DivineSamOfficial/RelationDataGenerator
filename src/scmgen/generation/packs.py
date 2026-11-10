@@ -114,7 +114,7 @@ class IndustryPack:
     business_unit_code: str
     business_unit_name: str
     b2b_sales_share: Decimal
-    credit_terms: Mapping[str, Mapping[str, Decimal]]
+    credit_terms: Mapping[str, Mapping[str, Decimal]]          # per customer type that buys (B2B / B2C)
     sales_channels: Mapping[str, Mapping[str, Decimal]]
     marketing_channels: Mapping[str, Mapping[str, Decimal]]
     marketplace_commission_percent: Decimal
@@ -341,14 +341,21 @@ def load_pack(code: str, seed: SeedData, config_dir: Path = DEFAULT_CONFIG_DIR) 
     sales = {row["channel_code"]: row for row in seed.sales_channels}
     marketing = {row["channel_code"]: row for row in seed.marketing_channels}
     customers = raw.get("customers") if isinstance(raw.get("customers"), dict) else {}
+    b2b_share = check.decimal(customers.get("b2b_sales_share"), "customers.b2b_sales_share", 0, 1)
+    # A B2B-only pack (share 1) has no consumer mixes, a B2C-only pack (share 0) no business ones.
+    kinds = [k for k, used in (("B2B", b2b_share > 0), ("B2C", b2b_share < 1)) if used]
+    for section in ("credit_terms", "sales_channels", "marketing_channels"):
+        given = set((customers.get(section) or {}).keys())
+        for kind in sorted(given - set(kinds)):
+            check.fail(f"{section}.{kind} is given but b2b_sales_share = {b2b_share} means no {kind} sales")
     credit, channels, media = {}, {}, {}
-    for kind in CUSTOMER_TYPES:
+    for kind in kinds:
         credit[kind] = check.shares((customers.get("credit_terms") or {}).get(kind), f"credit_terms.{kind}", terms)
         channels[kind] = check.shares((customers.get("sales_channels") or {}).get(kind), f"sales_channels.{kind}",
                                       [c for c, row in sales.items() if row["allowed_customer_type"] in (kind, "BOTH")])
         media[kind] = check.shares((customers.get("marketing_channels") or {}).get(kind),
                                    f"marketing_channels.{kind}", marketing)
-    for term in credit["B2C"]:
+    for term in credit.get("B2C", {}):
         if term in terms and terms[term]["due_days"] != 0:
             check.fail(f"credit_terms.B2C: consumers get no credit, {term} has {terms[term]['due_days']} days")
 
@@ -377,7 +384,8 @@ def load_pack(code: str, seed: SeedData, config_dir: Path = DEFAULT_CONFIG_DIR) 
         check.fail("events: at least one sale event per year (campaigns, 1B §4.7)")
 
     returns_raw = raw.get("returns") if isinstance(raw.get("returns"), dict) else {}
-    returns = {key: check.decimal(returns_raw.get(key), f"returns.{key}", 0, Decimal("0.5"))
+    # Rates are shares of lines / units (capped at 50%); defective_share is a share *of returns* (up to 100%).
+    returns = {key: check.decimal(returns_raw.get(key), f"returns.{key}", 0, 1 if key == "defective_share" else Decimal("0.5"))
                for key in ("b2c_return_rate", "b2b_return_rate", "defective_share", "transit_damage_rate")}
     check.known(returns_raw, set(returns), "returns")
 
@@ -424,7 +432,7 @@ def load_pack(code: str, seed: SeedData, config_dir: Path = DEFAULT_CONFIG_DIR) 
     pack = IndustryPack(
         code=code, name=str(raw.get("name")), business_unit_code=str(bu.get("code")),
         business_unit_name=str(bu.get("name")),
-        b2b_sales_share=check.decimal(customers.get("b2b_sales_share"), "customers.b2b_sales_share", 0, 1),
+        b2b_sales_share=b2b_share,
         credit_terms=credit, sales_channels=channels, marketing_channels=media,
         marketplace_commission_percent=check.decimal(raw.get("marketplace_commission_percent"),
                                                      "marketplace_commission_percent", 0, 100),

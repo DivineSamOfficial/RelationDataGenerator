@@ -1,0 +1,124 @@
+# Industry pack: Furniture (added at the owner's request, 2026-11-10; not in the original 1A list).
+# Format: see electronics.yaml. High value, very bulky, long supplier lead times, higher transit
+# damage, offices / hotels / builders as B2B buyers, festive, wedding and new-financial-year peaks.
+# Brand names are invented; GST rates are illustrative (D17 pattern: bamboo/cane 12% -> 5%), not tax advice.
+
+code: furniture
+name: Furniture
+business_unit: {code: FURN, name: Furniture}
+
+customers:
+  b2b_sales_share: 0.55                # offices, hotels, co-working, builders' show flats
+  credit_terms:
+    B2B: {NET30: 0.45, NET45: 0.30, NET15: 0.15, IMMEDIATE: 0.10}
+    B2C: {ADVANCE: 0.80, COD: 0.20}
+  sales_channels:
+    B2B: {FIELD_SALES: 0.55, PHONE: 0.15, WEBSITE: 0.20, WHATSAPP: 0.10}
+    B2C: {WEBSITE: 0.30, MOBILE_APP: 0.15, MARKETPLACE: 0.25, RETAIL_STORE: 0.25, WHATSAPP: 0.05}
+  marketing_channels:
+    B2B: {FIELD_SALES: 0.45, TRADE_SHOW: 0.20, REFERRAL: 0.20, DIRECT: 0.10, GOOGLE_ADS: 0.05}
+    B2C: {GOOGLE_ADS: 0.20, FACEBOOK: 0.15, INSTAGRAM: 0.15, YOUTUBE: 0.10, MARKETPLACE_ADS: 0.10,
+          ORGANIC_SEARCH: 0.10, EMAIL: 0.05, REFERRAL: 0.08, DIRECT: 0.07}
+marketplace_commission_percent: 14
+
+seasonality: [1.05, 1.00, 1.05, 1.15, 0.95, 0.80, 0.80, 0.85, 0.95, 1.25, 1.20, 0.95]
+events:
+  - {name: New Year Home Refresh, month: 1, day: 5, days: 14, uplift: 1.15, channels: [FACEBOOK, GOOGLE_ADS]}
+  - {name: New Office Season, month: 4, day: 1, days: 21, uplift: 1.20, channels: [GOOGLE_ADS, EMAIL]}
+  - {name: Furniture Expo, month: 2, day: 20, days: 4, uplift: 1.10, channels: [TRADE_SHOW]}
+  - {name: Monsoon Clearance, month: 7, day: 10, days: 14, uplift: 1.10, channels: [EMAIL, MARKETPLACE_ADS]}
+  - {name: Big Festive Sale, month: 9, day: 25, days: 14, uplift: 1.40, channels: [MARKETPLACE_ADS, YOUTUBE]}
+  - {name: Diwali Home Makeover, month: 10, day: 15, days: 21, uplift: 1.50, channels: [INSTAGRAM, FACEBOOK, GOOGLE_ADS]}
+  - {name: Wedding Home Setup, month: 11, day: 20, days: 30, uplift: 1.20, channels: [INSTAGRAM, EMAIL]}
+  - {name: Year End Sale, month: 12, day: 22, days: 9, uplift: 1.15, channels: [FACEBOOK, MARKETPLACE_ADS]}
+
+returns:
+  b2c_return_rate: 0.04
+  b2b_return_rate: 0.015
+  defective_share: 0.45                # most returns are damage or finish defects
+  transit_damage_rate: 0.02            # scratches, broken glass tops, crushed corners
+
+suppliers:
+  hubs: [Jodhpur, Udaipur, New Delhi, Bengaluru, Kolkata, Kochi, Ahmedabad]
+  name_suffixes: [Furniture Works, Woodcraft, Interiors, Furnishers, Timber Industries, Seating Systems]
+  monthly_cost_drift: [0.003, 0.008]
+  lead_time_days: [10, 45]
+
+pricing:
+  list_price_ratio: [0.70, 0.85]
+  gross_margin: [0.25, 0.40]
+
+brands:
+  - {code: LAKDICRAFT, name: Lakdi Craft, tier: MID, categories: [FURN-LIV, FURN-BED, FURN-DIN]}
+  - {code: SHEESHAMHS, name: Sheesham House, tier: PREMIUM, categories: [FURN-LIV, FURN-BED, FURN-DIN]}
+  - {code: AARAM, name: Aaram Living, tier: MID, categories: [FURN-LIV, FURN-BED]}
+  - {code: WOODVISTA, name: Woodvista, tier: ECONOMY, categories: [FURN-LIV, FURN-BED, FURN-DIN, FURN-OFF]}
+  - {code: OFFICENEST, name: OfficeNest, tier: MID, categories: [FURN-OFF]}
+  - {code: KURSIKRAFT, name: Kursi Kraft, tier: PREMIUM, categories: [FURN-OFF, FURN-DIN]}
+  - {code: SUKHNIDRA, name: Sukh Nidra Mattresses, tier: MID, categories: [FURN-BED]}
+  - {code: VANACRAFT, name: Vana Craft, tier: ECONOMY, categories: [FURN-OUT]}
+  - {code: BAANSURI, name: Baansuri Cane Works, tier: MID, categories: [FURN-OUT, FURN-LIV]}
+  - {code: KS-FURN, name: KS Furniture Basics, tier: ECONOMY, private_label: true, categories: [FURN-OFF, FURN-OUT]}
+
+name_series: [Heritage, Nordic, Urban, Classic, Royal, Comfort, Studio, Maharaja, Slim, Modular]
+categories:
+  - code: FURN-LIV
+    name: Living Room
+    return_window_days: 10
+    children:
+      - {code: FURN-LIV-SOF, name: Sofas, share: 6, hsn: "94016100", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [12999, 24999], MID: [25000, 54999], PREMIUM: [55000, 189999]}, weight_kg: [35, 110], volume_litres: [900, 2600],
+         warranty_months: 36, nouns: [Three Seater Sofa, L-Shaped Sofa, Two Seater Sofa], colours: [Grey, Beige, Teal, Mustard]}
+      - {code: FURN-LIV-TAB, name: Coffee & Side Tables, share: 5, hsn: "94036000", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [2499, 5999], MID: [6000, 14999], PREMIUM: [15000, 44999]}, weight_kg: [6, 30], volume_litres: [60, 300],
+         warranty_months: 12, nouns: [Coffee Table, Nesting Side Tables, Console Table]}
+      - {code: FURN-LIV-TVU, name: TV Units, share: 4, hsn: "94036000", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [3999, 8999], MID: [9000, 19999], PREMIUM: [20000, 59999]}, weight_kg: [15, 60], volume_litres: [150, 600],
+         warranty_months: 12, nouns: [Wall Mounted TV Unit, Floor Standing TV Unit]}
+  - code: FURN-BED
+    name: Bedroom
+    return_window_days: 10
+    children:
+      - {code: FURN-BED-BED, name: Beds, share: 6, hsn: "94035010", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [9999, 19999], MID: [20000, 44999], PREMIUM: [45000, 149999]}, weight_kg: [40, 140], volume_litres: [800, 2400],
+         warranty_months: 36, nouns: [Queen Size Bed with Storage, King Size Bed, Single Bed]}
+      - {code: FURN-BED-WRD, name: Wardrobes, share: 5, hsn: "94035090", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [7999, 17999], MID: [18000, 39999], PREMIUM: [40000, 119999]}, weight_kg: [45, 150], volume_litres: [900, 2800],
+         warranty_months: 36, nouns: [Two Door Wardrobe, Three Door Wardrobe with Mirror, Sliding Door Wardrobe]}
+      - {code: FURN-BED-MAT, name: Mattresses, share: 5, hsn: "94042910", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [5999, 11999], MID: [12000, 27999], PREMIUM: [28000, 79999]}, weight_kg: [12, 40], volume_litres: [300, 900],
+         warranty_months: 60, nouns: [Memory Foam Mattress, Orthopaedic Mattress, Pocket Spring Mattress],
+         variants: [{label: Single, price_factor: 1.0}, {label: Queen, price_factor: 1.6}, {label: King, price_factor: 1.9}]}
+  - code: FURN-DIN
+    name: Dining
+    return_window_days: 10
+    children:
+      - {code: FURN-DIN-SET, name: Dining Sets, share: 5, hsn: "94036010", gst: {before: 18, after: 18}, uom: SET,
+         mrp: {ECONOMY: [11999, 22999], MID: [23000, 49999], PREMIUM: [50000, 159999]}, weight_kg: [40, 120], volume_litres: [700, 2000],
+         warranty_months: 24, nouns: [Four Seater Dining Set, Six Seater Dining Set, Folding Dining Set]}
+      - {code: FURN-DIN-CHR, name: Dining Chairs, share: 4, hsn: "94016900", gst: {before: 18, after: 18}, uom: SET,
+         mrp: {ECONOMY: [2999, 6999], MID: [7000, 15999], PREMIUM: [16000, 39999]}, weight_kg: [8, 30], volume_litres: [150, 500],
+         warranty_months: 12, nouns: [Dining Chair Set of 2, Upholstered Dining Chair Set of 4]}
+  - code: FURN-OFF
+    name: Office Furniture
+    return_window_days: 7
+    children:
+      - {code: FURN-OFF-CHR, name: Office Chairs, share: 6, hsn: "94013000", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [2999, 6999], MID: [7000, 16999], PREMIUM: [17000, 54999]}, weight_kg: [9, 25], volume_litres: [150, 420],
+         warranty_months: 36, nouns: [Ergonomic Office Chair, Mesh Office Chair, Executive High Back Chair], colours: [Black, Grey, Blue]}
+      - {code: FURN-OFF-DSK, name: Office Desks, share: 5, hsn: "94033010", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [3999, 9999], MID: [10000, 24999], PREMIUM: [25000, 79999]}, weight_kg: [18, 70], volume_litres: [250, 900],
+         warranty_months: 24, nouns: [Study Table, Workstation Desk, Height Adjustable Desk]}
+      - {code: FURN-OFF-STR, name: Office Storage, share: 3, hsn: "94031000", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [3499, 7999], MID: [8000, 17999], PREMIUM: [18000, 49999]}, weight_kg: [20, 80], volume_litres: [200, 800],
+         warranty_months: 24, nouns: [Steel Filing Cabinet, Mobile Pedestal, Bookshelf]}
+  - code: FURN-OUT
+    name: Outdoor & Cane
+    return_window_days: 7
+    children:
+      - {code: FURN-OUT-CNE, name: Cane & Bamboo Furniture, share: 3, hsn: "94015200", gst: {before: 12, after: 5}, uom: PCS,
+         mrp: {ECONOMY: [1999, 4999], MID: [5000, 12999], PREMIUM: [13000, 34999]}, weight_kg: [4, 25], volume_litres: [150, 700],
+         warranty_months: 6, nouns: [Cane Rocking Chair, Bamboo Lounge Chair, Cane Swing Chair]}
+      - {code: FURN-OUT-PLC, name: Plastic & Outdoor Chairs, share: 3, hsn: "94017100", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [499, 1499], MID: [1500, 3999], PREMIUM: [4000, 9999]}, weight_kg: [2, 8], volume_litres: [80, 300],
+         warranty_months: 12, nouns: [Plastic Chair, Outdoor Garden Chair, Patio Chair Set of 2]}

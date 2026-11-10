@@ -1,0 +1,116 @@
+# Industry pack: Industrial & MRO - maintenance, repair and operations supplies (1A §8.3).
+# Format: see electronics.yaml. B2B-only (b2b_sales_share 1.0, so no B2C sections): factories,
+# contractors and facility managers buying through field sales on long credit terms; low returns.
+# Brand names are invented; GST rates are illustrative, not tax advice.
+
+code: industrial_mro
+name: Industrial & MRO
+business_unit: {code: INDL, name: Industrial & MRO}
+
+customers:
+  b2b_sales_share: 1.0
+  credit_terms:
+    B2B: {NET45: 0.35, NET60: 0.30, NET30: 0.30, 2_10_NET30: 0.05}
+  sales_channels:
+    B2B: {FIELD_SALES: 0.60, PHONE: 0.20, WEBSITE: 0.10, WHATSAPP: 0.10}
+  marketing_channels:
+    B2B: {FIELD_SALES: 0.50, TRADE_SHOW: 0.20, REFERRAL: 0.15, DIRECT: 0.10, GOOGLE_ADS: 0.05}
+marketplace_commission_percent: 0
+
+seasonality: [1.00, 1.05, 1.25, 0.95, 0.95, 0.85, 0.85, 0.95, 1.00, 0.95, 1.05, 1.15]   # FY-end and Q4 maintenance
+events:
+  - {name: Industrial Expo, month: 1, day: 25, days: 4, uplift: 1.10, channels: [TRADE_SHOW]}
+  - {name: Year End Capex Push, month: 3, day: 1, days: 25, uplift: 1.20, channels: [GOOGLE_ADS]}
+  - {name: Monsoon Safety Drive, month: 6, day: 15, days: 21, uplift: 1.10, channels: [GOOGLE_ADS]}
+  - {name: Maintenance Shutdown Season, month: 11, day: 15, days: 30, uplift: 1.15, channels: [GOOGLE_ADS]}
+  - {name: Contractor Meet, month: 9, day: 10, days: 3, uplift: 1.10, channels: [TRADE_SHOW]}
+  - {name: Safety Week, month: 3, day: 4, days: 7, uplift: 1.10, channels: [GOOGLE_ADS, TRADE_SHOW]}
+
+returns:
+  b2c_return_rate: 0
+  b2b_return_rate: 0.01
+  defective_share: 0.40
+  transit_damage_rate: 0.003
+
+suppliers:
+  hubs: [Rajkot, Ludhiana, Coimbatore, Pune, Jamshedpur, Faridabad, Chennai]
+  name_suffixes: [Engineering, Tools, Industrial Supplies, Cables, Fasteners, Lubricants]
+  monthly_cost_drift: [0.003, 0.008]
+  lead_time_days: [5, 30]
+
+pricing:
+  list_price_ratio: [0.70, 0.85]       # big institutional discounts off MRP
+  gross_margin: [0.15, 0.30]
+
+brands:
+  - {code: VAJRA, name: Vajra Tools, tier: MID, categories: [INDL-PWT, INDL-HND]}
+  - {code: LOHAPURI, name: Lohapuri, tier: ECONOMY, categories: [INDL-HND, INDL-FST]}
+  - {code: TORQLINE, name: Torqline, tier: PREMIUM, categories: [INDL-PWT, INDL-HND]}
+  - {code: SURAKSHA, name: Suraksha Gear, tier: MID, categories: [INDL-SAF]}
+  - {code: KAVACH, name: Kavach Safety, tier: ECONOMY, categories: [INDL-SAF]}
+  - {code: TARANG, name: Tarang Cables, tier: MID, categories: [INDL-ELE]}
+  - {code: SNEHAN, name: Snehan Lubricants, tier: MID, categories: [INDL-LUB]}
+  - {code: CHAKRA, name: Chakra Bearings, tier: PREMIUM, categories: [INDL-FST, INDL-ELE]}
+  - {code: FASTENIX, name: Fastenix, tier: ECONOMY, categories: [INDL-FST]}
+  - {code: KS-INDL, name: KS Industrial, tier: ECONOMY, private_label: true, categories: [INDL-HND, INDL-SAF, INDL-LUB, INDL-ELE]}
+
+name_series: [Pro, Heavy Duty, Industrial, HD, Max, Titan, Prime, Series 5, Series 7, Plus]
+categories:
+  - code: INDL-PWT
+    name: Power Tools
+    return_window_days: 7
+    children:
+      - {code: INDL-PWT-DRL, name: Drills, share: 5, hsn: "84672100", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {MID: [2999, 7999], PREMIUM: [8000, 24999]}, weight_kg: [1.5, 4.0], volume_litres: [4, 12],
+         warranty_months: 12, nouns: [Impact Drill 13mm, Cordless Drill Driver, Rotary Hammer Drill]}
+      - {code: INDL-PWT-GRD, name: Angle Grinders, share: 4, hsn: "84672900", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {MID: [2499, 5999], PREMIUM: [6000, 14999]}, weight_kg: [1.8, 3.5], volume_litres: [4, 9],
+         warranty_months: 12, nouns: [Angle Grinder 100mm, Angle Grinder 180mm]}
+  - code: INDL-HND
+    name: Hand Tools
+    return_window_days: 7
+    children:
+      - {code: INDL-HND-SPN, name: Spanner & Socket Sets, share: 5, hsn: "82041120", gst: {before: 18, after: 18}, uom: SET,
+         mrp: {ECONOMY: [399, 999], MID: [1000, 2999], PREMIUM: [3000, 9999]}, weight_kg: [0.8, 6.0], volume_litres: [1.5, 10],
+         warranty_months: 12, nouns: [Double Open End Spanner Set, Socket Set 24 Pieces, Ring Spanner Set]}
+      - {code: INDL-HND-SCR, name: Screwdrivers & Pliers, share: 4, hsn: "82054000", gst: {before: 18, after: 18}, uom: SET,
+         mrp: {ECONOMY: [199, 599], MID: [600, 1499], PREMIUM: [1500, 3999]}, weight_kg: [0.3, 1.5], volume_litres: [0.8, 3],
+         nouns: [Screwdriver Set 6 Pieces, Combination Plier Set, Insulated Tool Kit]}
+  - code: INDL-SAF
+    name: Safety Equipment
+    return_window_days: 7
+    children:
+      - {code: INDL-SAF-HLM, name: Safety Helmets, share: 4, hsn: "65061010", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [149, 349], MID: [350, 799]}, weight_kg: [0.3, 0.5], volume_litres: [4, 6],
+         nouns: [Industrial Safety Helmet, Ratchet Safety Helmet], colours: [Yellow, White, Blue, Red]}
+      - {code: INDL-SAF-GLV, name: Safety Gloves, share: 4, hsn: "61169200", gst: {before: 12, after: 5}, uom: PAIR, returnable: false,
+         mrp: {ECONOMY: [49, 149], MID: [150, 399]}, weight_kg: [0.05, 0.3], volume_litres: [0.2, 0.8],
+         nouns: [Cotton Knitted Gloves, Cut Resistant Gloves, Leather Welding Gloves]}
+  - code: INDL-FST
+    name: Fasteners & Bearings
+    return_window_days: 7
+    children:
+      - {code: INDL-FST-BLT, name: Bolts & Nuts, share: 5, hsn: "73181500", gst: {before: 18, after: 18}, uom: BOX,
+         mrp: {ECONOMY: [199, 599], PREMIUM: [600, 1999]}, weight_kg: [0.5, 5.0], volume_litres: [0.5, 3],
+         nouns: [Hex Bolt M8 Box of 100, Hex Nut M10 Box of 200, Anchor Fastener Box of 50]}
+      - {code: INDL-FST-BRG, name: Ball Bearings, share: 4, hsn: "84821020", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [99, 499], PREMIUM: [500, 2999]}, weight_kg: [0.05, 1.5], volume_litres: [0.05, 1.0],
+         nouns: [Deep Groove Ball Bearing 6204, Ball Bearing 6305, Pillow Block Bearing]}
+  - code: INDL-ELE
+    name: Electricals
+    return_window_days: 7
+    children:
+      - {code: INDL-ELE-CBL, name: Cables & Wires, share: 5, hsn: "85444999", gst: {before: 18, after: 18}, uom: ROLL,
+         mrp: {ECONOMY: [999, 2499], MID: [2500, 5999], PREMIUM: [6000, 14999]}, weight_kg: [2.0, 12.0], volume_litres: [3, 15],
+         nouns: [FR House Wire 1.5 sq mm 90 m, FR House Wire 2.5 sq mm 90 m, Flexible Cable 4 Core 100 m]}
+      - {code: INDL-ELE-MCB, name: MCBs & Switchgear, share: 4, hsn: "85362030", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [149, 399], MID: [400, 999], PREMIUM: [1000, 4999]}, weight_kg: [0.1, 0.8], volume_litres: [0.2, 1.5],
+         warranty_months: 12, nouns: [MCB Single Pole 16A, MCB Double Pole 32A, RCCB 40A]}
+  - code: INDL-LUB
+    name: Lubricants
+    return_window_days: 7
+    children:
+      - {code: INDL-LUB-OIL, name: Industrial Oils & Greases, share: 4, hsn: "27101980", gst: {before: 18, after: 18}, uom: BTL,
+         mrp: {ECONOMY: [299, 999], MID: [1000, 3999]}, weight_kg: [1.0, 21.0], volume_litres: [1.0, 20.0],
+         shelf_life_days: 1825, nouns: [Hydraulic Oil 68, Gear Oil 90, Multipurpose Grease],
+         variants: [{label: 1 L, price_factor: 1.0}, {label: 5 L, price_factor: 4.5}, {label: 20 L, price_factor: 16.0}]}

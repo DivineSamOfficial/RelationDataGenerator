@@ -1,0 +1,114 @@
+# Industry pack: Office & Stationery (1A §8.3). Format: see electronics.yaml.
+# Institutional B2B (offices, schools, colleges), academic-year (June) and FY-end (March) peaks.
+# Brand names are invented; GST rates are illustrative (D17 pattern: e.g. exercise books and pencils
+# 12% -> 0%), not tax advice.
+
+code: office_stationery
+name: Office & Stationery
+business_unit: {code: OFFC, name: Office & Stationery}
+
+customers:
+  b2b_sales_share: 0.85
+  credit_terms:
+    B2B: {NET30: 0.50, NET45: 0.25, NET15: 0.15, 2_10_NET30: 0.10}
+    B2C: {ADVANCE: 0.75, COD: 0.25}
+  sales_channels:
+    B2B: {FIELD_SALES: 0.45, WEBSITE: 0.25, PHONE: 0.15, WHATSAPP: 0.15}
+    B2C: {WEBSITE: 0.25, MOBILE_APP: 0.15, MARKETPLACE: 0.35, RETAIL_STORE: 0.20, WHATSAPP: 0.05}
+  marketing_channels:
+    B2B: {FIELD_SALES: 0.45, REFERRAL: 0.20, EMAIL: 0.10, DIRECT: 0.15, TRADE_SHOW: 0.10}
+    B2C: {GOOGLE_ADS: 0.20, MARKETPLACE_ADS: 0.20, FACEBOOK: 0.10, INSTAGRAM: 0.10, YOUTUBE: 0.05,
+          ORGANIC_SEARCH: 0.15, EMAIL: 0.05, REFERRAL: 0.05, DIRECT: 0.10}
+marketplace_commission_percent: 12
+
+seasonality: [1.00, 1.00, 1.30, 1.05, 0.90, 1.35, 1.05, 0.90, 0.85, 0.85, 0.85, 0.90]
+events:
+  - {name: Republic Day Office Deals, month: 1, day: 20, days: 7, uplift: 1.10, channels: [EMAIL, GOOGLE_ADS]}
+  - {name: Year End Budget Buy, month: 3, day: 5, days: 25, uplift: 1.25, channels: [EMAIL, GOOGLE_ADS]}
+  - {name: New Financial Year Setup, month: 4, day: 1, days: 14, uplift: 1.10, channels: [EMAIL]}
+  - {name: Back to School, month: 5, day: 25, days: 30, uplift: 1.40, channels: [GOOGLE_ADS, FACEBOOK, MARKETPLACE_ADS]}
+  - {name: College Season, month: 7, day: 10, days: 14, uplift: 1.15, channels: [INSTAGRAM, MARKETPLACE_ADS]}
+  - {name: Stationery Expo, month: 8, day: 20, days: 4, uplift: 1.10, channels: [TRADE_SHOW]}
+  - {name: Festive Gifting Pens, month: 10, day: 20, days: 10, uplift: 1.15, channels: [INSTAGRAM, EMAIL]}
+  - {name: Planner and Diary Week, month: 12, day: 15, days: 14, uplift: 1.20, channels: [INSTAGRAM, MARKETPLACE_ADS]}
+
+returns:
+  b2c_return_rate: 0.03
+  b2b_return_rate: 0.01
+  defective_share: 0.30
+  transit_damage_rate: 0.004
+
+suppliers:
+  hubs: [New Delhi, Mumbai, Ahmedabad, Kolkata, Chennai, Vadodara]
+  name_suffixes: [Stationers, Paper Mills, Office Products, Writing Instruments, Printers]
+  monthly_cost_drift: [0.002, 0.006]
+  lead_time_days: [3, 15]
+
+pricing:
+  list_price_ratio: [0.72, 0.88]
+  gross_margin: [0.15, 0.30]
+
+brands:
+  - {code: LEKHNI, name: Lekhni, tier: MID, categories: [OFFC-WRT]}
+  - {code: KAGAZKRAFT, name: Kagaz Kraft, tier: ECONOMY, categories: [OFFC-PAP]}
+  - {code: PATRIKA, name: Patrika Papers, tier: MID, categories: [OFFC-PAP]}
+  - {code: SWARNALEKH, name: Swarnalekh, tier: PREMIUM, categories: [OFFC-WRT, OFFC-PAP]}
+  - {code: DESKMATE, name: Deskmate, tier: MID, categories: [OFFC-DSK]}
+  - {code: CLIPWISE, name: Clipwise, tier: ECONOMY, categories: [OFFC-DSK, OFFC-WRT]}
+  - {code: GANAK, name: Ganak, tier: MID, categories: [OFFC-DSK]}
+  - {code: INKWAVE, name: Inkwave, tier: MID, categories: [OFFC-PRN]}
+  - {code: CHITRAPRINT, name: Chitra Print Supplies, tier: PREMIUM, categories: [OFFC-PRN]}
+  - {code: KS-OFFICE, name: KS Office, tier: ECONOMY, private_label: true, categories: [OFFC-PAP, OFFC-DSK, OFFC-PRN]}
+
+name_series: [Pro, Smart, Classic, Executive, Student, Eco, Max, Prime, Daily, Elite]
+categories:
+  - code: OFFC-PAP
+    name: Paper Products
+    return_window_days: 7
+    children:
+      - {code: OFFC-PAP-CPY, name: Copier Paper, share: 6, hsn: "48025690", gst: {before: 18, after: 18}, uom: REAM,
+         mrp: {ECONOMY: [249, 349], MID: [350, 449], PREMIUM: [450, 599]}, weight_kg: [2.3, 2.6], volume_litres: [2.8, 3.2],
+         nouns: [A4 Copier Paper 70 GSM, A4 Copier Paper 75 GSM, A4 Premium Paper 80 GSM]}
+      - {code: OFFC-PAP-NBK, name: Notebooks & Exercise Books, share: 6, hsn: "48202000", gst: {before: 12, after: 0}, uom: PCS,
+         mrp: {ECONOMY: [30, 79], MID: [80, 179], PREMIUM: [180, 499]}, weight_kg: [0.15, 0.6], volume_litres: [0.4, 1.2],
+         nouns: [Single Line Notebook, Spiral Notebook, Long Notebook 172 Pages],
+         seasonality: [0.8, 0.8, 0.9, 1.1, 1.6, 2.0, 1.3, 0.8, 0.7, 0.7, 0.6, 0.7]}
+      - {code: OFFC-PAP-STN, name: Sticky Notes & Diaries, share: 3, hsn: "48201090", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [49, 149], MID: [150, 399], PREMIUM: [400, 1299]}, weight_kg: [0.05, 0.7], volume_litres: [0.1, 1.5],
+         nouns: [Sticky Notes Pad, Executive Diary, Undated Planner]}
+  - code: OFFC-WRT
+    name: Writing Instruments
+    return_window_days: 7
+    children:
+      - {code: OFFC-WRT-PEN, name: Pens, share: 6, hsn: "96081019", gst: {before: 18, after: 18}, uom: BOX,
+         mrp: {ECONOMY: [50, 149], MID: [150, 499], PREMIUM: [500, 2999]}, weight_kg: [0.05, 0.3], volume_litres: [0.1, 0.5],
+         nouns: [Ball Pen Box of 10, Gel Pen Box of 5, Fountain Pen Gift Box]}
+      - {code: OFFC-WRT-PNC, name: Pencils & Erasers, share: 4, hsn: "96091000", gst: {before: 12, after: 0}, uom: BOX,
+         mrp: {ECONOMY: [30, 79], MID: [80, 149], PREMIUM: [150, 399]}, weight_kg: [0.05, 0.2], volume_litres: [0.1, 0.4],
+         nouns: [HB Pencil Box of 10, Drawing Pencil Set, Pencil and Eraser Kit]}
+      - {code: OFFC-WRT-MRK, name: Markers & Highlighters, share: 4, hsn: "96082000", gst: {before: 18, after: 18}, uom: PKT,
+         mrp: {ECONOMY: [49, 149], MID: [150, 349], PREMIUM: [350, 899]}, weight_kg: [0.05, 0.3], volume_litres: [0.1, 0.5],
+         nouns: [Whiteboard Marker Pack of 4, Permanent Marker Pack of 2, Highlighter Pack of 5]}
+  - code: OFFC-DSK
+    name: Desk Supplies
+    return_window_days: 7
+    children:
+      - {code: OFFC-DSK-STP, name: Staplers & Punches, share: 4, hsn: "84729010", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [79, 199], MID: [200, 499], PREMIUM: [500, 1499]}, weight_kg: [0.1, 0.8], volume_litres: [0.2, 1.2],
+         warranty_months: 12, nouns: [Stapler No 10, Heavy Duty Stapler, Two Hole Punch]}
+      - {code: OFFC-DSK-FIL, name: Files & Folders, share: 5, hsn: "39261019", gst: {before: 18, after: 18}, uom: PKT,
+         mrp: {ECONOMY: [49, 149], MID: [150, 349], PREMIUM: [350, 799]}, weight_kg: [0.1, 1.0], volume_litres: [0.5, 3.0],
+         nouns: [Clear Bag Folder Pack of 10, Box File, Expanding File 12 Pockets]}
+      - {code: OFFC-DSK-CAL, name: Calculators, share: 3, hsn: "84701000", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [149, 399], MID: [400, 999], PREMIUM: [1000, 2499]}, weight_kg: [0.08, 0.3], volume_litres: [0.2, 0.6],
+         warranty_months: 12, nouns: [Basic Calculator 12 Digit, Scientific Calculator, Desktop Calculator]}
+  - code: OFFC-PRN
+    name: Printing Supplies
+    return_window_days: 7
+    children:
+      - {code: OFFC-PRN-TON, name: Toner & Ink Cartridges, share: 5, hsn: "84439959", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [499, 1499], MID: [1500, 3499], PREMIUM: [3500, 8999]}, weight_kg: [0.1, 1.2], volume_litres: [0.3, 3],
+         warranty_months: 6, nouns: [Compatible Toner Cartridge, Ink Cartridge Black, Ink Bottle Set of 4]}
+      - {code: OFFC-PRN-LBL, name: Labels & Billing Rolls, share: 3, hsn: "48219010", gst: {before: 18, after: 18}, uom: ROLL,
+         mrp: {ECONOMY: [49, 149], MID: [150, 349], PREMIUM: [350, 799]}, weight_kg: [0.1, 0.6], volume_litres: [0.2, 1.0],
+         nouns: [Thermal Billing Roll 79mm, Barcode Label Roll, Shipping Label Roll]}

@@ -1,0 +1,133 @@
+# Industry pack: Fashion & Apparel (1A §8.3). Format: see electronics.yaml.
+# Size and colour variants (one style, many SKUs), high return rates, seasonal collections and
+# end-of-season sales. Brand names are invented.
+#
+# GST simplification: real apparel and footwear GST depends on the price (after 22 Sep 2025: 5% up
+# to Rs 2,500 per piece, 18% above). The schema keeps one rate per HSN code (V-MD-19), so every
+# category here keeps its MRP band inside one slab: garments and shoes up to Rs 2,499 go 12% -> 5%.
+# Rates are illustrative, not tax advice.
+
+code: fashion
+name: Fashion & Apparel
+business_unit: {code: FASH, name: Fashion & Apparel}
+
+customers:
+  b2b_sales_share: 0.30                # multi-brand outlets and boutiques; the rest is consumer
+  credit_terms:
+    B2B: {NET30: 0.40, NET45: 0.30, NET60: 0.15, NET15: 0.15}
+    B2C: {ADVANCE: 0.70, COD: 0.30}
+  sales_channels:
+    B2B: {FIELD_SALES: 0.50, WHATSAPP: 0.20, PHONE: 0.10, WEBSITE: 0.20}
+    B2C: {MOBILE_APP: 0.30, WEBSITE: 0.20, MARKETPLACE: 0.30, RETAIL_STORE: 0.15, WHATSAPP: 0.05}
+  marketing_channels:
+    B2B: {FIELD_SALES: 0.40, TRADE_SHOW: 0.30, REFERRAL: 0.15, DIRECT: 0.15}
+    B2C: {INSTAGRAM: 0.30, FACEBOOK: 0.12, YOUTUBE: 0.08, GOOGLE_ADS: 0.10, MARKETPLACE_ADS: 0.12,
+          ORGANIC_SEARCH: 0.08, EMAIL: 0.06, REFERRAL: 0.06, DIRECT: 0.08}
+marketplace_commission_percent: 20
+
+seasonality: [1.15, 0.85, 0.95, 1.00, 0.95, 0.85, 1.10, 0.85, 0.90, 1.30, 1.25, 0.85]
+events:
+  - {name: Winter End of Season Sale, month: 1, day: 5, days: 21, uplift: 1.50, channels: [INSTAGRAM, MARKETPLACE_ADS, EMAIL]}
+  - {name: Spring Summer Launch, month: 3, day: 10, days: 14, uplift: 1.15, channels: [INSTAGRAM, YOUTUBE]}
+  - {name: Summer End of Season Sale, month: 7, day: 1, days: 21, uplift: 1.50, channels: [INSTAGRAM, MARKETPLACE_ADS, EMAIL]}
+  - {name: Independence Day Ethnic Edit, month: 8, day: 10, days: 7, uplift: 1.15, channels: [FACEBOOK, INSTAGRAM]}
+  - {name: Big Festive Sale, month: 9, day: 25, days: 14, uplift: 1.60, channels: [MARKETPLACE_ADS, INSTAGRAM]}
+  - {name: Diwali Ethnic Festival, month: 10, day: 18, days: 14, uplift: 1.50, channels: [INSTAGRAM, YOUTUBE, FACEBOOK]}
+  - {name: Wedding Wardrobe, month: 11, day: 20, days: 30, uplift: 1.20, channels: [INSTAGRAM, EMAIL]}
+  - {name: Apparel Trade Fair, month: 6, day: 10, days: 4, uplift: 1.10, channels: [TRADE_SHOW]}
+
+returns:
+  b2c_return_rate: 0.20                # size and fit returns are very common online
+  b2b_return_rate: 0.04
+  defective_share: 0.15                # most returns are resaleable
+  transit_damage_rate: 0.002
+
+suppliers:
+  hubs: [Tiruppur, Ludhiana, Surat, Jaipur, Bengaluru, Kolkata, Agra]
+  name_suffixes: [Textiles, Garments, Fashions, Knitwear, Exports, Footwear]
+  monthly_cost_drift: [0.002, 0.006]
+  lead_time_days: [7, 30]
+
+pricing:
+  list_price_ratio: [0.60, 0.80]       # wide retail margins in apparel
+  gross_margin: [0.30, 0.50]
+
+brands:
+  - {code: KESARIYA, name: Kesariya, tier: MID, categories: [FASH-WMN, FASH-MEN]}
+  - {code: URBANTANTRA, name: Urban Tantra, tier: MID, categories: [FASH-MEN, FASH-WMN, FASH-ACC]}
+  - {code: SUTRADHAR, name: Sutradhar Handloom, tier: PREMIUM, categories: [FASH-WMN, FASH-MEN]}
+  - {code: INDIGOLOOM, name: Indigo Loom, tier: ECONOMY, categories: [FASH-MEN, FASH-KID]}
+  - {code: NEELGIRI, name: Neelgiri Knits, tier: ECONOMY, categories: [FASH-KID, FASH-MEN, FASH-WMN]}
+  - {code: CHHAYA, name: Chhaya Couture, tier: PREMIUM, categories: [FASH-WMN, FASH-ACC]}
+  - {code: TRAILSTEP, name: Trailstep, tier: MID, categories: [FASH-FTW]}
+  - {code: KADAM, name: Kadam Footwear, tier: ECONOMY, categories: [FASH-FTW]}
+  - {code: STREETBAY, name: Streetbay, tier: MID, categories: [FASH-MEN, FASH-FTW, FASH-ACC]}
+  - {code: TOTAPARI, name: Tota Pari Kids, tier: MID, categories: [FASH-KID]}
+  - {code: KS-FASHN, name: KS Basics, tier: ECONOMY, private_label: true, categories: [FASH-MEN, FASH-WMN, FASH-KID]}
+
+name_series: [Classic, Slim Fit, Regular Fit, Festive, Everyday, Signature, Breeze, Heritage, Street, Comfort]
+categories:
+  - code: FASH-MEN
+    name: Menswear
+    return_window_days: 15
+    children:
+      - {code: FASH-MEN-SHT, name: Shirts, share: 7, hsn: "62052000", gst: {before: 12, after: 5}, uom: PCS,
+         mrp: {ECONOMY: [499, 999], MID: [1000, 1799], PREMIUM: [1800, 2499]}, weight_kg: [0.2, 0.4], volume_litres: [1.5, 3],
+         nouns: [Cotton Formal Shirt, Linen Casual Shirt, Checked Shirt], colours: [White, Sky Blue, Navy, Olive],
+         variants: [{label: S, price_factor: 1.0}, {label: M, price_factor: 1.0}, {label: L, price_factor: 1.0}, {label: XL, price_factor: 1.0}]}
+      - {code: FASH-MEN-TEE, name: T-shirts, share: 6, hsn: "61091000", gst: {before: 5, after: 5}, uom: PCS,
+         mrp: {ECONOMY: [249, 499], MID: [500, 799], PREMIUM: [800, 999]}, weight_kg: [0.15, 0.3], volume_litres: [1, 2],
+         nouns: [Round Neck T-shirt, Polo T-shirt, Graphic T-shirt], colours: [Black, White, Maroon, Grey],
+         variants: [{label: S, price_factor: 1.0}, {label: M, price_factor: 1.0}, {label: L, price_factor: 1.0}, {label: XL, price_factor: 1.0}]}
+      - {code: FASH-MEN-JNS, name: Jeans & Trousers, share: 5, hsn: "62034200", gst: {before: 12, after: 5}, uom: PCS,
+         mrp: {ECONOMY: [699, 1199], MID: [1200, 1899], PREMIUM: [1900, 2499]}, weight_kg: [0.4, 0.8], volume_litres: [2, 4],
+         nouns: [Slim Fit Jeans, Chinos, Formal Trousers], colours: [Indigo, Black, Khaki],
+         variants: [{label: "30", price_factor: 1.0}, {label: "32", price_factor: 1.0}, {label: "34", price_factor: 1.0}, {label: "36", price_factor: 1.0}]}
+  - code: FASH-WMN
+    name: Womenswear
+    return_window_days: 15
+    children:
+      - {code: FASH-WMN-KUR, name: Kurtas & Kurtis, share: 7, hsn: "62114290", gst: {before: 12, after: 5}, uom: PCS,
+         mrp: {ECONOMY: [499, 999], MID: [1000, 1799], PREMIUM: [1800, 2499]}, weight_kg: [0.2, 0.5], volume_litres: [1.5, 3],
+         nouns: [Printed Cotton Kurti, Anarkali Kurta, Straight Kurta], colours: [Peach, Indigo, Mustard, Rani Pink],
+         variants: [{label: S, price_factor: 1.0}, {label: M, price_factor: 1.0}, {label: L, price_factor: 1.0}, {label: XL, price_factor: 1.0}]}
+      - {code: FASH-WMN-SAR, name: Sarees, share: 5, hsn: "54075290", gst: {before: 5, after: 5}, uom: PCS,
+         mrp: {ECONOMY: [599, 1199], MID: [1200, 1999], PREMIUM: [2000, 2499]}, weight_kg: [0.4, 0.9], volume_litres: [1.5, 4],
+         nouns: [Georgette Saree, Printed Crepe Saree, Chiffon Saree], colours: [Red, Royal Blue, Emerald, Magenta]}
+      - {code: FASH-WMN-TOP, name: Tops & Dresses, share: 5, hsn: "61061000", gst: {before: 12, after: 5}, uom: PCS,
+         mrp: {ECONOMY: [399, 899], MID: [900, 1699], PREMIUM: [1700, 2499]}, weight_kg: [0.15, 0.4], volume_litres: [1, 2.5],
+         nouns: [Casual Top, Midi Dress, Peplum Top], colours: [Black, White, Lavender, Coral],
+         variants: [{label: S, price_factor: 1.0}, {label: M, price_factor: 1.0}, {label: L, price_factor: 1.0}]}
+  - code: FASH-KID
+    name: Kidswear
+    return_window_days: 15
+    children:
+      - {code: FASH-KID-TEE, name: Kids T-shirts & Sets, share: 5, hsn: "61112000", gst: {before: 5, after: 5}, uom: SET,
+         mrp: {ECONOMY: [199, 499], MID: [500, 799], PREMIUM: [800, 999]}, weight_kg: [0.1, 0.3], volume_litres: [0.8, 2],
+         nouns: [Kids T-shirt and Shorts Set, Kids Night Suit, Kids Hooded T-shirt], colours: [Yellow, Sky Blue, Red],
+         variants: [{label: 2-3 Y, price_factor: 1.0}, {label: 4-5 Y, price_factor: 1.0}, {label: 6-7 Y, price_factor: 1.05}, {label: 8-9 Y, price_factor: 1.1}]}
+      - {code: FASH-KID-SCK, name: Socks & Innerwear, share: 3, hsn: "61159500", gst: {before: 5, after: 5}, uom: PKT, returnable: false,
+         mrp: {ECONOMY: [149, 299], MID: [300, 499], PREMIUM: [500, 799]}, weight_kg: [0.05, 0.2], volume_litres: [0.3, 1],
+         nouns: [Cotton Socks Pack of 3, Ankle Socks Pack of 5, Vest Pack of 2]}
+  - code: FASH-FTW
+    name: Footwear
+    return_window_days: 15
+    children:
+      - {code: FASH-FTW-SPT, name: Sports Shoes, share: 5, hsn: "64041190", gst: {before: 12, after: 5}, uom: PAIR,
+         mrp: {ECONOMY: [699, 1299], MID: [1300, 1999], PREMIUM: [2000, 2499]}, weight_kg: [0.5, 1.0], volume_litres: [5, 9],
+         nouns: [Running Shoes, Training Shoes, Walking Shoes], colours: [Black, White, Navy],
+         variants: [{label: UK 6, price_factor: 1.0}, {label: UK 7, price_factor: 1.0}, {label: UK 8, price_factor: 1.0}, {label: UK 9, price_factor: 1.0}, {label: UK 10, price_factor: 1.0}]}
+      - {code: FASH-FTW-SND, name: Sandals & Slippers, share: 4, hsn: "64029990", gst: {before: 12, after: 5}, uom: PAIR,
+         mrp: {ECONOMY: [199, 599], MID: [600, 1199], PREMIUM: [1200, 2499]}, weight_kg: [0.25, 0.7], volume_litres: [2, 6],
+         nouns: [Kolhapuri Sandals, Flip Flops, Casual Sandals], colours: [Tan, Black, Brown],
+         variants: [{label: UK 6, price_factor: 1.0}, {label: UK 7, price_factor: 1.0}, {label: UK 8, price_factor: 1.0}, {label: UK 9, price_factor: 1.0}]}
+  - code: FASH-ACC
+    name: Accessories
+    return_window_days: 15
+    children:
+      - {code: FASH-ACC-BAG, name: Handbags & Backpacks, share: 4, hsn: "42022290", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [499, 1199], MID: [1200, 2999], PREMIUM: [3000, 8999]}, weight_kg: [0.3, 1.2], volume_litres: [5, 25],
+         nouns: [Tote Bag, Sling Bag, Laptop Backpack], colours: [Black, Tan, Maroon]}
+      - {code: FASH-ACC-BLT, name: Belts & Wallets, share: 3, hsn: "42033000", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [249, 599], MID: [600, 1499], PREMIUM: [1500, 3999]}, weight_kg: [0.08, 0.3], volume_litres: [0.3, 1.5],
+         nouns: [Leather Belt, Bifold Wallet, Card Holder], colours: [Black, Brown]}

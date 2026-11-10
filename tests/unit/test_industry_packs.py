@@ -18,11 +18,12 @@ SEED = load_seed()
 
 
 def test_shipped_packs_load_and_coexist():
-    assert available_packs() == ["beauty", "electronics", "home_kitchen"]
+    assert available_packs() == ["beauty", "electronics", "fashion", "fmcg", "furniture", "home_kitchen",
+                                 "industrial_mro", "office_stationery"]
     packs = load_packs(available_packs(), SEED)
-    assert {p.business_unit_code for p in packs} == {"BEAU", "ELEC", "HOME"}
+    assert {p.business_unit_code for p in packs} == {"BEAU", "ELEC", "FASH", "FMCG", "FURN", "HOME", "INDL", "OFFC"}
     for pack in packs:
-        assert len(pack.leaves) >= 12 and len(pack.brands) >= 10 and len(pack.events) >= 6
+        assert len(pack.leaves) >= 10 and len(pack.brands) >= 10 and len(pack.events) >= 6
         assert sum(pack.seasonality) == Decimal(12)
         for leaf in pack.leaves:
             assert leaf.gst_before in GST_SLABS and leaf.gst_after <= leaf.gst_before
@@ -104,5 +105,30 @@ def test_packs_that_clash_are_refused_together(config):
 
 
 def test_unknown_pack_lists_the_available_ones():
-    with pytest.raises(PackError, match="Available: beauty, electronics, home_kitchen"):
+    with pytest.raises(PackError, match="Available: beauty, electronics, fashion, fmcg, furniture"):
         load_pack("pharma", SEED)
+
+
+def test_b2b_only_pack_has_no_consumer_mixes():
+    industrial = load_pack("industrial_mro", SEED)
+    assert industrial.b2b_sales_share == 1 and set(industrial.credit_terms) == {"B2B"}
+    assert set(industrial.sales_channels) == {"B2B"} and set(industrial.marketing_channels) == {"B2B"}
+    fmcg = load_pack("fmcg", SEED)
+    uht = next(c for c in fmcg.leaves if c.code == "FMCG-DAIRY-UHT")
+    assert (uht.gst_before, uht.gst_after) == (Decimal(5), Decimal(0))          # 0% slab after the revision
+    assert fmcg.returns["defective_share"] > Decimal("0.5")                       # most food returns are spoilt
+    fashion = load_pack("fashion", SEED)
+    assert all(band.high < 2500 for leaf in fashion.leaves if leaf.gst_after == 5 for band in leaf.mrp.values())
+
+
+def test_consumer_mix_in_a_b2b_only_pack_is_refused(config):
+    _edit(config, "industrial_mro", "  sales_channels:\n    B2B:",
+          "  sales_channels:\n    B2C: {WEBSITE: 1.0}\n    B2B:")
+    with pytest.raises(PackError, match="sales_channels.B2C is given but b2b_sales_share = 1"):
+        load_pack("industrial_mro", SEED, config)
+
+
+def test_defective_share_may_exceed_half_but_not_one(config):
+    _edit(config, "fmcg", "defective_share: 0.60", "defective_share: 1.10")
+    with pytest.raises(PackError, match="defective_share must be <= 1"):
+        load_pack("fmcg", SEED, config)

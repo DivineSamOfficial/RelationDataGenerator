@@ -284,9 +284,10 @@ def generate_packs(
         _fail(exc, "generate.packs.error")
     typer.echo(f"Seed data OK: {len(seed.states)} states, {len(seed.cities)} cities, {len(seed.accounts)} accounts, "
                f"{len(seed.expense_categories)} expense categories")
-    typer.echo(f"{'PACK':<14}{'BUSINESS UNIT':<26}{'CATEGORIES':>11}{'PRODUCT TYPES':>15}{'BRANDS':>8}{'EVENTS':>8}{'B2B SALES':>11}")
+    width = max(len(p.code) for p in packs) + 2
+    typer.echo(f"{'PACK':<{width}}{'BUSINESS UNIT':<30}{'CATEGORIES':>11}{'PRODUCT TYPES':>15}{'BRANDS':>8}{'EVENTS':>8}{'B2B SALES':>11}")
     for pack in packs:
-        typer.echo(f"{pack.code:<14}{pack.business_unit_code + ' ' + pack.business_unit_name:<26}"
+        typer.echo(f"{pack.code:<{width}}{pack.business_unit_code + ' ' + pack.business_unit_name:<30}"
                    f"{len(pack.categories):>11}{len(pack.leaves):>15}{len(pack.brands):>8}{len(pack.events):>8}"
                    f"{pack.b2b_sales_share:>10.0%}")
     typer.secho("Packs OK.", fg=typer.colors.GREEN)

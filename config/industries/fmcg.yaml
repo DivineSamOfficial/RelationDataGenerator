@@ -1,0 +1,139 @@
+# Industry pack: Packaged Food & FMCG (1A §8.3). Format: see electronics.yaml.
+# Low-value, high-frequency, distributor-heavy B2B; short shelf lives (batch-tracked); 0-18% slabs.
+# Food is not returnable once delivered (perishable). Brand names are invented; GST rates are
+# illustrative (D17 pattern: e.g. biscuits 18% -> 5%, UHT milk 5% -> 0%), not tax advice.
+
+code: fmcg
+name: Packaged Food & FMCG
+business_unit: {code: FMCG, name: Packaged Food & FMCG}
+
+customers:
+  b2b_sales_share: 0.85                # kirana stores, distributors, institutional buyers
+  credit_terms:
+    B2B: {NET15: 0.50, NET30: 0.30, IMMEDIATE: 0.20}
+    B2C: {ADVANCE: 0.65, COD: 0.35}
+  sales_channels:
+    B2B: {FIELD_SALES: 0.55, WHATSAPP: 0.25, PHONE: 0.15, WEBSITE: 0.05}
+    B2C: {MOBILE_APP: 0.35, WEBSITE: 0.15, MARKETPLACE: 0.20, RETAIL_STORE: 0.25, WHATSAPP: 0.05}
+  marketing_channels:
+    B2B: {FIELD_SALES: 0.55, REFERRAL: 0.20, TRADE_SHOW: 0.10, DIRECT: 0.15}
+    B2C: {INSTAGRAM: 0.12, FACEBOOK: 0.15, YOUTUBE: 0.12, GOOGLE_ADS: 0.10, MARKETPLACE_ADS: 0.10,
+          ORGANIC_SEARCH: 0.08, EMAIL: 0.08, REFERRAL: 0.10, DIRECT: 0.15}
+marketplace_commission_percent: 10
+
+seasonality: [1.00, 0.95, 1.00, 1.05, 1.05, 0.95, 0.95, 0.95, 1.00, 1.10, 1.05, 0.95]   # steady demand
+events:
+  - {name: Republic Day Grocery Deals, month: 1, day: 22, days: 5, uplift: 1.15, channels: [MARKETPLACE_ADS, FACEBOOK]}
+  - {name: Summer Coolers, month: 4, day: 10, days: 30, uplift: 1.10, channels: [YOUTUBE, INSTAGRAM]}
+  - {name: Monsoon Snack Fest, month: 7, day: 5, days: 21, uplift: 1.10, channels: [INSTAGRAM, FACEBOOK]}
+  - {name: Raksha Bandhan Sweets, month: 8, day: 1, days: 10, uplift: 1.15, channels: [FACEBOOK, EMAIL]}
+  - {name: Navratri Pantry Sale, month: 9, day: 28, days: 10, uplift: 1.20, channels: [MARKETPLACE_ADS, GOOGLE_ADS]}
+  - {name: Diwali Gift Hampers, month: 10, day: 20, days: 14, uplift: 1.30, channels: [INSTAGRAM, EMAIL]}
+  - {name: Distributor Scheme Launch, month: 4, day: 1, days: 5, uplift: 1.10, channels: [TRADE_SHOW]}
+  - {name: Year End Stock Up, month: 12, day: 20, days: 10, uplift: 1.10, channels: [EMAIL, GOOGLE_ADS]}
+
+returns:
+  b2c_return_rate: 0.01
+  b2b_return_rate: 0.01                # near-expiry and damaged-carton returns from shops
+  defective_share: 0.60
+  transit_damage_rate: 0.005
+
+suppliers:
+  hubs: [Indore, Ahmedabad, Kolkata, Ludhiana, Hyderabad, Nagpur, Coimbatore]
+  name_suffixes: [Foods, Agro Products, Consumer Products, Dairy, Industries, Beverages]
+  monthly_cost_drift: [0.003, 0.009]
+  lead_time_days: [2, 10]
+
+pricing:
+  list_price_ratio: [0.80, 0.90]
+  gross_margin: [0.08, 0.18]           # thin margins, high volume
+
+brands:
+  - {code: DHANYA, name: Dhanya Harvest, tier: MID, categories: [FMCG-STPL, FMCG-SNCK]}
+  - {code: KHETIFRESH, name: Kheti Fresh, tier: ECONOMY, categories: [FMCG-STPL, FMCG-DAIRY]}
+  - {code: SWADKOSH, name: Swadkosh, tier: MID, categories: [FMCG-SNCK, FMCG-BEV]}
+  - {code: CRUNCHWALA, name: Crunchwala, tier: ECONOMY, categories: [FMCG-SNCK]}
+  - {code: MALAIMAHAL, name: Malai Mahal Dairy, tier: PREMIUM, categories: [FMCG-DAIRY, FMCG-SNCK]}
+  - {code: CHAIPATTI, name: Chaipatti & Co, tier: MID, categories: [FMCG-BEV]}
+  - {code: BEANSMITH, name: Beansmith, tier: PREMIUM, categories: [FMCG-BEV, FMCG-SNCK]}
+  - {code: UJJWAL, name: Ujjwal Home Care, tier: MID, categories: [FMCG-HOME]}
+  - {code: SHUBHRA, name: Shubhra, tier: ECONOMY, categories: [FMCG-HOME]}
+  - {code: KS-DAILY, name: KS Daily, tier: ECONOMY, private_label: true, categories: [FMCG-STPL, FMCG-SNCK, FMCG-HOME]}
+
+name_series: [Gold, Classic, Select, Everyday, Premium, Farm, Royal, Value, Pure, Special]
+categories:
+  - code: FMCG-STPL
+    name: Staples
+    return_window_days: 0
+    children:
+      - {code: FMCG-STPL-ATA, name: Atta & Flours, share: 6, hsn: "11010000", gst: {before: 5, after: 5}, uom: PKT, returnable: false,
+         mrp: {ECONOMY: [49, 299], MID: [60, 349], PREMIUM: [80, 449]}, weight_kg: [1.0, 10.2], volume_litres: [1.5, 14],
+         shelf_life_days: 180, nouns: [Whole Wheat Atta, Multigrain Atta, Besan],
+         variants: [{label: 1 kg, price_factor: 1.0}, {label: 5 kg, price_factor: 4.6}, {label: 10 kg, price_factor: 8.9}]}
+      - {code: FMCG-STPL-RIC, name: Rice, share: 5, hsn: "10063020", gst: {before: 5, after: 5}, uom: PKT, returnable: false,
+         mrp: {ECONOMY: [60, 99], MID: [100, 179], PREMIUM: [180, 349]}, weight_kg: [1.0, 5.1], volume_litres: [1.3, 7],
+         shelf_life_days: 365, nouns: [Basmati Rice, Sona Masoori Rice, Kolam Rice],
+         variants: [{label: 1 kg, price_factor: 1.0}, {label: 5 kg, price_factor: 4.7}]}
+      - {code: FMCG-STPL-DAL, name: Pulses, share: 5, hsn: "07136000", gst: {before: 5, after: 5}, uom: PKT, returnable: false,
+         mrp: {ECONOMY: [99, 159], MID: [160, 219], PREMIUM: [220, 299]}, weight_kg: [0.5, 1.05], volume_litres: [0.6, 1.3],
+         shelf_life_days: 365, nouns: [Toor Dal, Moong Dal, Chana Dal, Masoor Dal]}
+      - {code: FMCG-STPL-OIL, name: Edible Oils, share: 5, hsn: "15121910", gst: {before: 5, after: 5}, uom: BTL, returnable: false,
+         mrp: {ECONOMY: [120, 699], MID: [150, 899], PREMIUM: [200, 1199]}, weight_kg: [1.0, 5.2], volume_litres: [1.0, 5.5],
+         shelf_life_days: 270, nouns: [Sunflower Oil, Groundnut Oil, Mustard Oil],
+         variants: [{label: 1 L, price_factor: 1.0}, {label: 5 L, price_factor: 4.7}]}
+  - code: FMCG-SNCK
+    name: Snacks & Confectionery
+    return_window_days: 0
+    children:
+      - {code: FMCG-SNCK-BIS, name: Biscuits & Cookies, share: 7, hsn: "19053100", gst: {before: 18, after: 5}, uom: PKT, returnable: false,
+         mrp: {ECONOMY: [10, 49], MID: [30, 99], PREMIUM: [80, 249]}, weight_kg: [0.08, 0.6], volume_litres: [0.15, 1.2],
+         shelf_life_days: 180, nouns: [Butter Cookies, Cream Biscuits, Digestive Biscuits, Glucose Biscuits]}
+      - {code: FMCG-SNCK-NAM, name: Namkeen, share: 6, hsn: "21069099", gst: {before: 12, after: 5}, uom: PKT, returnable: false,
+         mrp: {ECONOMY: [10, 59], MID: [40, 129], PREMIUM: [100, 299]}, weight_kg: [0.04, 1.0], volume_litres: [0.2, 3.0],
+         shelf_life_days: 120, nouns: [Aloo Bhujia, Moong Dal Namkeen, Khatta Meetha Mix, Masala Peanuts]}
+      - {code: FMCG-SNCK-CHO, name: Chocolates, share: 4, hsn: "18063200", gst: {before: 18, after: 5}, uom: PCS, returnable: false,
+         mrp: {ECONOMY: [10, 49], MID: [40, 149], PREMIUM: [120, 599]}, weight_kg: [0.02, 0.4], volume_litres: [0.03, 0.6],
+         shelf_life_days: 270, nouns: [Milk Chocolate Bar, Dark Chocolate 70%, Assorted Chocolate Box]}
+      - {code: FMCG-SNCK-NOD, name: Instant Noodles & Pasta, share: 4, hsn: "19023010", gst: {before: 12, after: 5}, uom: PKT, returnable: false,
+         mrp: {ECONOMY: [12, 59], MID: [40, 119], PREMIUM: [90, 249]}, weight_kg: [0.07, 0.6], volume_litres: [0.2, 1.5],
+         shelf_life_days: 270, nouns: [Masala Instant Noodles, Atta Noodles, Penne Pasta]}
+  - code: FMCG-BEV
+    name: Beverages
+    return_window_days: 0
+    children:
+      - {code: FMCG-BEV-TEA, name: Tea, share: 5, hsn: "09024020", gst: {before: 5, after: 5}, uom: PKT, returnable: false,
+         mrp: {ECONOMY: [99, 249], MID: [180, 449], PREMIUM: [350, 999]}, weight_kg: [0.25, 1.05], volume_litres: [0.5, 2.0],
+         shelf_life_days: 540, nouns: [Assam CTC Tea, Masala Chai Blend, Green Tea],
+         variants: [{label: 250 g, price_factor: 1.0}, {label: 500 g, price_factor: 1.9}, {label: 1 kg, price_factor: 3.6}]}
+      - {code: FMCG-BEV-COF, name: Coffee, share: 4, hsn: "21011120", gst: {before: 18, after: 5}, uom: PCS, returnable: false,
+         mrp: {ECONOMY: [99, 249], MID: [200, 499], PREMIUM: [400, 1199]}, weight_kg: [0.05, 0.25], volume_litres: [0.1, 0.4],
+         shelf_life_days: 540, nouns: [Instant Coffee Jar, Filter Coffee Powder, Coffee Chicory Blend]}
+      - {code: FMCG-BEV-JUI, name: Fruit Juices, share: 4, hsn: "20098990", gst: {before: 12, after: 5}, uom: BTL, returnable: false,
+         mrp: {ECONOMY: [20, 99], MID: [30, 149], PREMIUM: [60, 249]}, weight_kg: [0.2, 1.1], volume_litres: [0.2, 1.0],
+         shelf_life_days: 180, nouns: [Mixed Fruit Juice, Mango Drink, Orange Juice],
+         seasonality: [0.7, 0.8, 1.1, 1.4, 1.6, 1.3, 1.0, 0.9, 0.9, 0.8, 0.7, 0.8]}
+  - code: FMCG-DAIRY
+    name: Dairy
+    return_window_days: 0
+    children:
+      - {code: FMCG-DAIRY-GHE, name: Ghee & Butter, share: 4, hsn: "04059020", gst: {before: 12, after: 5}, uom: PCS, returnable: false,
+         mrp: {ECONOMY: [120, 649], MID: [150, 749], PREMIUM: [200, 999]}, weight_kg: [0.2, 1.05], volume_litres: [0.2, 1.1],
+         shelf_life_days: 270, nouns: [Pure Cow Ghee, Table Butter, Desi Ghee],
+         variants: [{label: 200 g, price_factor: 1.0}, {label: 500 g, price_factor: 2.4}, {label: 1 kg, price_factor: 4.6}]}
+      - {code: FMCG-DAIRY-UHT, name: UHT Milk, share: 3, hsn: "04012000", gst: {before: 5, after: 0}, uom: PCS, returnable: false,
+         mrp: {ECONOMY: [60, 74], MID: [70, 84], PREMIUM: [80, 109]}, weight_kg: [1.0, 1.05], volume_litres: [1.0, 1.05],
+         shelf_life_days: 120, nouns: [Toned Milk 1 L Carton, Full Cream Milk 1 L Carton]}
+  - code: FMCG-HOME
+    name: Home Care
+    return_window_days: 7
+    children:
+      - {code: FMCG-HOME-DET, name: Detergents, share: 5, hsn: "34022010", gst: {before: 18, after: 18}, uom: PKT,
+         mrp: {ECONOMY: [49, 299], MID: [99, 449], PREMIUM: [199, 799]}, weight_kg: [0.5, 4.1], volume_litres: [0.6, 5],
+         shelf_life_days: 730, nouns: [Detergent Powder, Liquid Detergent, Matic Front Load Detergent],
+         variants: [{label: 1 kg, price_factor: 1.0}, {label: 2 kg, price_factor: 1.9}, {label: 4 kg, price_factor: 3.6}]}
+      - {code: FMCG-HOME-DSH, name: Dishwash, share: 3, hsn: "34022090", gst: {before: 18, after: 18}, uom: PCS,
+         mrp: {ECONOMY: [10, 99], MID: [40, 199], PREMIUM: [99, 349]}, weight_kg: [0.1, 1.0], volume_litres: [0.15, 1.0],
+         shelf_life_days: 730, nouns: [Dishwash Bar, Dishwash Gel, Lemon Dishwash Liquid]}
+      - {code: FMCG-HOME-FLR, name: Floor & Surface Cleaners, share: 3, hsn: "34029099", gst: {before: 18, after: 18}, uom: BTL,
+         mrp: {ECONOMY: [79, 199], MID: [120, 299], PREMIUM: [200, 499]}, weight_kg: [0.5, 2.1], volume_litres: [0.5, 2.0],
+         shelf_life_days: 730, nouns: [Floor Cleaner Pine, Disinfectant Floor Cleaner, Glass Cleaner Spray]}
