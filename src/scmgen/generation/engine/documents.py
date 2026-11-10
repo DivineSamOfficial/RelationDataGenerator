@@ -69,8 +69,7 @@ def totals(lines: list[dict[str, Any]], inter_state: bool) -> dict[str, Decimal]
             "round_off_amount": result.round_off_amount, "total_amount": result.total_amount}
 
 
-def approver(day: DayContext, amount: Decimal, departments: tuple[str, ...], on: date) -> int:
-    """The active employee with the smallest sufficient approval limit in the given departments (or the CEO)."""
+def _approvers(day: DayContext, on: date) -> list[dict[str, Any]]:
     key = ("approvers", on)
     if key not in day.notes:
         day.notes[key] = day.rows("""
@@ -78,7 +77,18 @@ def approver(day: DayContext, amount: Decimal, departments: tuple[str, ...], on:
             JOIN departments d USING (department_id)
             WHERE e.employment_status = 'ACTIVE' AND e.hire_date <= :d AND e.approval_limit > 0
             ORDER BY e.approval_limit, e.employee_id""", d=on)
-    for row in day.notes[key]:
+    return day.notes[key]
+
+
+def max_approval(day: DayContext, departments: tuple[str, ...], on: date) -> Decimal:
+    """The largest amount anyone in the departments (or the CEO) can approve on ``on``."""
+    return max(r["approval_limit"] for r in _approvers(day, on)
+               if r["department_code"] in departments or r["job_level"] == "EXECUTIVE")
+
+
+def approver(day: DayContext, amount: Decimal, departments: tuple[str, ...], on: date) -> int:
+    """The active employee with the smallest sufficient approval limit in the given departments (or the CEO)."""
+    for row in _approvers(day, on):
         if row["approval_limit"] >= amount and (row["department_code"] in departments or row["job_level"] == "EXECUTIVE"):
             return row["employee_id"]
     raise RuntimeError(f"Nobody can approve {amount} on {on}")

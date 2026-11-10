@@ -1,3 +1,4 @@
 """Check modules; importing this package registers every check."""
 
-from scmgen.validation.checks import accounting, inventory, master_data, procurement, system  # noqa: F401
+from scmgen.validation.checks import (accounting, inventory, master_data, payables,  # noqa: F401
+                                    procurement, system, tax)

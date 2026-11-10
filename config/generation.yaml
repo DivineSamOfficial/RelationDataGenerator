@@ -167,3 +167,14 @@ procurement:
   min_shelf_life_share: 0.60            # expiry goods need ≥ 60% shelf life left on receipt
   short_shelf_life_share: 0.01
   eway_bill_threshold: 50000            # GST e-way bill for consignments above ₹50,000
+  # Supplier invoices and payments (1C §3.0, 1E §5): one bill per GRN; plans keyed by the GRN / invoice (D65).
+  invoice_days: [0, 5]                  # bill dated after the receipt
+  invoice_arrival_days: [0, 3]          # bill reaches Accounts after its date
+  price_variance_share: 0.05            # billed price ≠ PO price → PRICE_VARIANCE, approved, difference to PPV
+  price_variance: [0.005, 0.03]
+  invoice_approval_days: [1, 4]
+  payment_weekday: 4                    # Friday payment run (moved to no other day: a holiday skips the week)
+  late_payment_share: 0.20
+  late_payment_weeks: [1, 3]
+  payment_failure_share: 0.01
+  msme_payment_days: 45                 # MSMED Act: MSME suppliers paid within 45 days

@@ -119,8 +119,9 @@ def test_history_runs_day_by_day_and_validates(settings, workspaces):
                                      "GROUP BY 1, 2 ORDER BY 1")
     counts = {(r[0], r[1]): r[2] for r in opening}
     assert counts[("OPENING_BALANCE", "OPENING")] == 1 and counts[("STOCK_ADJUSTMENT", "SYSTEM")] == 8
-    assert all(r[3] == date(2025, 8, 1) for r in opening if r[0] != "GOODS_RECEIPT")
-    assert counts[("GOODS_RECEIPT", "SYSTEM")] > 0                     # receipts from 3.7b
+    assert all(r[3] == date(2025, 8, 1) for r in opening if r[0] in ("OPENING_BALANCE", "STOCK_ADJUSTMENT"))
+    for source in ("GOODS_RECEIPT", "SUPPLIER_INVOICE", "SUPPLIER_PAYMENT"):       # procure-to-pay (3.7)
+        assert counts[(source, "SYSTEM")] > 0
     adjustments = _query(settings, code, "SELECT COUNT(*), COUNT(DISTINCT warehouse_id), MIN(adjustment_type) "
                                          "FROM stock_adjustments")[0]
     assert adjustments == (8, 8, "OPENING_STOCK")

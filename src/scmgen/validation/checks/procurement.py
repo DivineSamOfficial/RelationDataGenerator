@@ -1,6 +1,6 @@
 """Procurement rules (1C §8, V-PR-*). Each check returns the violating rows.
 
-Step 3.7a (sourcing) implements V-PR-01…07, 3.7b (receiving) V-PR-08…11; supplier invoices (V-PR-12…14) follow in 3.7c.
+Step 3.7a (sourcing) implements V-PR-01…07, 3.7b (receiving) V-PR-08…11, 3.7c (supplier invoices) V-PR-12…14.
 """
 
 from __future__ import annotations
@@ -317,3 +317,68 @@ def inspections_split_the_receipt(ctx: ValidationContext) -> Rows:
            OR gi.quantity_accepted + gi.quantity_rejected <> gl.quantity_received
            OR COALESCE(t.qty, 0) <> COALESCE(gi.quantity_accepted, 0)
            OR (COALESCE(gi.quantity_accepted, 0) = 0 AND t.rows_ IS NOT NULL)""")
+
+
+@check("V-PR-12")
+def supplier_invoices_match_po_and_ap(ctx: ValidationContext) -> Rows:
+    """★ Invoice supplier = PO supplier; bill-to GSTIN = the PO warehouse's GSTIN; cumulative invoiced ≤ accepted
+    per PO line; every APPROVED invoice has its AP item for the invoice total (and no other invoice has one)."""
+    found = [{**r, "problem": "supplier or bill-to GSTIN differs from the PO"} for r in ctx.rows("""
+        SELECT i.supplier_invoice_id, i.supplier_id, h.supplier_id AS po_supplier, i.company_gst_registration_id,
+               w.company_gst_registration_id AS po_gstin
+        FROM supplier_invoices i JOIN purchase_order_headers h ON h.purchase_order_id = i.purchase_order_id
+        JOIN warehouses w ON w.warehouse_id = h.delivery_warehouse_id
+        WHERE i.supplier_id <> h.supplier_id OR i.company_gst_registration_id <> w.company_gst_registration_id""")]
+    found += [{**r, "problem": "invoiced more than accepted"} for r in ctx.rows("""
+        SELECT l.purchase_order_line_item_id, l.quantity_accepted, SUM(sl.invoiced_quantity) AS invoiced
+        FROM purchase_order_line_items l JOIN supplier_invoice_line_items sl
+             ON sl.purchase_order_line_item_id = l.purchase_order_line_item_id
+        JOIN supplier_invoices i ON i.supplier_invoice_id = sl.supplier_invoice_id AND i.invoice_status <> 'CANCELLED'
+        GROUP BY l.purchase_order_line_item_id, l.quantity_accepted HAVING SUM(sl.invoiced_quantity) > l.quantity_accepted""")]
+    found += [{**r, "problem": "AP item missing, extra or with another amount"} for r in ctx.rows("""
+        SELECT i.supplier_invoice_id, i.invoice_status, i.total_amount, a.original_amount FROM supplier_invoices i
+        LEFT JOIN accounts_payable a ON a.supplier_invoice_id = i.supplier_invoice_id
+        WHERE (i.invoice_status = 'APPROVED') <> (a.accounts_payable_id IS NOT NULL)
+           OR a.original_amount <> i.total_amount OR a.document_date <> i.invoice_date OR a.due_date <> i.due_date""")]
+    return found
+
+
+@check("V-PR-13")
+def supplier_invoice_lines_match_the_po(ctx: ValidationContext) -> Rows:
+    """Invoice lines reference lines of the invoice's PO with the PO's price snapshot and GST rate; the match
+    status says PRICE_VARIANCE exactly when a billed price differs from the PO price."""
+    found = [{**r, "problem": "line differs from its PO line"} for r in ctx.rows("""
+        SELECT sl.supplier_invoice_id, sl.line_number FROM supplier_invoice_line_items sl
+        JOIN supplier_invoices i ON i.supplier_invoice_id = sl.supplier_invoice_id
+        JOIN purchase_order_line_items l ON l.purchase_order_line_item_id = sl.purchase_order_line_item_id
+        WHERE l.purchase_order_id <> i.purchase_order_id OR sl.po_unit_price <> l.unit_price OR sl.gst_rate <> l.gst_rate""")]
+    found += [{**r, "problem": "match status vs billed prices"} for r in ctx.rows("""
+        SELECT i.supplier_invoice_id, i.match_status, s.differing FROM supplier_invoices i
+        JOIN (SELECT supplier_invoice_id, SUM(unit_price <> po_unit_price) AS differing FROM supplier_invoice_line_items
+              GROUP BY supplier_invoice_id) s ON s.supplier_invoice_id = i.supplier_invoice_id
+        WHERE i.match_status <> 'QUANTITY_HOLD' AND (i.match_status = 'PRICE_VARIANCE') <> (s.differing > 0)""")]
+    return found
+
+
+# V-PR-14: (table, approver column, approval date, approved amount or None).
+APPROVALS = (
+    ("purchase_order_headers", "approved_by_employee_id", "DATE(approved_at)", "total_amount"),
+    ("supplier_invoices", "approved_by_employee_id", "DATE(approved_at)", "total_amount"),
+    ("supplier_payments", "approved_by_employee_id", "payment_date", "amount"),
+    ("stock_adjustments", "approved_by_employee_id", "adjustment_date", None),
+)
+
+
+@check("V-PR-14")
+def approvers_active_and_within_limit(ctx: ValidationContext) -> Rows:
+    """Approvers of POs, supplier invoices, supplier payments and stock adjustments were ACTIVE (hired, not yet
+    left) on the approval date and their approval limit covers the amount."""
+    found: Rows = []
+    for table, column, on, amount in APPROVALS:
+        found += [{**r, "table": table} for r in ctx.rows(f"""
+            SELECT d.{column} AS employee_id, {on} AS approved_on, e.hire_date, e.termination_date, e.approval_limit,
+                   {f"d.{amount}" if amount else "NULL"} AS amount
+            FROM {table} d JOIN employees e ON e.employee_id = d.{column}
+            WHERE {on} < e.hire_date OR (e.termination_date IS NOT NULL AND {on} > e.termination_date)
+               {f"OR d.{amount} > e.approval_limit" if amount else ""}""")]
+    return found

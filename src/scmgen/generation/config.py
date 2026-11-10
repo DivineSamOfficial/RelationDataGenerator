@@ -64,7 +64,10 @@ _PROCUREMENT_KEYS = {"direct_reorder_max_value", "rfq_max_lines", "rfq_suppliers
                      "award_price_ceiling", "score_weights", "approval_days", "po_cancel_share", "late_share",
                      "late_days", "early_days", "partial_delivery_share", "deliveries", "delivery_gap_days",
                      "short_close_share", "short_close_wait_days", "rejection_share", "min_shelf_life_share",
-                     "short_shelf_life_share", "eway_bill_threshold"}
+                     "short_shelf_life_share", "eway_bill_threshold", "invoice_days",
+                     "invoice_arrival_days", "price_variance_share", "price_variance", "invoice_approval_days",
+                     "payment_weekday", "late_payment_share", "late_payment_weeks", "payment_failure_share",
+                     "msme_payment_days"}
 B2B_SEGMENTS = ("RETAILER", "WHOLESALER", "CORPORATE", "INSTITUTION", "WORKSHOP")
 _ORG_KEYS = {"job_levels", "warehouse_staff_share", "departments", "warehouse_titles", "chief_executive"}
 JOB_LEVELS = ("EXECUTIVE", "HEAD", "MANAGER", "LEAD", "STAFF")
@@ -169,6 +172,16 @@ class ProcurementSettings:
     min_shelf_life_share: float             # expiry goods with less remaining shelf life are rejected
     short_shelf_life_share: float           # expiry deliveries that arrive with too little shelf life
     eway_bill_threshold: int                # consignment value (incl. GST) needing an e-way bill
+    invoice_days: tuple[int, int]           # supplier invoice date after the receipt
+    invoice_arrival_days: tuple[int, int]   # bill reaches Accounts after its date
+    price_variance_share: float             # invoices billing a price different from the PO (PPV, D35)
+    price_variance: tuple[float, float]     # relative size of the difference (either direction)
+    invoice_approval_days: tuple[int, int]
+    payment_weekday: int                    # weekly payment run (0 = Monday)
+    late_payment_share: float               # invoices paid after their due date (cash-flow squeeze)
+    late_payment_weeks: tuple[int, int]
+    payment_failure_share: float            # failed bank transfers, retried in the next run
+    msme_payment_days: int                  # MSME suppliers are always paid within this many days of the invoice
 
 
 @dataclass(frozen=True)
@@ -612,4 +625,14 @@ def _parse_procurement(raw: dict[str, Any]) -> ProcurementSettings:
         min_shelf_life_share=_share(raw["min_shelf_life_share"], "procurement.min_shelf_life_share", 1),
         short_shelf_life_share=_share(raw["short_shelf_life_share"], "procurement.short_shelf_life_share", 0.5),
         eway_bill_threshold=_int(raw["eway_bill_threshold"], "procurement.eway_bill_threshold", 0, 10**9),
+        invoice_days=_pair(raw["invoice_days"], "procurement.invoice_days", 0, 60),
+        invoice_arrival_days=_pair(raw["invoice_arrival_days"], "procurement.invoice_arrival_days", 0, 30),
+        price_variance_share=_share(raw["price_variance_share"], "procurement.price_variance_share", 0.5),
+        price_variance=_float_pair(raw["price_variance"], "procurement.price_variance", 0.0, 0.5),
+        invoice_approval_days=_pair(raw["invoice_approval_days"], "procurement.invoice_approval_days", 0, 30),
+        payment_weekday=_int(raw["payment_weekday"], "procurement.payment_weekday", 0, 6),
+        late_payment_share=_share(raw["late_payment_share"], "procurement.late_payment_share", 1),
+        late_payment_weeks=_pair(raw["late_payment_weeks"], "procurement.late_payment_weeks", 1, 26),
+        payment_failure_share=_share(raw["payment_failure_share"], "procurement.payment_failure_share", 0.5),
+        msme_payment_days=_int(raw["msme_payment_days"], "procurement.msme_payment_days", 15, 45),
     )

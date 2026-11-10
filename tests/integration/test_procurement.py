@@ -1,5 +1,5 @@
-"""Phase 3 steps 3.7a/3.7b: sourcing and receiving on generated data (RFQ → quotations → award → PO →
-approval → deliveries → GRN + dock inspection → stock and P03).
+"""Phase 3 step 3.7: procure-to-pay on generated data (RFQ → quotations → award → PO → approval →
+deliveries → GRN + dock inspection → stock and P03 → supplier invoice, P04, AP → payment run, P05).
 
 Demand only arrives in step 3.8, so the fixture forces replenishment: after three weeks, the reorder level of
 half the DC stock is raised to the quantity on hand
@@ -28,7 +28,7 @@ from scmgen.validation.framework import ValidationContext, run_checks
 pytestmark = pytest.mark.integration
 
 CATALOGUE = load_catalogue()
-RULES = sorted(r for r in framework.registered_checks() if r.startswith("V-PR") or r == "V-MD-06")
+RULES = sorted(r for r in framework.registered_checks() if r.startswith(("V-PR", "V-AP", "V-TX")) or r == "V-MD-06")
 INVENTORY_RULES = ("V-IN-01", "V-IN-02", "V-IN-04", "V-IN-05", "V-IN-10", "V-AC-05", "V-AC-11")
 WINDOW = {"history.start_date": "2025-08-01", "history.end_date": "2025-11-30"}
 
@@ -85,7 +85,7 @@ def test_sourcing_produces_the_whole_document_chain(generated):
     quotations = {s for (s,) in _rows(conn, "SELECT DISTINCT quotation_status FROM quotation_headers")}
     assert {"ACCEPTED", "REJECTED"} <= quotations
     po_statuses = {s for (s,) in _rows(conn, "SELECT DISTINCT po_status FROM purchase_order_headers")}
-    assert {"RECEIVED", "PARTIALLY_RECEIVED", "SHORT_CLOSED", "CANCELLED"} <= po_statuses
+    assert {"CLOSED", "CANCELLED"} <= po_statuses and po_statuses & {"RECEIVED", "PARTIALLY_RECEIVED", "SENT"}
     # Purchasing works on working days only.
     assert _rows(conn, "SELECT COUNT(*) FROM purchase_order_headers WHERE DAYOFWEEK(po_date) = 1")[0][0] == 0
 
@@ -120,7 +120,26 @@ _AWARD_PO = _ONE_PO.format("RFQ_AWARD")
 
 _GRN_LINE = "(SELECT x FROM (SELECT MIN(goods_receipt_line_item_id) x FROM goods_inspections WHERE quantity_rejected = 0) t)"
 
+_BILL = "(SELECT x FROM (SELECT MIN(supplier_invoice_id) x FROM supplier_invoices WHERE invoice_status = 'APPROVED') t)"
+_TAX_ROW = "(SELECT x FROM (SELECT MIN(tax_transaction_id) x FROM tax_transactions WHERE cgst_amount > 0) t)"
+
 MUTATIONS = {
+    "V-PR-12": [f"UPDATE accounts_payable SET original_amount = original_amount + 1, open_amount = open_amount + 1 "
+                f"WHERE supplier_invoice_id = {_BILL} AND item_status = 'OPEN'",
+                f"UPDATE accounts_payable SET original_amount = original_amount + 1 WHERE supplier_invoice_id = {_BILL} "
+                f"AND item_status = 'SETTLED'"],
+    "V-PR-13": [f"UPDATE supplier_invoice_line_items SET po_unit_price = po_unit_price + 1 WHERE supplier_invoice_id = {_BILL}"],
+    "V-PR-14": [f"UPDATE supplier_invoices SET approved_by_employee_id = (SELECT e FROM (SELECT MIN(employee_id) e "
+                f"FROM employees WHERE approval_limit = 0) t) WHERE supplier_invoice_id = {_BILL}"],
+    "V-AP-01": [f"UPDATE accounts_payable SET open_amount = open_amount - 1, item_status = 'PARTIALLY_SETTLED' "
+                f"WHERE accounts_payable_id = (SELECT x FROM (SELECT MIN(accounts_payable_id) x FROM accounts_payable "
+                f"WHERE item_status = 'OPEN') t)"],
+    "V-AP-02": ["UPDATE supplier_payment_allocations SET allocation_status = 'REVERSED', reversed_at = NOW() "
+                "WHERE supplier_payment_allocation_id = (SELECT x FROM (SELECT MIN(supplier_payment_allocation_id) x "
+                "FROM supplier_payment_allocations) t)"],
+    "V-TX-01": [f"UPDATE tax_transactions SET taxable_value = taxable_value + 1 WHERE tax_transaction_id = {_TAX_ROW}"],
+    "V-TX-02": [f"UPDATE tax_transactions SET cgst_amount = cgst_amount + 1, sgst_amount = sgst_amount + 1 "
+                f"WHERE tax_transaction_id = {_TAX_ROW}"],
     "V-PR-08": [f"UPDATE goods_receipt_line_items SET quantity_received = quantity_received + 1 "
                 f"WHERE goods_receipt_line_item_id = {_GRN_LINE}"],
     "V-PR-09": ["UPDATE goods_receipts g JOIN purchase_order_headers h USING (purchase_order_id) "
@@ -191,7 +210,39 @@ def test_receiving_moves_stock_and_books_grni(generated):
     receipts = _rows(conn, "SELECT SUM(value_change) FROM inventory_transactions WHERE transaction_type = 'PURCHASE_RECEIPT'")[0][0]
     grni = _rows(conn, "SELECT SUM(l.credit_amount - l.debit_amount) FROM journal_entry_lines l "
                        "JOIN chart_of_accounts a USING (account_id) WHERE a.system_role = 'GRNI'")[0][0]
-    assert receipts > 0 and grni == receipts
+    invoiced = _rows(conn, """SELECT COALESCE(SUM(sl.invoiced_quantity * ROUND(sl.po_unit_price * (1 - sl.discount_percent / 100), 4)), 0)
+                              FROM supplier_invoice_line_items sl JOIN supplier_invoices i USING (supplier_invoice_id)
+                              WHERE i.invoice_status = 'APPROVED'""")[0][0]
+    assert receipts > 0 and abs(grni - (receipts - invoiced)) < 1
     # New products get their stock row with the product's reorder policy on first receipt.
     assert _rows(conn, "SELECT COUNT(*) FROM inventory i JOIN products p USING (product_id) "
                        "WHERE p.launch_date > '2025-08-01' AND i.reorder_level = p.reorder_level")[0][0] > 0
+
+
+def test_bills_ap_and_payments(generated):
+    """P04/P05: bills approved into AP; GRNI = received − invoiced at PO price (V-GRNI); weekly payment runs."""
+    _, conn = generated
+    bills = dict(_rows(conn, "SELECT match_status, COUNT(*) FROM supplier_invoices WHERE invoice_status = 'APPROVED' GROUP BY 1"))
+    assert bills["MATCHED"] > 0 and bills.get("PRICE_VARIANCE", 0) > 0
+    # V-GRNI: the GRNI balance equals (accepted − invoiced) × PO net price over the PO lines.
+    grni = _rows(conn, "SELECT SUM(l.credit_amount - l.debit_amount) FROM journal_entry_lines l "
+                       "JOIN chart_of_accounts a USING (account_id) WHERE a.system_role = 'GRNI'")[0][0]
+    uninvoiced = _rows(conn, """
+        SELECT SUM(ROUND(t.quantity * t.unit_cost, 2)) - COALESCE((SELECT SUM(ROUND(sl.invoiced_quantity
+               * ROUND(sl.po_unit_price * (1 - sl.discount_percent / 100), 4), 2))
+               FROM supplier_invoice_line_items sl JOIN supplier_invoices i USING (supplier_invoice_id)
+               WHERE i.invoice_status = 'APPROVED'), 0)
+        FROM inventory_transactions t WHERE t.transaction_type = 'PURCHASE_RECEIPT'""")[0][0]
+    assert grni == uninvoiced
+    statuses = dict(_rows(conn, "SELECT payment_status, COUNT(*) FROM supplier_payments GROUP BY 1"))
+    assert statuses["COMPLETED"] > 0
+    assert _rows(conn, "SELECT COUNT(DISTINCT DAYOFWEEK(payment_date)) FROM supplier_payments")[0][0] == 1   # Fridays
+    # MSME suppliers are paid within 45 days of the invoice; some other bills are paid late.
+    assert _rows(conn, """SELECT COUNT(*) FROM supplier_payment_allocations x JOIN supplier_payments p USING (supplier_payment_id)
+                          JOIN supplier_invoices i USING (supplier_invoice_id) JOIN suppliers s ON s.supplier_id = i.supplier_id
+                          WHERE s.msme_category IS NOT NULL AND DATEDIFF(p.payment_date, i.invoice_date) > 45""")[0][0] == 0
+    assert _rows(conn, """SELECT COUNT(*) FROM supplier_payment_allocations x JOIN supplier_payments p USING (supplier_payment_id)
+                          JOIN supplier_invoices i USING (supplier_invoice_id) WHERE p.payment_date > i.due_date""")[0][0] > 0
+    # Input GST only from registered suppliers.
+    assert _rows(conn, "SELECT COUNT(*) FROM tax_transactions t JOIN suppliers s USING (supplier_id) "
+                       "WHERE s.gst_registration_type <> 'REGISTERED'")[0][0] == 0
