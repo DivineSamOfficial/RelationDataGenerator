@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phase 2
-**Last updated:** 2026-11-08 (amended by Part 1C: D25 currency; Part 1H: D78 cash-flow category, D81 FK declaration; Phase 2 step 2.4: D82, D83; Phase 3 step 3.1: D86 note on D19)
+**Last updated:** 2026-11-08 (amended by Part 1C: D25 currency; Part 1H: D78 cash-flow category, D81 FK declaration; Phase 2 step 2.4: D82, D83; Phase 3 step 3.1: D86 note on D19; step 3.3: D88 roles)
 **Builds on:** Part 1A (`phase1_part1a_business_and_entities.md`): decisions D1–D14, entity inventory §5, addenda A1/A2
 
 ---
@@ -924,7 +924,7 @@ Maps each GST component and direction, per GSTIN, to its GL account.
 
 ## 5. Default Chart of Accounts Skeleton
 
-Account codes live in `config/seed/chart_of_accounts.yaml`, not in Python (D16). `[role]` = `system_role`; *derived* rows are generated per BU / bank account / GSTIN.
+Account codes live in `config/seed/chart_of_accounts.yaml`, not in Python (D16). **D88 (Phase 3 step 3.3):** posting rules P01, P21 and P23 need Depreciation, Accumulated Depreciation and Interest Income, which had no role; they get roles `DEPRECIATION`, `ACCUMULATED_DEPRECIATION`, `INTEREST_INCOME` (no schema change, `system_role` is an open list). Fixed-asset opening amounts are configured by account code in YAML. `[role]` = `system_role`; *derived* rows are generated per BU / bank account / GSTIN.
 
 | Code | Account | Notes |
 |---|---|---|
@@ -943,7 +943,7 @@ Account codes live in `config/seed/chart_of_accounts.yaml`, not in Python (D16).
 | **15000** | **Non-current Assets** (header) | Only touched by the opening entry in v1 |
 | 15100 | Furniture & Fixtures | |
 | 15200 | Computers & Equipment | |
-| 15900 | Accumulated Depreciation | contra (CREDIT) |
+| 15900 | Accumulated Depreciation | contra (CREDIT), [ACCUMULATED_DEPRECIATION] (D88) |
 | **20000** | **Current Liabilities** (header) | |
 | 21000 | Trade Payables | [AP_CONTROL], control AP |
 | 21100 | Goods Received Not Invoiced | [GRNI] |
@@ -962,7 +962,7 @@ Account codes live in `config/seed/chart_of_accounts.yaml`, not in Python (D16).
 | 42bb0 | *Sales Returns – <BU>* | derived, contra (DEBIT), `sales_returns_account_id` |
 | 44000 | Shipping Charges Recovered | [SHIPPING_INCOME] |
 | 49000 | Other Income (header) | |
-| 49100 | Interest Income | |
+| 49100 | Interest Income | [INTEREST_INCOME] (D88) |
 | 49200 | Rounding Off | [ROUNDING_OFF] (invoice totals rounded to the rupee) |
 | 49300 | Inventory Adjustment Gains | [INVENTORY_ADJUSTMENT_GAIN] |
 | **50000** | **Cost of Goods Sold** (header) | |
@@ -970,7 +970,8 @@ Account codes live in `config/seed/chart_of_accounts.yaml`, not in Python (D16).
 | 52000 | Inventory Shrinkage & Write-offs | [INVENTORY_WRITE_OFF] |
 | 53000 | Purchase Price Variance | [PURCHASE_PRICE_VARIANCE] |
 | **60000** | **Operating Expenses** (header) | |
-| 60100–61900 | Salaries & Wages, Staff Welfare, Rent, Electricity & Water, Internet & Telephone, Software Subscriptions, AI Tool Subscriptions, Cloud Hosting, Repairs & Maintenance, Security & Housekeeping, Travel & Conveyance, Advertising & Marketing, Professional Fees, Printing & Stationery, Office Expenses, Insurance, Packaging Materials, Depreciation | Mapped from `expense_categories` |
+| 60100–61700 | Salaries & Wages, Staff Welfare, Rent, Electricity & Water, Internet & Telephone, Software Subscriptions, AI Tool Subscriptions, Cloud Hosting, Repairs & Maintenance, Security & Housekeeping, Travel & Conveyance, Advertising & Marketing, Professional Fees, Printing & Stationery, Office Expenses, Insurance, Packaging Materials | Mapped from `expense_categories` |
+| 61900 | Depreciation | [DEPRECIATION] (D88; posted by P23, not an expense category) |
 | 62000 | Freight Outward & Courier | [FREIGHT_OUTWARD] |
 | 62100 | Marketplace Commission | [MARKETPLACE_COMMISSION] |
 | 62200 | Bank Charges | [BANK_CHARGES] |

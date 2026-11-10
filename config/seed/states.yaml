@@ -1,0 +1,43 @@
+# Indian states and union territories with their GST state codes (1B §4.1 `states`).
+# 36 states/UTs + 97 "Other Territory"; retired codes (25, 28) are excluded.
+# state_code: vehicle-registration style 2-letter code (also used in document numbers and vehicle numbers).
+# intra_state_tax_component: UTs without a legislature use UTGST; Delhi, Puducherry and J&K use SGST.
+states:
+  - {gst_state_code: "01", state_code: JK, state_name: Jammu and Kashmir, is_union_territory: true, intra_state_tax_component: SGST, region: NORTH}
+  - {gst_state_code: "02", state_code: HP, state_name: Himachal Pradesh, is_union_territory: false, intra_state_tax_component: SGST, region: NORTH}
+  - {gst_state_code: "03", state_code: PB, state_name: Punjab, is_union_territory: false, intra_state_tax_component: SGST, region: NORTH}
+  - {gst_state_code: "04", state_code: CH, state_name: Chandigarh, is_union_territory: true, intra_state_tax_component: UTGST, region: NORTH}
+  - {gst_state_code: "05", state_code: UK, state_name: Uttarakhand, is_union_territory: false, intra_state_tax_component: SGST, region: NORTH}
+  - {gst_state_code: "06", state_code: HR, state_name: Haryana, is_union_territory: false, intra_state_tax_component: SGST, region: NORTH}
+  - {gst_state_code: "07", state_code: DL, state_name: Delhi, is_union_territory: true, intra_state_tax_component: SGST, region: NORTH}
+  - {gst_state_code: "08", state_code: RJ, state_name: Rajasthan, is_union_territory: false, intra_state_tax_component: SGST, region: NORTH}
+  - {gst_state_code: "09", state_code: UP, state_name: Uttar Pradesh, is_union_territory: false, intra_state_tax_component: SGST, region: NORTH}
+  - {gst_state_code: "10", state_code: BR, state_name: Bihar, is_union_territory: false, intra_state_tax_component: SGST, region: EAST}
+  - {gst_state_code: "11", state_code: SK, state_name: Sikkim, is_union_territory: false, intra_state_tax_component: SGST, region: NORTH_EAST}
+  - {gst_state_code: "12", state_code: AR, state_name: Arunachal Pradesh, is_union_territory: false, intra_state_tax_component: SGST, region: NORTH_EAST}
+  - {gst_state_code: "13", state_code: NL, state_name: Nagaland, is_union_territory: false, intra_state_tax_component: SGST, region: NORTH_EAST}
+  - {gst_state_code: "14", state_code: MN, state_name: Manipur, is_union_territory: false, intra_state_tax_component: SGST, region: NORTH_EAST}
+  - {gst_state_code: "15", state_code: MZ, state_name: Mizoram, is_union_territory: false, intra_state_tax_component: SGST, region: NORTH_EAST}
+  - {gst_state_code: "16", state_code: TR, state_name: Tripura, is_union_territory: false, intra_state_tax_component: SGST, region: NORTH_EAST}
+  - {gst_state_code: "17", state_code: ML, state_name: Meghalaya, is_union_territory: false, intra_state_tax_component: SGST, region: NORTH_EAST}
+  - {gst_state_code: "18", state_code: AS, state_name: Assam, is_union_territory: false, intra_state_tax_component: SGST, region: NORTH_EAST}
+  - {gst_state_code: "19", state_code: WB, state_name: West Bengal, is_union_territory: false, intra_state_tax_component: SGST, region: EAST}
+  - {gst_state_code: "20", state_code: JH, state_name: Jharkhand, is_union_territory: false, intra_state_tax_component: SGST, region: EAST}
+  - {gst_state_code: "21", state_code: OD, state_name: Odisha, is_union_territory: false, intra_state_tax_component: SGST, region: EAST}
+  - {gst_state_code: "22", state_code: CG, state_name: Chhattisgarh, is_union_territory: false, intra_state_tax_component: SGST, region: CENTRAL}
+  - {gst_state_code: "23", state_code: MP, state_name: Madhya Pradesh, is_union_territory: false, intra_state_tax_component: SGST, region: CENTRAL}
+  - {gst_state_code: "24", state_code: GJ, state_name: Gujarat, is_union_territory: false, intra_state_tax_component: SGST, region: WEST}
+  - {gst_state_code: "26", state_code: DD, state_name: Dadra and Nagar Haveli and Daman and Diu, is_union_territory: true, intra_state_tax_component: UTGST, region: WEST}
+  - {gst_state_code: "27", state_code: MH, state_name: Maharashtra, is_union_territory: false, intra_state_tax_component: SGST, region: WEST}
+  - {gst_state_code: "29", state_code: KA, state_name: Karnataka, is_union_territory: false, intra_state_tax_component: SGST, region: SOUTH}
+  - {gst_state_code: "30", state_code: GA, state_name: Goa, is_union_territory: false, intra_state_tax_component: SGST, region: WEST}
+  - {gst_state_code: "31", state_code: LD, state_name: Lakshadweep, is_union_territory: true, intra_state_tax_component: UTGST, region: SOUTH}
+  - {gst_state_code: "32", state_code: KL, state_name: Kerala, is_union_territory: false, intra_state_tax_component: SGST, region: SOUTH}
+  - {gst_state_code: "33", state_code: TN, state_name: Tamil Nadu, is_union_territory: false, intra_state_tax_component: SGST, region: SOUTH}
+  - {gst_state_code: "34", state_code: PY, state_name: Puducherry, is_union_territory: true, intra_state_tax_component: SGST, region: SOUTH}
+  - {gst_state_code: "35", state_code: AN, state_name: Andaman and Nicobar Islands, is_union_territory: true, intra_state_tax_component: UTGST, region: EAST}
+  - {gst_state_code: "36", state_code: TG, state_name: Telangana, is_union_territory: false, intra_state_tax_component: SGST, region: SOUTH}
+  - {gst_state_code: "37", state_code: AP, state_name: Andhra Pradesh, is_union_territory: false, intra_state_tax_component: SGST, region: SOUTH}
+  - {gst_state_code: "38", state_code: LA, state_name: Ladakh, is_union_territory: true, intra_state_tax_component: UTGST, region: NORTH}
+  # Offshore areas outside any state (GST place of supply); never used for generated addresses.
+  - {gst_state_code: "97", state_code: OT, state_name: Other Territory, is_union_territory: true, intra_state_tax_component: UTGST, region: WEST}

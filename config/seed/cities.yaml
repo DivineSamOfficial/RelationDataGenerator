@@ -1,0 +1,83 @@
+# Cities used for warehouses, customer and supplier addresses (1B §4.4: city, state and PIN prefix are
+# drawn together so they're always consistent). Coordinates are approximate city centres, used for
+# transit-time estimates (1G §2.3). pin_prefix = first three PIN digits of the city's postal area.
+# weight = relative share of generated customer addresses (bigger markets get more customers).
+# Street addresses generated from these are fictional (Faker).
+cities:
+  # North
+  - {city: New Delhi, state_code: DL, pin_prefix: "110", latitude: 28.6139, longitude: 77.2090, weight: 10}
+  - {city: Gurugram, state_code: HR, pin_prefix: "122", latitude: 28.4595, longitude: 77.0266, weight: 5}
+  - {city: Faridabad, state_code: HR, pin_prefix: "121", latitude: 28.4089, longitude: 77.3178, weight: 3}
+  - {city: Noida, state_code: UP, pin_prefix: "201", latitude: 28.5355, longitude: 77.3910, weight: 4}
+  - {city: Lucknow, state_code: UP, pin_prefix: "226", latitude: 26.8467, longitude: 80.9462, weight: 4}
+  - {city: Kanpur, state_code: UP, pin_prefix: "208", latitude: 26.4499, longitude: 80.3319, weight: 3}
+  - {city: Agra, state_code: UP, pin_prefix: "282", latitude: 27.1767, longitude: 78.0081, weight: 2}
+  - {city: Varanasi, state_code: UP, pin_prefix: "221", latitude: 25.3176, longitude: 82.9739, weight: 2}
+  - {city: Jaipur, state_code: RJ, pin_prefix: "302", latitude: 26.9124, longitude: 75.7873, weight: 4}
+  - {city: Jodhpur, state_code: RJ, pin_prefix: "342", latitude: 26.2389, longitude: 73.0243, weight: 2}
+  - {city: Udaipur, state_code: RJ, pin_prefix: "313", latitude: 24.5854, longitude: 73.7125, weight: 1}
+  - {city: Chandigarh, state_code: CH, pin_prefix: "160", latitude: 30.7333, longitude: 76.7794, weight: 2}
+  - {city: Ludhiana, state_code: PB, pin_prefix: "141", latitude: 30.9010, longitude: 75.8573, weight: 3}
+  - {city: Amritsar, state_code: PB, pin_prefix: "143", latitude: 31.6340, longitude: 74.8723, weight: 2}
+  - {city: Dehradun, state_code: UK, pin_prefix: "248", latitude: 30.3165, longitude: 78.0322, weight: 2}
+  - {city: Shimla, state_code: HP, pin_prefix: "171", latitude: 31.1048, longitude: 77.1734, weight: 1}
+  - {city: Jammu, state_code: JK, pin_prefix: "180", latitude: 32.7266, longitude: 74.8570, weight: 1}
+  - {city: Srinagar, state_code: JK, pin_prefix: "190", latitude: 34.0837, longitude: 74.7973, weight: 1}
+  - {city: Leh, state_code: LA, pin_prefix: "194", latitude: 34.1526, longitude: 77.5771, weight: 1}
+  # West
+  - {city: Mumbai, state_code: MH, pin_prefix: "400", latitude: 19.0760, longitude: 72.8777, weight: 10}
+  - {city: Thane, state_code: MH, pin_prefix: "400", latitude: 19.2183, longitude: 72.9781, weight: 3}
+  - {city: Pune, state_code: MH, pin_prefix: "411", latitude: 18.5204, longitude: 73.8567, weight: 6}
+  - {city: Nagpur, state_code: MH, pin_prefix: "440", latitude: 21.1458, longitude: 79.0882, weight: 3}
+  - {city: Nashik, state_code: MH, pin_prefix: "422", latitude: 19.9975, longitude: 73.7898, weight: 2}
+  - {city: Aurangabad, state_code: MH, pin_prefix: "431", latitude: 19.8762, longitude: 75.3433, weight: 2}
+  - {city: Bhiwandi, state_code: MH, pin_prefix: "421", latitude: 19.2813, longitude: 73.0483, weight: 1}
+  - {city: Ahmedabad, state_code: GJ, pin_prefix: "380", latitude: 23.0225, longitude: 72.5714, weight: 6}
+  - {city: Surat, state_code: GJ, pin_prefix: "395", latitude: 21.1702, longitude: 72.8311, weight: 4}
+  - {city: Vadodara, state_code: GJ, pin_prefix: "390", latitude: 22.3072, longitude: 73.1812, weight: 3}
+  - {city: Rajkot, state_code: GJ, pin_prefix: "360", latitude: 22.3039, longitude: 70.8022, weight: 2}
+  - {city: Panaji, state_code: GA, pin_prefix: "403", latitude: 15.4909, longitude: 73.8278, weight: 1}
+  - {city: Silvassa, state_code: DD, pin_prefix: "396", latitude: 20.2766, longitude: 73.0169, weight: 1}
+  # Central
+  - {city: Indore, state_code: MP, pin_prefix: "452", latitude: 22.7196, longitude: 75.8577, weight: 3}
+  - {city: Bhopal, state_code: MP, pin_prefix: "462", latitude: 23.2599, longitude: 77.4126, weight: 3}
+  - {city: Jabalpur, state_code: MP, pin_prefix: "482", latitude: 23.1815, longitude: 79.9864, weight: 1}
+  - {city: Raipur, state_code: CG, pin_prefix: "492", latitude: 21.2514, longitude: 81.6296, weight: 2}
+  # East
+  - {city: Kolkata, state_code: WB, pin_prefix: "700", latitude: 22.5726, longitude: 88.3639, weight: 8}
+  - {city: Howrah, state_code: WB, pin_prefix: "711", latitude: 22.5958, longitude: 88.2636, weight: 2}
+  - {city: Siliguri, state_code: WB, pin_prefix: "734", latitude: 26.7271, longitude: 88.3953, weight: 1}
+  - {city: Patna, state_code: BR, pin_prefix: "800", latitude: 25.5941, longitude: 85.1376, weight: 3}
+  - {city: Ranchi, state_code: JH, pin_prefix: "834", latitude: 23.3441, longitude: 85.3096, weight: 2}
+  - {city: Jamshedpur, state_code: JH, pin_prefix: "831", latitude: 22.8046, longitude: 86.2029, weight: 1}
+  - {city: Bhubaneswar, state_code: OD, pin_prefix: "751", latitude: 20.2961, longitude: 85.8245, weight: 2}
+  - {city: Cuttack, state_code: OD, pin_prefix: "753", latitude: 20.4625, longitude: 85.8830, weight: 1}
+  - {city: Port Blair, state_code: AN, pin_prefix: "744", latitude: 11.6234, longitude: 92.7265, weight: 1}
+  # North East
+  - {city: Guwahati, state_code: AS, pin_prefix: "781", latitude: 26.1445, longitude: 91.7362, weight: 2}
+  - {city: Shillong, state_code: ML, pin_prefix: "793", latitude: 25.5788, longitude: 91.8933, weight: 1}
+  - {city: Agartala, state_code: TR, pin_prefix: "799", latitude: 23.8315, longitude: 91.2868, weight: 1}
+  - {city: Imphal, state_code: MN, pin_prefix: "795", latitude: 24.8170, longitude: 93.9368, weight: 1}
+  - {city: Aizawl, state_code: MZ, pin_prefix: "796", latitude: 23.7271, longitude: 92.7176, weight: 1}
+  - {city: Kohima, state_code: NL, pin_prefix: "797", latitude: 25.6751, longitude: 94.1086, weight: 1}
+  - {city: Itanagar, state_code: AR, pin_prefix: "791", latitude: 27.0844, longitude: 93.6053, weight: 1}
+  - {city: Gangtok, state_code: SK, pin_prefix: "737", latitude: 27.3389, longitude: 88.6065, weight: 1}
+  # South
+  - {city: Bengaluru, state_code: KA, pin_prefix: "560", latitude: 12.9716, longitude: 77.5946, weight: 10}
+  - {city: Mysuru, state_code: KA, pin_prefix: "570", latitude: 12.2958, longitude: 76.6394, weight: 2}
+  - {city: Mangaluru, state_code: KA, pin_prefix: "575", latitude: 12.9141, longitude: 74.8560, weight: 2}
+  - {city: Hubballi, state_code: KA, pin_prefix: "580", latitude: 15.3647, longitude: 75.1240, weight: 2}
+  - {city: Hosur, state_code: TN, pin_prefix: "635", latitude: 12.7409, longitude: 77.8253, weight: 1}
+  - {city: Chennai, state_code: TN, pin_prefix: "600", latitude: 13.0827, longitude: 80.2707, weight: 8}
+  - {city: Coimbatore, state_code: TN, pin_prefix: "641", latitude: 11.0168, longitude: 76.9558, weight: 3}
+  - {city: Madurai, state_code: TN, pin_prefix: "625", latitude: 9.9252, longitude: 78.1198, weight: 2}
+  - {city: Tiruppur, state_code: TN, pin_prefix: "641", latitude: 11.1085, longitude: 77.3411, weight: 1}
+  - {city: Hyderabad, state_code: TG, pin_prefix: "500", latitude: 17.3850, longitude: 78.4867, weight: 8}
+  - {city: Warangal, state_code: TG, pin_prefix: "506", latitude: 17.9689, longitude: 79.5941, weight: 1}
+  - {city: Visakhapatnam, state_code: AP, pin_prefix: "530", latitude: 17.6868, longitude: 83.2185, weight: 3}
+  - {city: Vijayawada, state_code: AP, pin_prefix: "520", latitude: 16.5062, longitude: 80.6480, weight: 2}
+  - {city: Kochi, state_code: KL, pin_prefix: "682", latitude: 9.9312, longitude: 76.2673, weight: 3}
+  - {city: Thiruvananthapuram, state_code: KL, pin_prefix: "695", latitude: 8.5241, longitude: 76.9366, weight: 2}
+  - {city: Kozhikode, state_code: KL, pin_prefix: "673", latitude: 11.2588, longitude: 75.7804, weight: 1}
+  - {city: Puducherry, state_code: PY, pin_prefix: "605", latitude: 11.9416, longitude: 79.8083, weight: 1}
+  - {city: Kavaratti, state_code: LD, pin_prefix: "682", latitude: 10.5593, longitude: 72.6358, weight: 1}

@@ -116,6 +116,7 @@ Priorities: correct architecture, relational integrity, realistic business proce
 | D85 | No index may start with a foreign key's columns and continue with a nullable column (MySQL 26.10 defect silently disables such FKs, test A12) |
 | D86 | Two FK cycles via nullable "late links" (`stock_adjustment_line_items.inventory_batch_id`, `customer_payments.settlement_bank_transaction_id`): the writer inserts them NULL and sets them by UPDATE in the same transaction; any other cycle is an error (1G §2.6) |
 | D87 | Engine reproduces MySQL DECIMAL division (round to dividend scale + `div_precision_increment` 4, then ROUND) via `core.money.sql_divide`; `db check` requires `div_precision_increment = 4` (test A13) |
+| D88 | System roles extended with `DEPRECIATION`, `ACCUMULATED_DEPRECIATION`, `INTEREST_INCOME` (needed by P01/P21/P23); seed data in `config/seed/*.yaml` |
 
 ## Database standards
 

@@ -1,0 +1,94 @@
+# Static reference data, identical in every workspace (1B §3.2 "Seed"). Column names match the tables.
+
+account_types:   # 1B §4.9
+  - {account_type_code: ASSET, account_type_name: Assets, normal_balance: DEBIT, financial_statement: BALANCE_SHEET, code_prefix: "1", display_order: 1}
+  - {account_type_code: LIABILITY, account_type_name: Liabilities, normal_balance: CREDIT, financial_statement: BALANCE_SHEET, code_prefix: "2", display_order: 2}
+  - {account_type_code: EQUITY, account_type_name: Equity, normal_balance: CREDIT, financial_statement: BALANCE_SHEET, code_prefix: "3", display_order: 3}
+  - {account_type_code: REVENUE, account_type_name: Revenue, normal_balance: CREDIT, financial_statement: PROFIT_AND_LOSS, code_prefix: "4", display_order: 4}
+  - {account_type_code: COGS, account_type_name: Cost of Goods Sold, normal_balance: DEBIT, financial_statement: PROFIT_AND_LOSS, code_prefix: "5", display_order: 5}
+  - {account_type_code: EXPENSE, account_type_name: Operating Expenses, normal_balance: DEBIT, financial_statement: PROFIT_AND_LOSS, code_prefix: "6", display_order: 6}
+
+departments:     # 1B §4.2
+  - {department_code: MGMT, department_name: Management}
+  - {department_code: PUR, department_name: Purchasing}
+  - {department_code: WHO, department_name: Warehouse Operations}
+  - {department_code: LOG, department_name: Logistics}
+  - {department_code: SAL, department_name: Sales}
+  - {department_code: MKT, department_name: Marketing}
+  - {department_code: CS, department_name: Customer Service}
+  - {department_code: FIN, department_name: Finance & Accounts}
+  - {department_code: HR, department_name: HR & Admin}
+  - {department_code: IT, department_name: IT}
+
+units_of_measure:   # 1B §4.6; gst_uqc = GST Unique Quantity Code used in returns
+  - {uom_code: PCS, uom_name: Pieces, uom_category: COUNT, decimal_places: 0, gst_uqc: NOS}
+  - {uom_code: BOX, uom_name: Box, uom_category: COUNT, decimal_places: 0, gst_uqc: BOX}
+  - {uom_code: KG, uom_name: Kilogram, uom_category: WEIGHT, decimal_places: 3, gst_uqc: KGS}
+  - {uom_code: LTR, uom_name: Litre, uom_category: VOLUME, decimal_places: 3, gst_uqc: LTR}
+  - {uom_code: MTR, uom_name: Metre, uom_category: LENGTH, decimal_places: 3, gst_uqc: MTR}
+  - {uom_code: PKT, uom_name: Packet, uom_category: COUNT, decimal_places: 0, gst_uqc: PAC}
+  - {uom_code: SET, uom_name: Set, uom_category: COUNT, decimal_places: 0, gst_uqc: SET}
+  - {uom_code: PAIR, uom_name: Pair, uom_category: COUNT, decimal_places: 0, gst_uqc: PRS}
+  - {uom_code: ROLL, uom_name: Roll, uom_category: COUNT, decimal_places: 0, gst_uqc: ROL}
+  - {uom_code: REAM, uom_name: Ream, uom_category: COUNT, decimal_places: 0, gst_uqc: NOS}
+  - {uom_code: DOZ, uom_name: Dozen, uom_category: COUNT, decimal_places: 0, gst_uqc: DOZ}
+  - {uom_code: BTL, uom_name: Bottle, uom_category: COUNT, decimal_places: 0, gst_uqc: BTL}
+
+payment_methods:    # 1B §4.7; gateway_fee_percent applies to receipts (P10)
+  - {method_code: NEFT, method_name: NEFT bank transfer, is_electronic: true, usable_for_receipts: true, usable_for_payments: true, settlement_lag_days: 0}
+  - {method_code: RTGS, method_name: RTGS bank transfer, is_electronic: true, usable_for_receipts: true, usable_for_payments: true, settlement_lag_days: 0, min_amount: "200000.00"}
+  - {method_code: IMPS, method_name: IMPS bank transfer, is_electronic: true, usable_for_receipts: true, usable_for_payments: true, settlement_lag_days: 0, max_amount: "500000.00"}
+  - {method_code: UPI, method_name: UPI, is_electronic: true, usable_for_receipts: true, usable_for_payments: false, settlement_lag_days: 1, gateway_fee_percent: "0.0000", max_amount: "100000.00"}
+  - {method_code: CARD, method_name: Debit / credit card, is_electronic: true, usable_for_receipts: true, usable_for_payments: false, settlement_lag_days: 2, gateway_fee_percent: "1.8000"}
+  - {method_code: NET_BANKING, method_name: Net banking, is_electronic: true, usable_for_receipts: true, usable_for_payments: false, settlement_lag_days: 1, gateway_fee_percent: "1.2000"}
+  - {method_code: CHEQUE, method_name: Cheque, is_electronic: false, usable_for_receipts: true, usable_for_payments: true, settlement_lag_days: 2}
+  - {method_code: CASH, method_name: Cash, is_electronic: false, usable_for_receipts: true, usable_for_payments: true, settlement_lag_days: 0, max_amount: "199999.99"}
+
+payment_terms:      # 1B §4.7; used by customers and suppliers
+  - {term_code: ADVANCE, term_name: Advance payment, due_days: 0, is_prepaid: true}
+  - {term_code: COD, term_name: Cash on delivery, due_days: 0}
+  - {term_code: IMMEDIATE, term_name: Due on receipt, due_days: 0}
+  - {term_code: NET15, term_name: Net 15 days, due_days: 15}
+  - {term_code: NET30, term_name: Net 30 days, due_days: 30}
+  - {term_code: NET45, term_name: Net 45 days, due_days: 45}
+  - {term_code: NET60, term_name: Net 60 days, due_days: 60}
+  - {term_code: 2_10_NET30, term_name: 2% 10 days / net 30, due_days: 30, early_payment_discount_percent: "2.0000", early_payment_discount_days: 10}
+
+sales_channels:     # 1B §4.7 (D10); MARKETPLACE commission is set per industry pack
+  - {channel_code: WEBSITE, channel_name: Website, is_online: true, requires_shipment: true, allowed_customer_type: BOTH}
+  - {channel_code: MOBILE_APP, channel_name: Mobile app, is_online: true, requires_shipment: true, allowed_customer_type: B2C}
+  - {channel_code: WHATSAPP, channel_name: WhatsApp orders, is_online: true, requires_shipment: true, allowed_customer_type: BOTH}
+  - {channel_code: PHONE, channel_name: Phone orders, is_online: false, requires_shipment: true, allowed_customer_type: BOTH}
+  - {channel_code: MARKETPLACE, channel_name: Online marketplace, is_online: true, requires_shipment: true, allowed_customer_type: B2C, commission_percent: "15.0000"}
+  - {channel_code: RETAIL_STORE, channel_name: Retail store counter, is_online: false, requires_shipment: false, allowed_customer_type: B2C}
+  - {channel_code: FIELD_SALES, channel_name: Field sales representative, is_online: false, requires_shipment: true, allowed_customer_type: B2B}
+
+marketing_channels: # 1B §4.7 (D10); OWNED = owned media that can carry campaigns without being paid media
+  - {channel_code: INSTAGRAM, channel_name: Instagram, channel_group: PAID_SOCIAL, is_paid: true, supports_campaigns: true}
+  - {channel_code: FACEBOOK, channel_name: Facebook, channel_group: PAID_SOCIAL, is_paid: true, supports_campaigns: true}
+  - {channel_code: YOUTUBE, channel_name: YouTube, channel_group: PAID_SOCIAL, is_paid: true, supports_campaigns: true}
+  - {channel_code: GOOGLE_ADS, channel_name: Google Ads, channel_group: PAID_SEARCH, is_paid: true, supports_campaigns: true}
+  - {channel_code: MARKETPLACE_ADS, channel_name: Marketplace ads, channel_group: PAID_SEARCH, is_paid: true, supports_campaigns: true}
+  - {channel_code: ORGANIC_SEARCH, channel_name: Organic search, channel_group: ORGANIC, is_paid: false, supports_campaigns: false}
+  - {channel_code: EMAIL, channel_name: Email newsletter, channel_group: OWNED, is_paid: false, supports_campaigns: true}
+  - {channel_code: REFERRAL, channel_name: Customer referral, channel_group: REFERRAL, is_paid: false, supports_campaigns: false}
+  - {channel_code: TRADE_SHOW, channel_name: Trade show, channel_group: OFFLINE, is_paid: true, supports_campaigns: true}
+  - {channel_code: FIELD_SALES, channel_name: Field sales visit, channel_group: OFFLINE, is_paid: false, supports_campaigns: false}
+  - {channel_code: DIRECT, channel_name: Direct / returning, channel_group: DIRECT, is_paid: false, supports_campaigns: false}
+
+# Fictional logistics partners (1B §4.7): 2 express, 2 surface LTL, 1 FTL, 1 hyperlocal. Each becomes a
+# SERVICES supplier in master data. Performance (transit days, failure rates) is configured elsewhere.
+shipping_carriers:
+  - {carrier_code: SWIFTLINE, carrier_name: Swiftline Express, carrier_type: EXPRESS_COURIER, supports_cod: true, supports_reverse_pickup: true, tracking_number_prefix: SWF, tracking_url_template: "https://track.swiftline.example/{awb}"}
+  - {carrier_code: AIRWING, carrier_name: Airwing Couriers, carrier_type: EXPRESS_COURIER, supports_cod: true, supports_reverse_pickup: true, tracking_number_prefix: AWC, tracking_url_template: "https://airwing.example/track/{awb}"}
+  - {carrier_code: GANGAROAD, carrier_name: Ganga Roadways Surface, carrier_type: SURFACE_LTL, supports_cod: true, supports_reverse_pickup: false, tracking_number_prefix: GRS, tracking_url_template: "https://gangaroadways.example/lr/{awb}"}
+  - {carrier_code: KONKANLINE, carrier_name: Konkan Cargo Lines, carrier_type: SURFACE_LTL, supports_cod: false, supports_reverse_pickup: false, tracking_number_prefix: KCL, tracking_url_template: "https://konkancargo.example/{awb}"}
+  - {carrier_code: VINDHYAFTL, carrier_name: Vindhya Freight Carriers, carrier_type: FULL_TRUCKLOAD, supports_cod: false, supports_reverse_pickup: false, tracking_number_prefix: VFC}
+  - {carrier_code: DASHDROP, carrier_name: DashDrop Hyperlocal, carrier_type: HYPERLOCAL, supports_cod: true, supports_reverse_pickup: true, tracking_number_prefix: DDH, tracking_url_template: "https://dashdrop.example/o/{awb}"}
+
+# Invented banks (D24): names and IFSC bank codes are fictional. The X first letter keeps the codes
+# visibly synthetic. Company bank accounts are created from these in master data.
+banks:
+  - {bank_code: XDCB, bank_name: Deccan Commercial Bank}
+  - {bank_code: XKSB, bank_name: Konkan Sahyadri Bank}
+  - {bank_code: XNMB, bank_name: Narmada Mercantile Bank}

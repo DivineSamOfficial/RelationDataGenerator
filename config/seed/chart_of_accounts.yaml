@@ -1,0 +1,117 @@
+# Chart of accounts (1B §5). Account codes live here, never in Python (D16): posting rules find
+# accounts by system_role, business unit, GSTIN, expense category or bank account.
+#
+# Fields: code, name, type (account_type_code), parent (code; omitted at level 1), postable,
+# role (system_role), control (AR / AP / INVENTORY / BANK / GST), normal (only when it differs from
+# the type's, i.e. contra accounts), cash_flow (D78). requires_cost_center is TRUE for every postable
+# P&L account (1B §4.9) and is derived by the loader, not written here.
+
+accounts:
+  # --- 1 Assets ---------------------------------------------------------------------------------
+  - {code: "10000", name: Current Assets, type: ASSET, postable: false, cash_flow: NOT_APPLICABLE}
+  - {code: "10100", name: Cash and Bank, type: ASSET, parent: "10000", postable: false, cash_flow: CASH}
+  - {code: "10300", name: Payment Clearing - Cards/UPI, type: ASSET, parent: "10000", postable: true, role: PAYMENT_CLEARING, cash_flow: OPERATING}
+  - {code: "11000", name: Trade Receivables, type: ASSET, parent: "10000", postable: true, role: AR_CONTROL, control: AR, cash_flow: OPERATING}
+  - {code: "12000", name: Inventory, type: ASSET, parent: "10000", postable: true, role: INVENTORY, control: INVENTORY, cash_flow: OPERATING}
+  - {code: "12100", name: Inventory in Transit, type: ASSET, parent: "10000", postable: true, role: INVENTORY_IN_TRANSIT, cash_flow: OPERATING}
+  - {code: "13000", name: GST Input Credit, type: ASSET, parent: "10000", postable: false, cash_flow: OPERATING}
+  - {code: "14000", name: Advances to Suppliers, type: ASSET, parent: "10000", postable: true, role: SUPPLIER_ADVANCES, cash_flow: OPERATING}
+  - {code: "14100", name: Prepaid Expenses, type: ASSET, parent: "10000", postable: true, cash_flow: OPERATING}
+  - {code: "15000", name: Non-current Assets, type: ASSET, postable: false, cash_flow: NOT_APPLICABLE}
+  - {code: "15100", name: Furniture & Fixtures, type: ASSET, parent: "15000", postable: true, cash_flow: INVESTING}
+  - {code: "15200", name: Computers & Equipment, type: ASSET, parent: "15000", postable: true, cash_flow: INVESTING}
+  - {code: "15900", name: Accumulated Depreciation, type: ASSET, parent: "15000", postable: true, role: ACCUMULATED_DEPRECIATION, normal: CREDIT, cash_flow: OPERATING}
+  # --- 2 Liabilities ----------------------------------------------------------------------------
+  - {code: "20000", name: Current Liabilities, type: LIABILITY, postable: false, cash_flow: NOT_APPLICABLE}
+  - {code: "21000", name: Trade Payables, type: LIABILITY, parent: "20000", postable: true, role: AP_CONTROL, control: AP, cash_flow: OPERATING}
+  - {code: "21100", name: Goods Received Not Invoiced, type: LIABILITY, parent: "20000", postable: true, role: GRNI, cash_flow: OPERATING}
+  - {code: "21200", name: Accrued Expenses, type: LIABILITY, parent: "20000", postable: true, role: ACCRUED_EXPENSES, cash_flow: OPERATING}
+  - {code: "21300", name: Customer Advances, type: LIABILITY, parent: "20000", postable: true, role: CUSTOMER_ADVANCES, cash_flow: OPERATING}
+  - {code: "21400", name: Salaries Payable, type: LIABILITY, parent: "20000", postable: true, role: SALARIES_PAYABLE, cash_flow: OPERATING}
+  - {code: "22000", name: GST Output Liability, type: LIABILITY, parent: "20000", postable: false, cash_flow: OPERATING}
+  # --- 3 Equity ---------------------------------------------------------------------------------
+  - {code: "30000", name: Equity, type: EQUITY, postable: false, cash_flow: NOT_APPLICABLE}
+  - {code: "30100", name: Share Capital, type: EQUITY, parent: "30000", postable: true, role: SHARE_CAPITAL, cash_flow: FINANCING}
+  - {code: "30200", name: Retained Earnings, type: EQUITY, parent: "30000", postable: true, role: RETAINED_EARNINGS, cash_flow: NOT_APPLICABLE}
+  - {code: "30300", name: Opening Balance Equity, type: EQUITY, parent: "30000", postable: true, role: OPENING_BALANCE_EQUITY, cash_flow: NOT_APPLICABLE}
+  # --- 4 Revenue --------------------------------------------------------------------------------
+  - {code: "40000", name: Revenue, type: REVENUE, postable: false, cash_flow: NOT_APPLICABLE}
+  - {code: "44000", name: Shipping Charges Recovered, type: REVENUE, parent: "40000", postable: true, role: SHIPPING_INCOME, cash_flow: NOT_APPLICABLE}
+  - {code: "49000", name: Other Income, type: REVENUE, parent: "40000", postable: false, cash_flow: NOT_APPLICABLE}
+  - {code: "49100", name: Interest Income, type: REVENUE, parent: "49000", postable: true, role: INTEREST_INCOME, cash_flow: NOT_APPLICABLE}
+  - {code: "49200", name: Rounding Off, type: REVENUE, parent: "49000", postable: true, role: ROUNDING_OFF, cash_flow: NOT_APPLICABLE}
+  - {code: "49300", name: Inventory Adjustment Gains, type: REVENUE, parent: "49000", postable: true, role: INVENTORY_ADJUSTMENT_GAIN, cash_flow: NOT_APPLICABLE}
+  # --- 5 Cost of goods sold ---------------------------------------------------------------------
+  - {code: "50000", name: Cost of Goods Sold, type: COGS, postable: false, cash_flow: NOT_APPLICABLE}
+  - {code: "52000", name: Inventory Shrinkage & Write-offs, type: COGS, parent: "50000", postable: true, role: INVENTORY_WRITE_OFF, cash_flow: NOT_APPLICABLE}
+  - {code: "53000", name: Purchase Price Variance, type: COGS, parent: "50000", postable: true, role: PURCHASE_PRICE_VARIANCE, cash_flow: NOT_APPLICABLE}
+  # --- 6 Operating expenses ---------------------------------------------------------------------
+  - {code: "60000", name: Operating Expenses, type: EXPENSE, postable: false, cash_flow: NOT_APPLICABLE}
+  - {code: "60100", name: Salaries & Wages, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "60200", name: Staff Welfare, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "60300", name: Rent, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "60400", name: Electricity & Water, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "60500", name: Internet & Telephone, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "60600", name: Software Subscriptions, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "60700", name: AI Tool Subscriptions, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "60800", name: Cloud Hosting, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "60900", name: Repairs & Maintenance, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "61000", name: Security & Housekeeping, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "61100", name: Travel & Conveyance, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "61200", name: Advertising & Marketing, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "61300", name: Professional Fees, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "61400", name: Printing & Stationery, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "61500", name: Office Expenses, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "61600", name: Insurance, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "61700", name: Packaging Materials, type: EXPENSE, parent: "60000", postable: true, cash_flow: NOT_APPLICABLE}
+  - {code: "61900", name: Depreciation, type: EXPENSE, parent: "60000", postable: true, role: DEPRECIATION, cash_flow: NOT_APPLICABLE}
+  - {code: "62000", name: Freight Outward & Courier, type: EXPENSE, parent: "60000", postable: true, role: FREIGHT_OUTWARD, cash_flow: NOT_APPLICABLE}
+  - {code: "62100", name: Marketplace Commission, type: EXPENSE, parent: "60000", postable: true, role: MARKETPLACE_COMMISSION, cash_flow: NOT_APPLICABLE}
+  - {code: "62200", name: Bank Charges, type: EXPENSE, parent: "60000", postable: true, role: BANK_CHARGES, cash_flow: NOT_APPLICABLE}
+  - {code: "62300", name: Payment Gateway Charges, type: EXPENSE, parent: "60000", postable: true, role: PAYMENT_GATEWAY_CHARGES, cash_flow: NOT_APPLICABLE}
+  - {code: "62400", name: GST - Ineligible Input Credit, type: EXPENSE, parent: "60000", postable: true, role: INELIGIBLE_GST, cash_flow: NOT_APPLICABLE}
+
+# Accounts generated from master data (1B §5 "derived"). {seq} is a 2-digit sequence (01-99) and
+# {component} the GST digit: 1 = CGST, 2 = SGST or UTGST, 3 = IGST.
+derived:
+  bank_current:   {code: "101{seq}", name: "Bank - {name}", type: ASSET, parent: "10100", control: BANK, cash_flow: CASH}
+  petty_cash:     {code: "102{seq}", name: "Petty Cash - {name}", type: ASSET, parent: "10100", control: BANK, cash_flow: CASH}
+  cash_credit:    {code: "230{seq}", name: "Cash Credit Facility - {name}", type: LIABILITY, parent: "20000", control: BANK, cash_flow: FINANCING}
+  gst_input:      {code: "13{seq}{component}", name: "Input {tax} - {state}", type: ASSET, parent: "13000", control: GST, cash_flow: OPERATING}
+  gst_output:     {code: "22{seq}{component}", name: "Output {tax} - {state}", type: LIABILITY, parent: "22000", control: GST, cash_flow: OPERATING}
+  bu_revenue:     {code: "41{seq}0", name: "Sales - {name}", type: REVENUE, parent: "40000", cash_flow: NOT_APPLICABLE}
+  bu_returns:     {code: "42{seq}0", name: "Sales Returns - {name}", type: REVENUE, parent: "40000", normal: DEBIT, cash_flow: NOT_APPLICABLE}
+  bu_cogs:        {code: "51{seq}0", name: "COGS - {name}", type: COGS, parent: "50000", cash_flow: NOT_APPLICABLE}
+
+# Expense categories (1B §4.8) and the GL account each posts to (by code). default_gst_rate null =
+# outside GST (salaries, electricity). is_itc_eligible false = blocked credit (GST goes to the expense).
+expense_categories:
+  - {category_code: RENT, category_name: Rent, category_group: OCCUPANCY, account: "60300", default_gst_rate: "18", is_itc_eligible: true, recurrence: MONTHLY, payee_type: SUPPLIER}
+  - {category_code: ELECTRICITY, category_name: Electricity, category_group: UTILITIES, account: "60400", default_gst_rate: null, is_itc_eligible: false, recurrence: MONTHLY, payee_type: SUPPLIER}
+  - {category_code: WATER, category_name: Water, category_group: UTILITIES, account: "60400", default_gst_rate: null, is_itc_eligible: false, recurrence: MONTHLY, payee_type: SUPPLIER}
+  - {category_code: INTERNET_PHONE, category_name: Internet & Telephone, category_group: UTILITIES, account: "60500", default_gst_rate: "18", is_itc_eligible: true, recurrence: MONTHLY, payee_type: SUPPLIER}
+  - {category_code: SAAS, category_name: Software Subscriptions, category_group: TECHNOLOGY, account: "60600", default_gst_rate: "18", is_itc_eligible: true, recurrence: MONTHLY, payee_type: SUPPLIER}
+  - {category_code: AI_TOOLS, category_name: AI Tool Subscriptions, category_group: TECHNOLOGY, account: "60700", default_gst_rate: "18", is_itc_eligible: true, recurrence: MONTHLY, payee_type: SUPPLIER}
+  - {category_code: CLOUD, category_name: Cloud Hosting, category_group: TECHNOLOGY, account: "60800", default_gst_rate: "18", is_itc_eligible: true, recurrence: MONTHLY, payee_type: SUPPLIER}
+  - {category_code: SALARIES, category_name: Salaries & Wages, category_group: PEOPLE, account: "60100", default_gst_rate: null, is_itc_eligible: false, recurrence: MONTHLY, payee_type: EMPLOYEE}
+  - {category_code: CONTRACT_LABOUR, category_name: Contract Warehouse Labour, category_group: PEOPLE, account: "60100", default_gst_rate: "18", is_itc_eligible: true, recurrence: MONTHLY, payee_type: SUPPLIER}
+  - {category_code: STAFF_WELFARE, category_name: Staff Welfare, category_group: PEOPLE, account: "60200", default_gst_rate: "5", is_itc_eligible: false, recurrence: AD_HOC, payee_type: SUPPLIER}
+  - {category_code: TRAVEL, category_name: Travel & Conveyance, category_group: PEOPLE, account: "61100", default_gst_rate: "5", is_itc_eligible: false, recurrence: AD_HOC, payee_type: EMPLOYEE}
+  - {category_code: REPAIRS, category_name: Repairs & Maintenance, category_group: OCCUPANCY, account: "60900", default_gst_rate: "18", is_itc_eligible: true, recurrence: AD_HOC, payee_type: SUPPLIER}
+  - {category_code: SECURITY, category_name: Security Services, category_group: OCCUPANCY, account: "61000", default_gst_rate: "18", is_itc_eligible: true, recurrence: MONTHLY, payee_type: SUPPLIER}
+  - {category_code: HOUSEKEEPING, category_name: Housekeeping, category_group: OCCUPANCY, account: "61000", default_gst_rate: "18", is_itc_eligible: true, recurrence: MONTHLY, payee_type: SUPPLIER}
+  - {category_code: DIGITAL_ADS, category_name: Digital Advertising, category_group: MARKETING, account: "61200", default_gst_rate: "18", is_itc_eligible: true, recurrence: MONTHLY, payee_type: SUPPLIER}
+  - {category_code: PRINT_EVENTS, category_name: Print & Events, category_group: MARKETING, account: "61200", default_gst_rate: "18", is_itc_eligible: true, recurrence: AD_HOC, payee_type: SUPPLIER}
+  - {category_code: MARKETPLACE_FEES, category_name: Marketplace Commission, category_group: MARKETING, account: "62100", default_gst_rate: "18", is_itc_eligible: true, recurrence: MONTHLY, payee_type: SUPPLIER}
+  - {category_code: FREIGHT_OUTWARD, category_name: Freight Outward, category_group: LOGISTICS, account: "62000", default_gst_rate: "18", is_itc_eligible: true, recurrence: MONTHLY, payee_type: SUPPLIER}
+  - {category_code: COURIER, category_name: Courier, category_group: LOGISTICS, account: "62000", default_gst_rate: "18", is_itc_eligible: true, recurrence: AD_HOC, payee_type: SUPPLIER}
+  - {category_code: PACKAGING, category_name: Packaging Materials, category_group: LOGISTICS, account: "61700", default_gst_rate: "18", is_itc_eligible: true, recurrence: MONTHLY, payee_type: SUPPLIER}
+  - {category_code: AUDIT_FEES, category_name: Audit Fees, category_group: PROFESSIONAL, account: "61300", default_gst_rate: "18", is_itc_eligible: true, recurrence: ANNUAL, payee_type: SUPPLIER}
+  - {category_code: LEGAL, category_name: Legal & Consulting, category_group: PROFESSIONAL, account: "61300", default_gst_rate: "18", is_itc_eligible: true, recurrence: AD_HOC, payee_type: SUPPLIER}
+  - {category_code: RECRUITMENT, category_name: Recruitment Services, category_group: PROFESSIONAL, account: "61300", default_gst_rate: "18", is_itc_eligible: true, recurrence: AD_HOC, payee_type: SUPPLIER}
+  - {category_code: STATIONERY, category_name: Printing & Stationery, category_group: ADMIN, account: "61400", default_gst_rate: "18", is_itc_eligible: true, recurrence: AD_HOC, payee_type: SUPPLIER}
+  - {category_code: OFFICE_SUPPLIES, category_name: Office Supplies, category_group: ADMIN, account: "61500", default_gst_rate: "18", is_itc_eligible: true, recurrence: AD_HOC, payee_type: SUPPLIER}
+  - {category_code: PETTY_CASH, category_name: Petty Cash Expenses, category_group: ADMIN, account: "61500", default_gst_rate: null, is_itc_eligible: false, recurrence: AD_HOC, payee_type: EMPLOYEE}
+  - {category_code: INSURANCE, category_name: Insurance, category_group: ADMIN, account: "61600", default_gst_rate: "18", is_itc_eligible: true, recurrence: ANNUAL, payee_type: SUPPLIER}
+  - {category_code: BANK_CHARGES, category_name: Bank Charges, category_group: FINANCE, account: "62200", default_gst_rate: "18", is_itc_eligible: true, recurrence: AD_HOC, payee_type: SUPPLIER}
+  - {category_code: GATEWAY_CHARGES, category_name: Payment Gateway Charges, category_group: FINANCE, account: "62300", default_gst_rate: "18", is_itc_eligible: true, recurrence: MONTHLY, payee_type: SUPPLIER}
