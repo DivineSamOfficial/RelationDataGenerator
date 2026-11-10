@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phases 2–7
-**Last updated:** 2026-11-08
+**Last updated:** 2026-11-10 (Phase 3 step 3.1: §2.6, D86)
 **Builds on:** Parts 1A–1F (D1–D63). Workspaces and re-run actions: 1A Addendum A2 (D13, D14)
 
 ---
@@ -102,6 +102,16 @@ The defaults are chosen so that no single outcome is unrealistically common (§6
 ### 2.5 Performance approach
 
 Master data and all open documents for the current day are cached in memory. Each step builds rows in memory and writes them with multi-row `executemany` batches (configurable batch size, default 1,000 rows per statement). Indexes stay in place: day-sized transactions keep the cost acceptable, and the schema is validated continuously. Phase 3 measures throughput (rows/s) per table and records it in `generation_run_steps`, which feeds the Plan preview's time estimate (A1 §8.4). Target: Medium preset (~2 years, ~2.5M rows) in under 15 minutes on a laptop. This target is checked in Phase 3, not assumed.
+
+### 2.6 Implementation notes (Phase 3 step 3.1)
+
+| Topic | Decision |
+|---|---|
+| **D86 Late-link FKs** | Phase 3 found two FK cycles between tables, both closed by a **nullable** FK; D19 only removed the department/warehouse-head cycles. (1) `stock_adjustment_line_items.inventory_batch_id` ↔ `inventory_batches.stock_adjustment_line_item_id`: an OPENING / FOUND line creates its batch (batch → line, line's batch NULL, as 1C says), a loss line points to an older batch. (2) `customer_payments.settlement_bank_transaction_id` (D63) ↔ `bank_transactions.customer_payment_id` / `refund_id`, `refunds.customer_payment_id`: a receipt is settled by a bank line later. No row-level cycle exists, so no schema change: the engine treats the first FK of each pair as a **late link**, orders tables without it, inserts it as NULL and sets it by UPDATE straight after the inserts in the same transaction. Any other cycle stops the engine with an error. |
+| Default end date (D68) | The last simulated day defaults to **yesterday** (IST): "Continue advances to today" means the clock reaches today with yesterday's business complete. A simulated day of today or later needs `allow_future`. |
+| Reproducibility scope (D65) | Streams are keyed by SHA-256 of `(seed, date, name)`. Same data needs the same Python minor version and the same Faker version (pinned exactly: `Faker==40.40.0`); both are stored in every run's `config_snapshot.environment` together with the app version. Determinism covers business columns; system tables' timing and audit columns are wall clock (D74), including `document_sequences`. |
+| Generation settings | `config/generation.yaml`: Small / Medium / Large presets (1B §3.4 volumes; Small ≈ ÷5, Large ≈ ×5), dates, batch size. Unknown keys and overrides are rejected; history ≤ 3 years. Later steps add their sections. |
+| Document series | One service issues every series in the DDL (1C §2.1, D38, JV). `PINV` from 1C §2.1 has no column (`supplier_invoices` keeps the supplier's own number), so it isn't issued. |
 
 ---
 

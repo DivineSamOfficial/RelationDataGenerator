@@ -1,8 +1,10 @@
 # Pinned versions verified with Python 3.12.9 on 2026-11-08 (Phase 2 step 2.1).
+# Faker added 2026-11-10 (Phase 3 step 3.1); generated master data depends on its exact version.
 # Install the project itself with: pip install -e ".[dev]"
 annotated-doc==0.0.5
 cffi==2.1.1
 cryptography==50.0.2
+Faker==40.40.0
 iniconfig==2.3.1
 markdown-it-py==4.2.0
 mdurl==0.1.2

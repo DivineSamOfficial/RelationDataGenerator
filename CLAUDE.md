@@ -114,6 +114,7 @@ Priorities: correct architecture, relational integrity, realistic business proce
 | D83 | No CHECK on AUTO_INCREMENT columns (MySQL 3818); self-reference "not itself" rules go to validation |
 | D84 | Line-amount formulas (taxable, CGST/SGST/IGST, line total) and header totals are CHECK constraints; generator must use `Decimal` ROUND_HALF_UP (matches MySQL ROUND exactly, test A10) |
 | D85 | No index may start with a foreign key's columns and continue with a nullable column (MySQL 26.10 defect silently disables such FKs, test A12) |
+| D86 | Two FK cycles via nullable "late links" (`stock_adjustment_line_items.inventory_batch_id`, `customer_payments.settlement_bank_transaction_id`): the writer inserts them NULL and sets them by UPDATE in the same transaction; any other cycle is an error (1G §2.6) |
 
 ## Database standards
 

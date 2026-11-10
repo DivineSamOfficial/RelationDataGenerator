@@ -1,0 +1,51 @@
+# Data generation settings (Phase 3). The engine holds the mechanisms; the numbers live here (1G §2.3).
+#
+# A run uses one preset, optionally adjusted with overrides (CLI: --set volumes.customers_b2b=500).
+# Unknown keys are rejected, so a typo can't silently fall back to a default.
+# Later Phase 3 steps add their own sections (demand, procurement, scenarios, ...).
+
+defaults:
+  preset: medium
+  fiscal_year_start_month: 4      # April (D7); must match companies.fy_start_month
+  batch_size: 1000                # rows per multi-row INSERT statement (1G §2.5)
+  history:
+    start_date: null              # first simulated day (YYYY-MM-DD); null = end_date minus the preset's history_months
+    end_date: null                # last simulated day; null = yesterday (IST). Today or later needs allow_future (D68)
+    allow_future: false
+
+# Volumes from Part 1B §3.4. Medium is the design baseline; Small ≈ ÷5 and Large ≈ ×5 for the tables that scale.
+# Warehouses (5 DCs + 3 stores) are a setup input, not a preset value.
+presets:
+  small:
+    history_months: 3
+    volumes:
+      customers_b2b: 240
+      customers_b2c: 1160
+      suppliers: 52
+      products: 400
+      employees: 36
+      locations_per_dc: 80
+      locations_per_store: 12
+      orders_per_day: 14          # average base demand before seasonality and trend
+  medium:
+    history_months: 24
+    volumes:
+      customers_b2b: 1200
+      customers_b2c: 5800
+      suppliers: 260
+      products: 2000
+      employees: 180
+      locations_per_dc: 400
+      locations_per_store: 60
+      orders_per_day: 70          # ≈ 50,000 orders over two years (master prompt §7)
+  large:
+    history_months: 36
+    volumes:
+      customers_b2b: 6000
+      customers_b2c: 29000
+      suppliers: 1300
+      products: 10000
+      employees: 900
+      locations_per_dc: 2000
+      locations_per_store: 300
+      orders_per_day: 350

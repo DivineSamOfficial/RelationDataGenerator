@@ -17,14 +17,17 @@ from scmgen.core.settings import ALL_ROLES, DEFAULT_ENV_FILE, Settings, load_set
 from scmgen.db.bootstrap import init_database
 from scmgen.db.connection import create_mysql_engine, verify_connection
 from scmgen.db.design_check import run_design_check
+from scmgen.generation.config import load_generation_config
 from scmgen.db.server_check import evaluate_server, fetch_server_info
 from scmgen.db.workspaces import WorkspaceInfo, create_workspace, delete_workspace, get_workspace, list_workspaces
 
 app = typer.Typer(help="Synthetic supply-chain OLTP generator.", no_args_is_help=True)
 db_app = typer.Typer(help="MySQL server and schema commands.", no_args_is_help=True)
 workspace_app = typer.Typer(help="Create, list, inspect and delete company workspaces.", no_args_is_help=True)
+generate_app = typer.Typer(help="Data generation (Phase 3).", no_args_is_help=True)
 app.add_typer(db_app, name="db")
 app.add_typer(workspace_app, name="workspace")
+app.add_typer(generate_app, name="generate")
 
 log = logging.getLogger("scmgen.cli")
 
@@ -224,6 +227,44 @@ def workspace_delete(
     except ScmgenError as exc:
         _fail(exc, "workspace.delete.error")
     typer.secho(f"Workspace '{code}' deleted ({outcome}).", fg=typer.colors.GREEN)
+
+
+# --- generate commands ------------------------------------------------------------------------
+
+def _parse_sets(values: list[str]) -> dict[str, str]:
+    overrides: dict[str, str] = {}
+    for item in values:
+        key, sep, value = item.partition("=")
+        if not sep or not key.strip():
+            typer.secho(f"--set expects key=value, got {item!r}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(2)
+        overrides[key.strip()] = value.strip()
+    return overrides
+
+
+@generate_app.command("config")
+def generate_config(
+    preset: Annotated[str | None, typer.Option("--preset", help="small, medium or large (default from config).")] = None,
+    sets: Annotated[list[str], typer.Option(
+        "--set", help="Override a setting, e.g. --set volumes.customers_b2b=500 (repeatable).")] = [],
+) -> None:
+    """Show the effective generation settings (preset + overrides) and their hash."""
+    _bootstrap()
+    try:
+        config = load_generation_config(preset=preset, overrides=_parse_sets(sets))
+    except ScmgenError as exc:
+        _fail(exc, "generate.config.error")
+    typer.echo(f"preset            {config.preset}")
+    typer.echo(f"simulated days    {config.start_date} .. {config.end_date} ({config.days} days)")
+    typer.echo(f"financial year    starts in month {config.fiscal_year_start_month}")
+    typer.echo(f"batch size        {config.batch_size} rows per INSERT")
+    typer.echo("volumes")
+    for name, value in vars(config.volumes).items():
+        typer.echo(f"  {name:<22}{value:>10,}")
+    environment = config.snapshot()["environment"]
+    typer.echo(f"environment       app {environment['app_version']}, Python {environment['python']}, "
+               f"Faker {environment['faker']}")
+    typer.echo(f"config hash       {config.config_hash()}")
 
 
 if __name__ == "__main__":  # pragma: no cover

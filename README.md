@@ -53,6 +53,14 @@ Python 3.11+, MySQL 8.0.16+, DuckDB, SQLAlchemy/PyMySQL, Faker, YAML config, Typ
    ```
    Lists every difference (missing/extra table or column, type, NULL, generated, PK, FK target) and exits with code 1 if there is any.
 
+## Generation (Phase 3, in progress)
+
+```bash
+scmgen generate config                                  # effective settings of the default (medium) preset
+scmgen generate config --preset small --set volumes.customers_b2b=500 --set history.start_date=2026-04-01
+```
+Settings live in `config/generation.yaml`; `--set` overrides any of them for one run, and a mistyped name is refused.
+
 ## Tests
 
 ```bash

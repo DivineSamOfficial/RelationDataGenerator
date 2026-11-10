@@ -1,0 +1,217 @@
+"""Generation configuration: presets, overrides, resolved dates, snapshot and hash.
+
+``config/generation.yaml`` holds defaults and the Small / Medium / Large presets. A run resolves them
+into one ``GenerationConfig``. Its ``snapshot()`` is stored in ``generation_runs.config_snapshot``
+with a SHA-256 ``config_hash``, so every run records exactly what produced its data (1G §5.2).
+"""
+
+from __future__ import annotations
+
+import copy
+from calendar import monthrange
+import hashlib
+import json
+import platform
+from dataclasses import asdict, dataclass
+from datetime import date, timedelta
+from importlib.metadata import version as package_version
+from pathlib import Path
+from typing import Any, Mapping
+
+import yaml
+
+from scmgen import __version__
+from scmgen.core.calendar import today_ist
+from scmgen.core.errors import ConfigError
+from scmgen.core.settings import DEFAULT_CONFIG_DIR
+
+GENERATION_FILE = "generation.yaml"
+MAX_HISTORY_DAYS = 3 * 366 + 1           # design: 1-3 years of history (1G §3)
+
+_DEFAULT_KEYS = {"preset", "fiscal_year_start_month", "batch_size", "history"}
+_HISTORY_KEYS = {"start_date", "end_date", "allow_future"}
+_PRESET_KEYS = {"history_months", "volumes"}
+
+
+@dataclass(frozen=True)
+class Volumes:
+    customers_b2b: int
+    customers_b2c: int
+    suppliers: int
+    products: int
+    employees: int
+    locations_per_dc: int
+    locations_per_store: int
+    orders_per_day: int
+
+
+_VOLUME_KEYS = set(Volumes.__dataclass_fields__)
+
+
+@dataclass(frozen=True)
+class GenerationConfig:
+    preset: str
+    start_date: date
+    end_date: date
+    allow_future: bool
+    fiscal_year_start_month: int
+    batch_size: int
+    volumes: Volumes
+
+    @property
+    def days(self) -> int:
+        return (self.end_date - self.start_date).days + 1
+
+    def snapshot(self) -> dict[str, Any]:
+        """JSON-ready record of everything that shapes the generated data, incl. the versions it depends on."""
+        values = asdict(self)
+        values["start_date"] = self.start_date.isoformat()
+        values["end_date"] = self.end_date.isoformat()
+        values["environment"] = {
+            "app_version": __version__,
+            "python": platform.python_version(),
+            "faker": package_version("faker"),
+        }
+        return values
+
+    def config_hash(self) -> str:
+        canonical = json.dumps(self.snapshot(), sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _read(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        raise ConfigError(f"Config file not found: {path}")
+    try:
+        content = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"Invalid YAML in {path}: {exc}") from exc
+    if not isinstance(content, dict):
+        raise ConfigError(f"{path} must contain a mapping at the top level")
+    return content
+
+
+def _reject_unknown(section: Mapping[str, Any], allowed: set[str], where: str) -> None:
+    unknown = sorted(set(section) - allowed)
+    if unknown:
+        raise ConfigError(f"Unknown setting(s) in {where}: {', '.join(unknown)} (allowed: {', '.join(sorted(allowed))})")
+
+
+def _parse_override_value(raw: str) -> Any:
+    """``--set key=value`` values are YAML scalars: ``500`` → int, ``true`` → bool, ``2025-04-01`` → date."""
+    try:
+        return yaml.safe_load(raw)
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"Cannot read override value {raw!r}: {exc}") from exc
+
+
+def _apply_override(effective: dict[str, Any], dotted: str, value: Any) -> None:
+    parts = dotted.split(".")
+    node = effective
+    for part in parts[:-1]:
+        if not isinstance(node.get(part), dict):
+            raise ConfigError(f"Override {dotted!r}: '{part}' is not a settings section")
+        node = node[part]
+    if parts[-1] not in node:
+        raise ConfigError(f"Override {dotted!r}: unknown setting '{parts[-1]}'")
+    node[parts[-1]] = value
+
+
+def _int(value: Any, name: str, low: int, high: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(f"{name} must be a whole number, got {value!r}")
+    if not low <= value <= high:
+        raise ConfigError(f"{name} must be between {low} and {high}, got {value}")
+    return value
+
+
+def _date(value: Any, name: str) -> date | None:
+    if value is None or isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value)
+        except ValueError:
+            pass
+    raise ConfigError(f"{name} must be a date (YYYY-MM-DD) or null, got {value!r}")
+
+
+def _months_before(day: date, months: int) -> date:
+    """The day after the same date ``months`` earlier: 24 months ending 2026-11-09 start 2024-11-10."""
+    year, month = divmod(day.year * 12 + day.month - 1 - months, 12)
+    month += 1
+    last_day = monthrange(year, month)[1]
+    return date(year, month, min(day.day, last_day)) + timedelta(days=1)
+
+
+def load_generation_config(
+    config_dir: Path = DEFAULT_CONFIG_DIR,
+    preset: str | None = None,
+    overrides: Mapping[str, Any] | None = None,
+    today: date | None = None,
+) -> GenerationConfig:
+    """Resolve the effective configuration.
+
+    ``overrides`` use dotted keys relative to the effective settings, e.g.
+    ``{"volumes.customers_b2b": 500, "history.start_date": "2025-04-01", "batch_size": 2000}``.
+    ``today`` exists for tests; it defaults to the real date in IST.
+    """
+    raw = _read(config_dir / GENERATION_FILE)
+    _reject_unknown(raw, {"defaults", "presets"}, GENERATION_FILE)
+    defaults, presets = raw.get("defaults"), raw.get("presets")
+    if not isinstance(defaults, dict) or not isinstance(presets, dict) or not presets:
+        raise ConfigError(f"{GENERATION_FILE} needs a 'defaults' mapping and at least one preset under 'presets'")
+    _reject_unknown(defaults, _DEFAULT_KEYS, "defaults")
+    _reject_unknown(defaults.get("history") or {}, _HISTORY_KEYS, "defaults.history")
+
+    chosen = preset or defaults.get("preset")
+    if chosen not in presets:
+        raise ConfigError(f"Unknown preset {chosen!r}; choose one of: {', '.join(presets)}")
+    preset_cfg = presets[chosen]
+    if not isinstance(preset_cfg, dict):
+        raise ConfigError(f"Preset {chosen!r} must be a mapping")
+    _reject_unknown(preset_cfg, _PRESET_KEYS, f"presets.{chosen}")
+    _reject_unknown(preset_cfg.get("volumes") or {}, _VOLUME_KEYS, f"presets.{chosen}.volumes")
+    missing = sorted(_VOLUME_KEYS - set(preset_cfg.get("volumes") or {}))
+    if missing:
+        raise ConfigError(f"presets.{chosen}.volumes is missing: {', '.join(missing)}")
+
+    # One flat-ish tree that overrides address with dotted keys.
+    effective: dict[str, Any] = {
+        "fiscal_year_start_month": defaults.get("fiscal_year_start_month"),
+        "batch_size": defaults.get("batch_size"),
+        "history_months": preset_cfg.get("history_months"),
+        "history": {key: (defaults.get("history") or {}).get(key) for key in _HISTORY_KEYS},
+        "volumes": copy.deepcopy(preset_cfg["volumes"]),
+    }
+    for dotted, value in (overrides or {}).items():
+        _apply_override(effective, dotted, _parse_override_value(value) if isinstance(value, str) else value)
+
+    fy_month = _int(effective["fiscal_year_start_month"], "fiscal_year_start_month", 1, 12)
+    batch_size = _int(effective["batch_size"], "batch_size", 1, 50_000)
+    history_months = _int(effective["history_months"], "history_months", 1, 36)
+    volumes = Volumes(**{key: _int(effective["volumes"][key], f"volumes.{key}", 1, 10_000_000)
+                         for key in sorted(_VOLUME_KEYS)})
+    allow_future = effective["history"]["allow_future"]
+    if not isinstance(allow_future, bool):
+        raise ConfigError(f"history.allow_future must be true or false, got {allow_future!r}")
+
+    today = today or today_ist()
+    end = _date(effective["history"]["end_date"], "history.end_date") or today - timedelta(days=1)
+    start = _date(effective["history"]["start_date"], "history.start_date") or _months_before(end, history_months)
+    if end >= today and not allow_future:
+        raise ConfigError(f"history.end_date {end} is today or later; set history.allow_future to simulate it (D68)")
+    if start > end:
+        raise ConfigError(f"history.start_date {start} is after history.end_date {end}")
+    if (end - start).days + 1 > MAX_HISTORY_DAYS:
+        raise ConfigError(f"History of {(end - start).days + 1} days exceeds the 3-year maximum (1G §3)")
+
+    return GenerationConfig(
+        preset=chosen,
+        start_date=start,
+        end_date=end,
+        allow_future=allow_future,
+        fiscal_year_start_month=fy_month,
+        batch_size=batch_size,
+        volumes=volumes,
+    )
