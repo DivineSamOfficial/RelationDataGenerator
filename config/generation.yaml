@@ -230,3 +230,26 @@ sales:
   customer_cancel_share: 0.025          # shipped / pickup orders the customer cancels before dispatch
   cancel_delay_hours: [1, 48]           # after placing the order
   duplicate_order_share: 0.10           # of those cancellations: duplicate orders (cancelled within the hour)
+
+# Fulfilment (1D §4-5; step 3.9): warehouse work, carriers and freight, store handovers, invoicing.
+fulfilment:
+  dispatch_cutoff_hour: 12              # DC orders reserved before this ship the same working day, later ones the next
+  pick_start_hour: 10                   # picking waves start
+  carrier_pickup_hours: [15, 19]        # the carrier collects (= dispatch: invoice + stock issue, D4)
+  kg_per_package: {B2B: 25, B2C: 8}
+  surface_min_kg: 40                    # heavier consignments go by surface (LTL) instead of express courier
+  truckload_min_kg: 2000                # and from here by full truckload
+  hyperlocal_max_km: 40                 # B2C deliveries this close to the DC may go hyperlocal
+  hyperlocal_share: 0.6
+  freight_rates:                        # carrier rate card, rupees ex-GST: per shipment + per kg + per kg per 100 km
+    EXPRESS_COURIER: {base: 30, per_kg: 14, per_kg_100km: 1.2}
+    SURFACE_LTL: {base: 120, per_kg: 3.5, per_kg_100km: 0.6}
+    FULL_TRUCKLOAD: {base: 3500, per_kg: 0.4, per_kg_100km: 0.45}
+    HYPERLOCAL: {base: 35, per_kg: 5, per_kg_100km: 0}
+  transit_days: [[40, 1], [300, 2], [800, 3], [1500, 4], [10000, 6]]   # [up to km, days] by express courier
+  surface_extra_days: 2                 # surface and truckload carriers are slower
+  eway_bill_threshold: 50000            # consignment value incl. GST that needs an e-way bill
+  pickup_delay_days: [0, 3]             # store pickup orders are collected this long after confirmation
+  handover_minutes: [2, 10]             # counter sale: from keying in the order to payment and handover
+  counter_methods: {CASH: 0.45, UPI: 0.40, CARD: 0.15}
+  b2cl_threshold: 100000                # GSTR-1 B2CL: unregistered inter-state invoice above this value (1E §5)

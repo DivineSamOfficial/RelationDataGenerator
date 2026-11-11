@@ -1,7 +1,7 @@
 """Reservations, backorders and cancellations (1C §5 ``inventory_reservations``; 1D §2-3; step 3.8b).
 
-* **Allocation at confirmation.** Each order line reserves sellable stock (sellable − reserved, "available to
-  promise"): shipped orders from the distribution centre nearest to the shipping address, split over the next
+* **Allocation at confirmation.** Each order line reserves sellable stock (sellable − reserved − expired batches,
+  "available to promise"): shipped orders from the distribution centre nearest to the shipping address, split over the next
   nearest ones when one can't cover the line; store pickup and counter sales at their store. A line is
   reserved completely or not at all: when total availability is short it waits ``BACKORDERED`` (the order too),
   and the next mornings' **backorder release** reserves it, oldest order first, once receipts have restocked.
@@ -60,6 +60,33 @@ def nearest_dcs(day: DayContext, city: str) -> list[int]:
 # ------------------------------------------------------------------------------------------ stock
 
 
+def expired_stock(day: DayContext) -> dict[tuple[int, int], Decimal]:
+    """Sellable stock of expired batches per (warehouse, product): it can't be picked (V-IN-04), so it is neither
+    available to promise nor part of the stock position, until the expiry sweep writes it off.
+
+    Read in full from the ledger at the first use of a run (D66), then only the batches expiring each new day are
+    added: an expired batch never moves in the processes generated so far (no issue picks it). A process that
+    moves expired stock (the expiry write-off, a return to origin of an expired batch) must update this view."""
+    refs = day.world.refs
+    cache = refs.get("expired_stock")
+    if cache is not None and cache["through"] >= day.day:
+        return cache["quantity"]
+    since = "" if cache is None else "AND b.expiry_date > :since"
+    found = {(r["warehouse_id"], r["product_id"]): r["expired"] for r in day.rows(f"""
+        SELECT t.warehouse_id, t.product_id, SUM(t.quantity) AS expired
+        FROM inventory_batches b JOIN inventory_transactions t ON t.inventory_batch_id = b.inventory_batch_id
+        WHERE b.expiry_date <= :d {since} AND t.stock_status = 'SELLABLE'
+        GROUP BY t.warehouse_id, t.product_id HAVING SUM(t.quantity) > 0""",
+        d=day.day, since=cache["through"] if cache else None)}
+    if cache is None:
+        cache = refs["expired_stock"] = {"through": day.day, "quantity": found}
+    else:
+        for key, qty in found.items():
+            cache["quantity"][key] = cache["quantity"].get(key, Decimal(0)) + qty
+        cache["through"] = day.day
+    return cache["quantity"]
+
+
 class Stock:
     """Today's available-to-promise per warehouse × product, the reservations made and the changes to write."""
 
@@ -71,13 +98,19 @@ class Stock:
         self.touched: dict[tuple[int, int], datetime] = {}
 
     def load(self, product_ids: Iterable[int]) -> None:
+        """Available to promise = sellable − reserved − sellable stock of expired batches (it can't be picked,
+        V-IN-04; the expiry sweep writes it off later)."""
         missing = sorted(set(product_ids) - self.loaded)
         for start in range(0, len(missing), 2000):
-            chunk = missing[start:start + 2000]
+            chunk = ", ".join(map(str, missing[start:start + 2000]))
             for row in self.day.rows(f"""
                     SELECT warehouse_id, product_id, qty_sellable - qty_reserved AS available FROM inventory
-                    WHERE product_id IN ({", ".join(map(str, chunk))})"""):
+                    WHERE product_id IN ({chunk})"""):
                 self.available[(row["warehouse_id"], row["product_id"])] = row["available"]
+            wanted = set(missing[start:start + 2000])
+            for key, qty in expired_stock(self.day).items():
+                if key[1] in wanted:
+                    self.available[key] = self.available.get(key, Decimal(0)) - qty
         self.loaded.update(missing)
 
     def plan(self, warehouses: list[int], product_id: int, qty: Decimal) -> list[tuple[int, Decimal]] | None:
@@ -166,7 +199,7 @@ def open_lines(day: DayContext, statuses: tuple[str, ...], line_status: str | No
     for row in day.rows(f"""
             SELECT o.order_id, o.order_status, o.customer_id, o.order_total_estimate, o.fulfilment_type,
                    o.store_warehouse_id, o.updated_at, a.city AS shipping_city, c.credit_limit,
-                   l.order_line_item_id, l.product_id, l.quantity_ordered AS quantity
+                   l.order_line_item_id, l.product_id, l.quantity_ordered AS quantity, l.updated_at AS line_updated_at
             FROM orders o JOIN order_line_items l ON l.order_id = o.order_id
             JOIN customers c ON c.customer_id = o.customer_id
             LEFT JOIN customer_addresses a ON a.customer_address_id = o.shipping_address_id
@@ -175,7 +208,8 @@ def open_lines(day: DayContext, statuses: tuple[str, ...], line_status: str | No
         order = orders.setdefault(row["order_id"], {**{k: row[k] for k in (
             "order_id", "order_status", "customer_id", "order_total_estimate", "fulfilment_type", "store_warehouse_id",
             "updated_at", "shipping_city", "credit_limit")}, "lines": []})
-        order["lines"].append({k: row[k] for k in ("order_line_item_id", "product_id", "quantity")})
+        order["lines"].append({"order_line_item_id": row["order_line_item_id"], "product_id": row["product_id"],
+                               "quantity": row["quantity"], "updated_at": row["line_updated_at"]})
     return orders
 
 
@@ -190,12 +224,15 @@ def mark_backordered(day: DayContext, order_id: int, line_ids: list[int], at: da
 
 def release_backorders(day: DayContext, stock: Stock, backordered: dict[int, dict[str, Any]]) -> None:
     """Every morning (after the receiving dock): reserve backordered lines that stock now covers, oldest order
-    first; cancel lines that have waited too long (OUT_OF_STOCK)."""
+    first; cancel lines that have waited too long (OUT_OF_STOCK). An order whose other lines have already
+    shipped stays PARTIALLY_SHIPPED (or becomes SHIPPED when its last open lines are cancelled)."""
     settings = day.world.config.sales
     at = day.at(9, 30)
     for order_id, order in sorted(backordered.items()):
+        status = order["order_status"]
         line_ids = [line["order_line_item_id"] for line in order["lines"]]
-        if (day.day - order["updated_at"].date()).days >= settings.backorder_cancel_days:
+        waited = (day.day - min(line["updated_at"] for line in order["lines"]).date()).days
+        if waited >= settings.backorder_cancel_days:
             waiting = line_ids                # waited too long: the customer gives up on the missing lines
         else:
             if order["fulfilment_type"] != "SHIP":
@@ -206,24 +243,28 @@ def release_backorders(day: DayContext, stock: Stock, backordered: dict[int, dic
             if reserved:
                 day.execute("UPDATE order_line_items SET line_status = 'OPEN', updated_at = :t "
                             "WHERE order_line_item_id = :l", [{"t": at, "l": line} for line in reserved])
-            if waiting:
+            if waiting or status != "BACKORDERED":
                 continue
             day.execute("UPDATE orders SET order_status = 'CONFIRMED', updated_at = :t WHERE order_id = :o",
                         {"t": at, "o": order_id})
             record_status(day, "order", order_id, "BACKORDERED", "CONFIRMED", at, None, "Backorder released: stock reserved")
             continue
-        day.execute("UPDATE order_line_items SET line_status = 'CANCELLED', quantity_cancelled = quantity_ordered, "
-                    "updated_at = :t WHERE order_line_item_id = :l", [{"t": at, "l": line} for line in waiting])
-        remaining = day.rows("SELECT COUNT(*) AS n FROM order_line_items WHERE order_id = :o AND line_status <> 'CANCELLED'",
-                             o=order_id)[0]["n"]
-        if remaining:
-            day.execute("UPDATE orders SET order_status = 'CONFIRMED', updated_at = :t WHERE order_id = :o",
-                        {"t": at, "o": order_id})
-            record_status(day, "order", order_id, "BACKORDERED", "CONFIRMED", at, None,
-                          "Backordered lines cancelled: out of stock")
-        else:
-            _cancel(day, stock, order_id, "BACKORDERED", at, "OUT_OF_STOCK",
-                    f"Out of stock for {settings.backorder_cancel_days} days")
+        day.execute("UPDATE order_line_items SET line_status = 'CANCELLED', "
+                    "quantity_cancelled = quantity_ordered - quantity_shipped, updated_at = :t "
+                    "WHERE order_line_item_id = :l", [{"t": at, "l": line} for line in waiting])
+        left = day.rows("""
+            SELECT COUNT(*) AS open_lines,
+                   COALESCE(SUM(quantity_shipped + quantity_cancelled < quantity_ordered), 0) AS unshipped
+            FROM order_line_items WHERE order_id = :o AND line_status <> 'CANCELLED'""", o=order_id)[0]
+        reason = "Backordered lines cancelled: out of stock"
+        if not left["open_lines"]:
+            _cancel(day, stock, order_id, status, at, "OUT_OF_STOCK", f"Out of stock for {settings.backorder_cancel_days} days")
+            continue
+        target = "CONFIRMED" if status == "BACKORDERED" else ("SHIPPED" if not left["unshipped"] else status)
+        if target != status:
+            day.execute("UPDATE orders SET order_status = :s, updated_at = :t WHERE order_id = :o",
+                        {"s": target, "t": at, "o": order_id})
+            record_status(day, "order", order_id, status, target, at, None, reason)
 
 
 # ------------------------------------------------------------------------------------------ cancellations
@@ -242,15 +283,20 @@ def cancellation_plan(day: DayContext, order_id: int, order_date, placed_at: dat
 
 
 def customer_cancellations(day: DayContext, stock: Stock) -> None:
-    """Cancel the orders whose customer cancels today while they are still before dispatch."""
+    """Cancel the orders whose customer cancels today while they are still before dispatch (never before the
+    order's, its lines' or its reservations' latest change: a backorder release may have reserved this morning)."""
     settings = day.world.config.sales
     end_of_day = datetime.combine(day.day, time(23, 59, 59))
     earliest = day.day - timedelta(days=settings.cancel_delay_hours[1] // 24 + 2)
     in_status = ", ".join(f"'{s}'" for s in PRE_DISPATCH)
     for order in day.rows(f"""
-            SELECT order_id, order_date, order_placed_at, order_status, updated_at FROM orders
-            WHERE order_status IN ({in_status}) AND fulfilment_type <> 'COUNTER_SALE' AND order_date >= :e
-            ORDER BY order_id""", e=earliest):
+            SELECT o.order_id, o.order_date, o.order_placed_at, o.order_status,
+                   GREATEST(o.updated_at, COALESCE(MAX(r.updated_at), o.updated_at),
+                            COALESCE(MAX(l.updated_at), o.updated_at)) AS updated_at
+            FROM orders o JOIN order_line_items l ON l.order_id = o.order_id
+            LEFT JOIN inventory_reservations r ON r.order_line_item_id = l.order_line_item_id
+            WHERE o.order_status IN ({in_status}) AND o.fulfilment_type <> 'COUNTER_SALE' AND o.order_date >= :e
+            GROUP BY o.order_id ORDER BY o.order_id""", e=earliest):
         plan = cancellation_plan(day, order["order_id"], order["order_date"], order["order_placed_at"])
         if plan is None:
             continue

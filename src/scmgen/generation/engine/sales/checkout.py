@@ -6,7 +6,8 @@
   item (D49, D53); when every attempt fails the order is cancelled ``PAYMENT_FAILED``. Failed attempts post
   nothing. Gateway fees are booked at settlement (P10, bank module).
 * **Cash on delivery**: ``PENDING_CREDIT_CHECK`` → CONFIRMED seconds later (automatic COD eligibility check,
-  1D §2 flow). **Counter sales** are CONFIRMED when keyed in (paid at handover, 3.9).
+  1D §2 flow). **Counter sales** are CONFIRMED when keyed in (paid at handover, 3.9); an item not on the shelf
+  is dropped at once (line CANCELLED; the whole order CANCELLED ``OUT_OF_STOCK`` when nothing is left).
 * **B2B on credit** (D47): ``PENDING_CREDIT_CHECK``, then the automatic check: overdue invoices beyond the grace
   period → ``ON_HOLD`` (OVERDUE_BALANCE); open AR + this order above the credit limit → ``ON_HOLD``
   (CREDIT_LIMIT); otherwise CONFIRMED. Held orders are reviewed every working morning: released when the
@@ -124,12 +125,21 @@ def place(day: DayContext, checkout: Checkout, stock: Stock, draft: Draft) -> No
     status, last = events[-1][0], events[-1][1]
     line_ids = [day.ids.next("order_line_items") for _ in draft.lines]
     waiting: list[int] = []
+    not_on_shelf: set[int] = set()
     if status == "CONFIRMED":                # reserve stock at once (1C §5); short lines wait as backorders
         warehouses = sources(day, draft.fulfilment, draft.store_id, model.address_city.get(draft.shipping_address_id))
         waiting = allocate_lines(stock, warehouses, [
             {"order_line_item_id": line_id, "product_id": line["product_id"], "quantity": line["quantity_ordered"]}
             for line_id, line in zip(line_ids, draft.lines)], last)
-        if waiting:
+        if waiting and draft.fulfilment == "COUNTER_SALE":
+            # At the till an item that isn't on the shelf is simply not sold: the line is dropped at once.
+            not_on_shelf = set(waiting)
+            waiting = []
+            if len(not_on_shelf) == len(line_ids):
+                last = checkout.clamp(last + timedelta(seconds=1))
+                events.append(("CANCELLED", last, draft.sales_employee_id, "Not on the shelf"))
+                status, cancel = "CANCELLED", ("OUT_OF_STOCK", last)
+        elif waiting:
             last = checkout.clamp(last + timedelta(seconds=1))
             events.append(("BACKORDERED", last, None, "Stock short: waiting for receipts"))
             status = "BACKORDERED"
@@ -152,8 +162,9 @@ def place(day: DayContext, checkout: Checkout, stock: Stock, draft: Draft) -> No
     for line_id, line in zip(line_ids, draft.lines):
         day.writer.insert("order_line_items", {
             "order_line_item_id": line_id, "order_id": order_id, **line,
-            "quantity_cancelled": line["quantity_ordered"] if cancel else Decimal(0),
-            "line_status": "CANCELLED" if cancel else ("BACKORDERED" if line_id in waiting else "OPEN"),
+            "quantity_cancelled": line["quantity_ordered"] if cancel or line_id in not_on_shelf else Decimal(0),
+            "line_status": "CANCELLED" if cancel or line_id in not_on_shelf else (
+                "BACKORDERED" if line_id in waiting else "OPEN"),
             "created_at": placed, "updated_at": last,
         })
     previous = None

@@ -20,7 +20,8 @@ from the store's available stock), quantities by segment, prices:
 * B2B lines are priced at list price excluding GST, with segment (wholesaler) and volume discounts.
 
 Orders carry the total GST only (D39). Shipped B2C orders below the free-shipping threshold pay a shipping
-charge (D42); the estimate includes its GST at the highest goods rate and is rounded up to the rupee.
+charge (D42); the estimate includes its GST at the highest goods rate and is rounded to the nearest rupee (what a prepaid
+customer pays; the invoice round-off then makes the invoice total equal to it, step 3.9).
 """
 
 from __future__ import annotations
@@ -30,13 +31,14 @@ import random
 from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
-from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
+from decimal import ROUND_FLOOR, Decimal
 from typing import Any
 
-from scmgen.core.money import money
+from scmgen.core.money import money, whole_rupees
 from scmgen.domain.gst import price_exclusive, price_inclusive, shipping_charge_rate, total_gst
 from scmgen.generation.engine.day import DayContext
 from scmgen.generation.engine.documents import preload_rates, rate_on
+from scmgen.generation.engine.sales.allocation import expired_stock
 from scmgen.generation.engine.sales.model import Customer, SalesModel, lognormal_mean, popularity
 from scmgen.generation.packs import IndustryPack
 
@@ -143,15 +145,19 @@ def _assortments(day: DayContext, model: SalesModel) -> dict[str, Assortment]:
 
 
 def _store_stock(day: DayContext, model: SalesModel) -> dict[int, dict[int, Decimal]]:
-    """Whole units available today at each store (sellable − reserved)."""
+    """Whole units on the shelf today at each store (sellable − reserved − expired batches)."""
     if not model.stores:
         return {}
+    expired = expired_stock(day)
     stock: dict[int, dict[int, Decimal]] = {store: {} for store in model.stores.values()}
     for row in day.rows(f"""
-            SELECT warehouse_id, product_id, FLOOR(qty_sellable - qty_reserved) AS available FROM inventory
+            SELECT warehouse_id, product_id, qty_sellable - qty_reserved AS available FROM inventory
             WHERE warehouse_id IN ({", ".join(map(str, model.stores.values()))}) AND qty_sellable - qty_reserved >= 1
             ORDER BY warehouse_id, product_id"""):
-        stock[row["warehouse_id"]][row["product_id"]] = Decimal(row["available"])
+        units = (row["available"] - expired.get((row["warehouse_id"], row["product_id"]), Decimal(0))).to_integral_value(
+            rounding=ROUND_FLOOR)
+        if units >= 1:
+            stock[row["warehouse_id"]][row["product_id"]] = units
     return stock
 
 
@@ -404,7 +410,7 @@ def price_draft(day: DayContext, model: SalesModel, draft: Draft) -> None:
     if inclusive and draft.fulfilment == "SHIP" and taxable + tax < settings.b2c_free_shipping_above:
         shipping = money(settings.b2c_shipping_charge)
     shipping_tax = total_gst(shipping, shipping_charge_rate(l["gst_rate"] for l in lines)) if shipping else Decimal(0)
-    estimate = money((taxable + tax + shipping + shipping_tax).to_integral_value(rounding=ROUND_CEILING))
+    estimate = whole_rupees(taxable + tax + shipping + shipping_tax)
     draft.lines = lines
     draft.totals = {"items_taxable_amount": taxable, "items_tax_amount": tax, "shipping_charge_amount": shipping,
                     "order_total_estimate": estimate}

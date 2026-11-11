@@ -1,7 +1,7 @@
 """GST rules (1E §7, V-TX-*). Each check returns the violating rows.
 
-Step 3.7c implements V-TX-01 and V-TX-02 for supplier invoices (INPUT); sales, credit notes, expenses and
-transfers add their source lines as their steps arrive. V-TX-03 (returns) comes with GST filing (3.14).
+Step 3.7c implements V-TX-01 and V-TX-02 for supplier invoices (INPUT), step 3.9a adds sales invoices
+(OUTPUT); credit notes, expenses and transfers add their source lines as their steps arrive. V-TX-03 (returns) comes with GST filing (3.14).
 """
 
 from __future__ import annotations
@@ -17,11 +17,28 @@ TAX_SOURCES = {
     "SUPPLIER_INVOICE": ("supplier_invoice_line_item_id", """
         SELECT sl.supplier_invoice_line_item_id AS source_id, sl.taxable_amount, sl.cgst_amount, sl.sgst_amount,
                sl.igst_amount, sl.gst_rate, i.company_gst_registration_id, i.invoice_date AS document_date,
-               i.supplier_id
+               i.supplier_id, NULL AS customer_id, i.supplier_gstin AS counterparty_gstin, NULL AS gstr1_section
         FROM supplier_invoice_line_items sl JOIN supplier_invoices i ON i.supplier_invoice_id = sl.supplier_invoice_id
         JOIN suppliers s ON s.supplier_id = i.supplier_id
         WHERE i.invoice_status = 'APPROVED' AND s.gst_registration_type = 'REGISTERED'"""),
+    # Sales invoices (3.9a): every line of an issued (or later cancelled) invoice, with its GSTR-1 section:
+    # B2B for a registered buyer, B2CL for an unregistered inter-state invoice above the threshold, else B2CS.
+    "SALES_INVOICE": ("invoice_line_item_id", """
+        SELECT il.invoice_line_item_id AS source_id, il.taxable_amount, il.cgst_amount, il.sgst_amount,
+               il.igst_amount, il.gst_rate, i.company_gst_registration_id, i.invoice_date AS document_date,
+               NULL AS supplier_id, i.customer_id, i.customer_gstin AS counterparty_gstin,
+               CASE WHEN i.customer_gstin IS NOT NULL THEN 'B2B'
+                    WHEN i.is_inter_state AND i.total_amount > {b2cl} THEN 'B2CL' ELSE 'B2CS' END AS gstr1_section
+        FROM invoice_line_items il JOIN invoices i ON i.invoice_id = il.invoice_id"""),
 }
+DEFAULT_B2CL_THRESHOLD = 100000
+
+
+def b2cl_threshold(ctx: ValidationContext) -> int:
+    """GSTR-1 B2CL invoice value the generator used (``fulfilment.b2cl_threshold`` in the latest run's config)."""
+    snapshot = ctx.scalar("SELECT JSON_EXTRACT(config_snapshot, '$.fulfilment.b2cl_threshold') FROM generation_runs "
+                          "WHERE config_snapshot IS NOT NULL ORDER BY generation_run_id DESC LIMIT 1")
+    return int(snapshot) if snapshot not in (None, "null") else DEFAULT_B2CL_THRESHOLD
 
 
 @check("V-TX-01")
@@ -30,17 +47,19 @@ def tax_rows_equal_their_source_lines(ctx: ValidationContext) -> Rows:
     taxable value, rate, tax amounts, GSTIN and date; none for other lines; no document types not generated yet."""
     found: Rows = []
     for kind, (column, lines) in TAX_SOURCES.items():
+        lines = lines.replace("{b2cl}", str(b2cl_threshold(ctx)))
         found += [{**r, "document_type": kind} for r in ctx.rows(f"""
             SELECT COALESCE(s.source_id, t.{column}) AS source_id,
                    CASE WHEN s.source_id IS NULL THEN 'tax row without a taxable source line'
                         WHEN t.tax_transaction_id IS NULL THEN 'taxable line without a tax row'
                         ELSE 'amounts, rate, GSTIN or date differ' END AS problem
             FROM ({lines}) s
-            LEFT JOIN tax_transactions t ON t.{column} = s.source_id
+            LEFT JOIN tax_transactions t ON t.{column} = s.source_id AND NOT t.is_cancellation
             WHERE t.tax_transaction_id IS NULL OR t.taxable_value <> s.taxable_amount OR t.cgst_amount <> s.cgst_amount
                OR t.sgst_amount <> s.sgst_amount OR t.igst_amount <> s.igst_amount OR t.gst_rate <> s.gst_rate
                OR t.company_gst_registration_id <> s.company_gst_registration_id OR t.document_date <> s.document_date
-               OR NOT (t.supplier_id <=> s.supplier_id)
+               OR NOT (t.supplier_id <=> s.supplier_id) OR NOT (t.customer_id <=> s.customer_id)
+               OR NOT (t.counterparty_gstin <=> s.counterparty_gstin) OR NOT (t.gstr1_section <=> s.gstr1_section)
             UNION ALL
             SELECT t.{column}, 'tax row without a taxable source line' FROM tax_transactions t
             WHERE t.document_type = '{kind}' AND t.{column} NOT IN (SELECT source_id FROM ({lines}) s2)""")]

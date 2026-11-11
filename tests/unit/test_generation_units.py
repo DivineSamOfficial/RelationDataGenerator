@@ -185,6 +185,26 @@ def test_invalid_sales_settings_are_refused(overrides, message):
         load_generation_config(today=TODAY, overrides=overrides)
 
 
+def test_fulfilment_settings_load():
+    fulfilment = load_generation_config(preset="small", today=TODAY).fulfilment
+    assert fulfilment.dispatch_cutoff_hour == 12 and fulfilment.carrier_pickup_hours == (15, 19)
+    assert set(fulfilment.freight_rates) == {"EXPRESS_COURIER", "SURFACE_LTL", "FULL_TRUCKLOAD", "HYPERLOCAL"}
+    assert fulfilment.transit_days[0] == (40, 1) and abs(sum(fulfilment.counter_methods.values()) - 1) < 1e-9
+
+
+@pytest.mark.parametrize("overrides, message", [
+    ({"fulfilment.freight_rates.HYPERLOCAL": {"base": 1}}, "base, per_kg and per_kg_100km"),
+    ({"fulfilment.transit_days": [[300, 2], [40, 1]]}, "distances must increase"),
+    ({"fulfilment.dispatch_cutoff_hour": 18}, "before the carrier pickup"),
+    ({"fulfilment.truckload_min_kg": 10}, "above surface_min_kg"),
+    ({"fulfilment.counter_methods": {"CASH": 0.5, "CHEQUE": 0.5}}, "CHEQUE"),
+    ({"fulfilment.kg_per_package": {"B2B": 25}}, "exactly B2B and B2C"),
+])
+def test_invalid_fulfilment_settings_are_refused(overrides, message):
+    with pytest.raises(ConfigError, match=message):
+        load_generation_config(today=TODAY, overrides=overrides)
+
+
 def test_future_dates_need_allow_future():
     config = load_generation_config(today=TODAY, overrides={"history.end_date": "2026-12-31",
                                                             "history.allow_future": True})
@@ -269,6 +289,7 @@ def test_writer_flushes_parents_before_children_in_batches():
         ("UPDATE `warehouses` SET `warehouse_name` = :warehouse_name WHERE `warehouse_id` = :_pk", 2),
         ("UPDATE `states` SET `state_name` = :state_name WHERE `state_id` = :_pk", 1),
     ]
+
 
 
 # --------------------------------------------------------------------------- number formats (D38)

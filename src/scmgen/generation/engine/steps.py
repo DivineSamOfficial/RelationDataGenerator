@@ -13,6 +13,7 @@ from scmgen.generation.engine.day import DayContext, poisson
 from scmgen.generation.master.parties import approve_suppliers, create_campaign
 from scmgen.generation.engine.opening import opening_step
 from scmgen.generation.engine.procurement import procurement_step
+from scmgen.generation.engine.fulfilment import fulfilment_step
 from scmgen.generation.engine.sales import sales_step
 from scmgen.generation.engine.sales.customers import acquisition_step
 from scmgen.generation.master.catalogue import create_style
@@ -163,4 +164,5 @@ DAY_STEPS = (
     ("customers", acquisition_step),                 # 3.8b new customers over time
     ("procurement", procurement_step),               # 3.7 procure-to-pay
     ("sales", sales_step),                           # 3.8 demand: orders, prepayments, credit holds
+    ("fulfilment", fulfilment_step),                 # 3.9 handovers, dispatch, invoices
 )

@@ -26,7 +26,8 @@ pytestmark = pytest.mark.integration
 
 CATALOGUE = load_catalogue()
 RULES = sorted(r for r in framework.registered_checks()
-               if r.startswith(("V-AC", "V-IN")) and r != "V-IN-03")   # V-IN-03 needs orders: tests/integration/test_sales.py
+               if r.startswith(("V-AC", "V-IN")) and r not in ("V-IN-03", "V-IN-09"))
+# V-IN-03 needs orders (tests/integration/test_sales.py), V-IN-09 sales issues (tests/integration/test_fulfilment.py).
 
 
 @pytest.fixture(scope="module")
@@ -86,8 +87,9 @@ MUTATIONS = {
     "V-AC-04": ["UPDATE chart_of_accounts SET system_role = NULL WHERE system_role = 'GRNI'"],
     "V-AC-05": ["UPDATE accounting_periods SET period_status = 'OPEN', opened_at = '2025-04-01 00:00:00' WHERE period_code = '2025-04'"],
     "V-AC-06": ["DELETE FROM tax_accounts WHERE tax_component = 'IGST' AND tax_direction = 'INPUT' LIMIT 1"],
-    "V-AC-07": ["DELETE FROM cost_centers WHERE cost_center_type = 'BUSINESS_UNIT' AND cost_center_id NOT IN "
-                "(SELECT DISTINCT cost_center_id FROM journal_entry_lines WHERE cost_center_id IS NOT NULL) LIMIT 1"],
+    # A business unit left without its cost centre (every BU centre carries postings, so it is relabelled, not deleted).
+    "V-AC-07": ["UPDATE cost_centers SET cost_center_type = 'CORPORATE', business_unit_id = NULL, "
+                "parent_cost_center_id = NULL WHERE cost_center_type = 'BUSINESS_UNIT' ORDER BY cost_center_id LIMIT 1"],
     "V-AC-10": ["UPDATE journal_entries SET total_debit = total_debit + 1, total_credit = total_credit + 1 "
                 "ORDER BY journal_entry_id LIMIT 1"],
     "V-AC-11": ["UPDATE journal_entry_lines SET warehouse_id = NULL WHERE warehouse_id IS NOT NULL "

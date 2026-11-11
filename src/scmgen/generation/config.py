@@ -77,6 +77,11 @@ _SALES_KEYS = {"trend_per_year", "weekday_factors", "holiday_factor", "hours", "
                "requested_delivery_share", "requested_delivery_days", "credit_check_minutes", "overdue_grace_days",
                "hold_expiry_days", "hold_override_share", "backorder_cancel_days", "customer_cancel_share",
                "cancel_delay_hours", "duplicate_order_share"}
+_FULFILMENT_KEYS = {"dispatch_cutoff_hour", "pick_start_hour", "carrier_pickup_hours", "kg_per_package", "surface_min_kg",
+                    "truckload_min_kg", "hyperlocal_max_km", "hyperlocal_share", "freight_rates",
+                    "transit_days", "surface_extra_days", "eway_bill_threshold", "pickup_delay_days", "handover_minutes", "counter_methods",
+                    "b2cl_threshold"}
+CARRIER_TYPES = ("EXPRESS_COURIER", "SURFACE_LTL", "FULL_TRUCKLOAD", "HYPERLOCAL")
 B2B_SEGMENTS = ("RETAILER", "WHOLESALER", "CORPORATE", "INSTITUTION", "WORKSHOP")
 _ORG_KEYS = {"job_levels", "warehouse_staff_share", "departments", "warehouse_titles", "chief_executive"}
 JOB_LEVELS = ("EXECUTIVE", "HEAD", "MANAGER", "LEAD", "STAFF")
@@ -234,6 +239,33 @@ class SalesSettings:
 
 
 @dataclass(frozen=True)
+class FreightRate:
+    base: float                                     # rupees per shipment
+    per_kg: float
+    per_kg_100km: float
+
+
+@dataclass(frozen=True)
+class FulfilmentSettings:
+    dispatch_cutoff_hour: int                       # reserved before this hour → dispatched the same working day
+    pick_start_hour: int
+    carrier_pickup_hours: tuple[int, int]
+    kg_per_package: dict[str, int]                  # B2B / B2C
+    surface_min_kg: int
+    truckload_min_kg: int
+    hyperlocal_max_km: int
+    hyperlocal_share: float
+    freight_rates: dict[str, FreightRate]           # carrier type → rate card
+    transit_days: tuple[tuple[int, int], ...]       # (up to km, days by express), increasing
+    surface_extra_days: int
+    eway_bill_threshold: int
+    pickup_delay_days: tuple[int, int]
+    handover_minutes: tuple[int, int]
+    counter_methods: dict[str, float]
+    b2cl_threshold: int
+
+
+@dataclass(frozen=True)
 class Organisation:
     job_levels: dict[str, JobLevel]
     warehouse_staff_share: float
@@ -259,6 +291,7 @@ class GenerationConfig:
     opening_balances: OpeningBalances | None = None
     procurement: ProcurementSettings | None = None
     sales: SalesSettings | None = None
+    fulfilment: FulfilmentSettings | None = None
 
     @property
     def days(self) -> int:
@@ -360,7 +393,7 @@ def load_generation_config(
     """
     raw = _read(config_dir / GENERATION_FILE)
     _reject_unknown(raw, {"defaults", "presets", "setup", "organisation", "master_data", "daily", "opening_balances",
-                          "procurement", "sales"}, GENERATION_FILE)
+                          "procurement", "sales", "fulfilment"}, GENERATION_FILE)
     defaults, presets = raw.get("defaults"), raw.get("presets")
     if not isinstance(defaults, dict) or not isinstance(presets, dict) or not presets:
         raise ConfigError(f"{GENERATION_FILE} needs a 'defaults' mapping and at least one preset under 'presets'")
@@ -394,6 +427,7 @@ def load_generation_config(
         "opening_balances": copy.deepcopy(raw.get("opening_balances") or {}),
         "procurement": copy.deepcopy(raw.get("procurement") or {}),
         "sales": copy.deepcopy(raw.get("sales") or {}),
+        "fulfilment": copy.deepcopy(raw.get("fulfilment") or {}),
     }
     for dotted, value in (overrides or {}).items():
         _apply_override(effective, dotted, _parse_override_value(value) if isinstance(value, str) else value)
@@ -427,9 +461,11 @@ def load_generation_config(
     opening = _parse_opening(effective["opening_balances"])
     procurement = _parse_procurement(effective["procurement"])
     sales = _parse_sales(effective["sales"])
+    fulfilment = _parse_fulfilment(effective["fulfilment"])
     return GenerationConfig(
         procurement=procurement,
         sales=sales,
+        fulfilment=fulfilment,
         opening_balances=opening,
         daily=daily,
         master_data=master_data,
@@ -712,6 +748,60 @@ def _int_mix(value: Any, name: str, low: int, high: int) -> dict[int, float]:
     if abs(sum(mix.values()) - 1) > 1e-6:
         raise ConfigError(f"{name}: shares add up to {sum(mix.values()):.4f}, not 1")
     return mix
+
+
+def _parse_fulfilment(raw: dict[str, Any]) -> FulfilmentSettings:
+    _reject_unknown(raw, _FULFILMENT_KEYS, "fulfilment")
+    missing = sorted(_FULFILMENT_KEYS - set(raw))
+    if missing:
+        raise ConfigError(f"fulfilment is missing: {', '.join(missing)}")
+    packages = raw["kg_per_package"]
+    if not isinstance(packages, dict) or set(packages) != {"B2B", "B2C"}:
+        raise ConfigError("fulfilment.kg_per_package needs exactly B2B and B2C")
+    rates = raw["freight_rates"]
+    if not isinstance(rates, dict) or set(rates) != set(CARRIER_TYPES):
+        raise ConfigError(f"fulfilment.freight_rates needs exactly {', '.join(CARRIER_TYPES)}")
+    freight = {}
+    for kind, rate in rates.items():
+        if not isinstance(rate, dict) or set(rate) != {"base", "per_kg", "per_kg_100km"}:
+            raise ConfigError(f"fulfilment.freight_rates.{kind} needs base, per_kg and per_kg_100km")
+        freight[kind] = FreightRate(*(_share(rate[k], f"fulfilment.freight_rates.{kind}.{k}", 100_000)
+                                      for k in ("base", "per_kg", "per_kg_100km")))
+    bands = raw["transit_days"]
+    if not isinstance(bands, list) or not bands:
+        raise ConfigError("fulfilment.transit_days must be a list of [up to km, days]")
+    transit = []
+    for i, band in enumerate(bands):
+        if not isinstance(band, list) or len(band) != 2:
+            raise ConfigError(f"fulfilment.transit_days[{i}] must be [up to km, days]")
+        transit.append((_int(band[0], f"fulfilment.transit_days[{i}] km", 1, 100_000),
+                        _int(band[1], f"fulfilment.transit_days[{i}] days", 0, 60)))
+    transit = tuple(transit)
+    if any(a[0] >= b[0] or a[1] > b[1] for a, b in zip(transit, transit[1:])):
+        raise ConfigError("fulfilment.transit_days: distances must increase and days must not fall")
+    cutoff = _int(raw["dispatch_cutoff_hour"], "fulfilment.dispatch_cutoff_hour", 1, 23)
+    pickup = _pair(raw["carrier_pickup_hours"], "fulfilment.carrier_pickup_hours", 0, 22)
+    pick_start = _int(raw["pick_start_hour"], "fulfilment.pick_start_hour", 0, 22)
+    if not pick_start < pickup[0] or not cutoff <= pickup[0]:
+        raise ConfigError("fulfilment: picking must start, and the dispatch cut-off fall, before the carrier pickup")
+    surface = _int(raw["surface_min_kg"], "fulfilment.surface_min_kg", 1, 100_000)
+    truckload = _int(raw["truckload_min_kg"], "fulfilment.truckload_min_kg", 1, 100_000)
+    if truckload <= surface:
+        raise ConfigError("fulfilment.truckload_min_kg must be above surface_min_kg")
+    return FulfilmentSettings(
+        dispatch_cutoff_hour=cutoff, pick_start_hour=pick_start, carrier_pickup_hours=pickup,
+        kg_per_package={k: _int(packages[k], f"fulfilment.kg_per_package.{k}", 1, 1000) for k in ("B2B", "B2C")},
+        surface_min_kg=surface, truckload_min_kg=truckload,
+        hyperlocal_max_km=_int(raw["hyperlocal_max_km"], "fulfilment.hyperlocal_max_km", 0, 500),
+        hyperlocal_share=_share(raw["hyperlocal_share"], "fulfilment.hyperlocal_share"),
+        freight_rates=freight, transit_days=transit,
+        surface_extra_days=_int(raw["surface_extra_days"], "fulfilment.surface_extra_days", 0, 30),
+        eway_bill_threshold=_int(raw["eway_bill_threshold"], "fulfilment.eway_bill_threshold", 0, 10**9),
+        pickup_delay_days=_pair(raw["pickup_delay_days"], "fulfilment.pickup_delay_days", 0, 14),
+        handover_minutes=_pair(raw["handover_minutes"], "fulfilment.handover_minutes", 0, 120),
+        counter_methods=_mix(raw["counter_methods"], "fulfilment.counter_methods", ("CASH", "UPI", "CARD")),
+        b2cl_threshold=_int(raw["b2cl_threshold"], "fulfilment.b2cl_threshold", 0, 10**9),
+    )
 
 
 def _parse_sales(raw: dict[str, Any]) -> SalesSettings:

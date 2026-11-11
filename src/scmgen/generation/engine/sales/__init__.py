@@ -16,7 +16,7 @@ def sales_step(day: DayContext) -> None:
     model = sales_model(day)
     checkout = Checkout(day, model)
     held = open_lines(day, ("ON_HOLD",))
-    backordered = open_lines(day, ("BACKORDERED",), line_status="BACKORDERED")
+    backordered = open_lines(day, ("BACKORDERED", "PARTIALLY_SHIPPED"), line_status="BACKORDERED")
     drafts = draft_orders(day, model)
     stock = Stock(day)
     stock.load({line["product_id"] for orders in (held, backordered) for order in orders.values()

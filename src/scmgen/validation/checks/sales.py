@@ -1,7 +1,8 @@
 """Sales rules (1D §9: V-SO-*, V-PY-*). Each check returns the violating rows.
 
-Step 3.8a implements the order side: V-SO-01 (order amounts; invoice amounts join in 3.9), V-SO-02, V-SO-05
-(statuses up to dispatch; shipped states join in 3.9), V-SO-06 and V-PY-02 (prepaid part; COD joins in 3.9).
+Step 3.8a implements the order side: V-SO-01 (order amounts), V-SO-02, V-SO-05 (statuses up to dispatch), V-SO-06
+and V-PY-02 (prepaid part). Step 3.9a adds invoice amounts to V-SO-01 and the shipped / handed-over states to
+V-SO-05 (V-SO-03 / V-SO-04: ``fulfilment.py``); the COD part of V-PY-02 comes with deliveries (3.9b).
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ ORDER_TRANSITIONS: set[tuple[str | None, str]] = {
     ("CONFIRMED", "PARTIALLY_SHIPPED"), ("CONFIRMED", "SHIPPED"), ("BACKORDERED", "PARTIALLY_SHIPPED"),
     ("PARTIALLY_SHIPPED", "SHIPPED"), ("SHIPPED", "PARTIALLY_DELIVERED"), ("SHIPPED", "DELIVERED"),
     ("PARTIALLY_DELIVERED", "DELIVERED"), ("DELIVERED", "CLOSED"),
+    ("CONFIRMED", "DELIVERED"),                         # store handover: counter sale or pickup (3.9a)
     ("CONFIRMED", "CANCELLED"), ("BACKORDERED", "CANCELLED"),
 }
 PRE_DISPATCH = ("PENDING_PAYMENT", "PENDING_CREDIT_CHECK", "ON_HOLD", "CONFIRMED", "BACKORDERED")
@@ -32,19 +34,19 @@ PRE_DISPATCH = ("PENDING_PAYMENT", "PENDING_CREDIT_CHECK", "ON_HOLD", "CONFIRMED
 
 @check("V-SO-01")
 def order_amounts(ctx: ValidationContext) -> Rows:
-    """Order header = Σ lines; estimate = items + GST + shipping + its GST at the highest line rate, rounded up
-    to the rupee; line GST rate = the product's rate on the order date; GST-inclusive prices exactly for B2C
+    """Order header = Σ lines; estimate = items + GST + shipping + its GST at the highest line rate, rounded
+    to the nearest rupee; line GST rate = the product's rate on the order date; GST-inclusive prices exactly for B2C
     orders (D79); selling price incl. GST ≤ MRP; shipping charged only on shipped orders (D42)."""
     found = [{**r, "problem": "header ≠ Σ lines"} for r in ctx.rows("""
         SELECT o.order_id, o.items_taxable_amount, s.taxable, o.items_tax_amount, s.tax FROM orders o
         LEFT JOIN (SELECT order_id, SUM(taxable_amount) AS taxable, SUM(tax_amount) AS tax FROM order_line_items
                    GROUP BY order_id) s ON s.order_id = o.order_id
         WHERE s.order_id IS NULL OR o.items_taxable_amount <> s.taxable OR o.items_tax_amount <> s.tax""")]
-    found += [{**r, "problem": "estimate ≠ items + GST + shipping + shipping GST, rounded up"} for r in ctx.rows("""
+    found += [{**r, "problem": "estimate ≠ items + GST + shipping + shipping GST, rounded"} for r in ctx.rows("""
         SELECT o.order_id, o.order_total_estimate, s.top_rate FROM orders o
         JOIN (SELECT order_id, MAX(gst_rate) AS top_rate FROM order_line_items GROUP BY order_id) s ON s.order_id = o.order_id
-        WHERE o.order_total_estimate <> CEILING(o.items_taxable_amount + o.items_tax_amount + o.shipping_charge_amount
-                                               + ROUND(o.shipping_charge_amount * s.top_rate / 100, 2))""")]
+        WHERE o.order_total_estimate <> ROUND(o.items_taxable_amount + o.items_tax_amount + o.shipping_charge_amount
+                                             + ROUND(o.shipping_charge_amount * s.top_rate / 100, 2), 0)""")]
     found += [{**r, "problem": "GST rate ≠ product rate on the order date"} for r in ctx.rows("""
         SELECT o.order_id, l.line_number, l.gst_rate, t.gst_rate AS product_rate FROM orders o
         JOIN order_line_items l ON l.order_id = o.order_id
@@ -64,6 +66,21 @@ def order_amounts(ctx: ValidationContext) -> Rows:
     found += [{**r, "problem": "shipping charge on an order that isn't shipped"} for r in ctx.rows(
         "SELECT order_id, fulfilment_type, shipping_charge_amount FROM orders "
         "WHERE fulfilment_type <> 'SHIP' AND shipping_charge_amount <> 0")]
+    found += [{**r, "problem": "invoice header ≠ Σ lines + round-off"} for r in ctx.rows("""
+        SELECT i.invoice_id, i.taxable_amount, s.taxable, i.cgst_amount, s.cgst, i.igst_amount, s.igst FROM invoices i
+        LEFT JOIN (SELECT invoice_id, SUM(taxable_amount) AS taxable, SUM(cgst_amount) AS cgst,
+                          SUM(sgst_amount) AS sgst, SUM(igst_amount) AS igst FROM invoice_line_items GROUP BY invoice_id) s
+               ON s.invoice_id = i.invoice_id
+        WHERE s.invoice_id IS NULL OR i.taxable_amount <> s.taxable OR i.cgst_amount <> s.cgst
+           OR i.sgst_amount <> s.sgst OR i.igst_amount <> s.igst
+           OR i.total_amount <> s.taxable + s.cgst + s.sgst + s.igst + i.round_off_amount""")]
+    found += [{**r, "problem": "tax split doesn't match the place of supply"} for r in ctx.rows("""
+        SELECT i.invoice_id, i.is_inter_state, i.place_of_supply_state_id, g.state_id AS gstin_state, l.line_number
+        FROM invoices i JOIN company_gst_registrations g ON g.company_gst_registration_id = i.company_gst_registration_id
+        JOIN invoice_line_items l ON l.invoice_id = i.invoice_id
+        WHERE i.is_inter_state <> (i.place_of_supply_state_id <> g.state_id)
+           OR (i.is_inter_state AND (l.cgst_amount <> 0 OR l.sgst_amount <> 0))
+           OR (NOT i.is_inter_state AND l.igst_amount <> 0)""")]
     return found
 
 
@@ -93,10 +110,14 @@ def order_attribution(ctx: ValidationContext) -> Rows:
            OR (o.store_warehouse_id IS NOT NULL AND w.warehouse_type <> 'RETAIL_STORE')""")]
     found += [{**r, "problem": "address of the wrong kind or not live at the order time"} for r in ctx.rows("""
         SELECT o.order_id, a.customer_address_id, a.valid_from, a.deleted_at FROM orders o
-        JOIN customer_addresses a ON a.customer_address_id IN (o.billing_address_id, o.shipping_address_id)
+        JOIN customer_addresses a ON a.customer_address_id = o.billing_address_id
         WHERE a.valid_from > o.order_date OR (a.deleted_at IS NOT NULL AND a.deleted_at <= o.order_placed_at)
-           OR (a.customer_address_id = o.billing_address_id AND NOT a.is_billing_address)
-           OR (a.customer_address_id = o.shipping_address_id AND NOT a.is_shipping_address)""")]
+           OR NOT a.is_billing_address
+        UNION ALL
+        SELECT o.order_id, a.customer_address_id, a.valid_from, a.deleted_at FROM orders o
+        JOIN customer_addresses a ON a.customer_address_id = o.shipping_address_id
+        WHERE a.valid_from > o.order_date OR (a.deleted_at IS NOT NULL AND a.deleted_at <= o.order_placed_at)
+           OR NOT a.is_shipping_address""")]
     found += [{**r, "problem": "order before the customer's acquisition date"} for r in ctx.rows("""
         SELECT o.order_id, o.order_date, k.acquisition_date FROM orders o JOIN customers k ON k.customer_id = o.customer_id
         WHERE o.order_date < k.acquisition_date""")]
@@ -107,7 +128,10 @@ def order_attribution(ctx: ValidationContext) -> Rows:
 def order_statuses(ctx: ValidationContext) -> Rows:
     """Status histories are continuous chains of allowed transitions ending at the order's status; a cancelled
     order has every line cancelled; an order before dispatch has nothing shipped and only OPEN / BACKORDERED /
-    CANCELLED lines; BACKORDERED ⇔ some line BACKORDERED; a CANCELLED line has all of its quantity cancelled."""
+    CANCELLED lines; BACKORDERED ⇔ some line BACKORDERED (before dispatch); a CANCELLED line has all of its
+    quantity cancelled; a line's status fits its quantities (PARTIALLY_SHIPPED, SHIPPED, DELIVERED); a SHIPPED
+    order has every open line shipped, a PARTIALLY_SHIPPED one some but not all, a DELIVERED one every open line
+    delivered."""
     found = status_chain_problems(ctx, "order", "orders", "order_id", "order_status", ORDER_TRANSITIONS)
     pre = ", ".join(f"'{s}'" for s in PRE_DISPATCH)
     found += [{**r, "problem": "line state doesn't fit the order status"} for r in ctx.rows(f"""
@@ -117,7 +141,12 @@ def order_statuses(ctx: ValidationContext) -> Rows:
                                                 OR l.quantity_cancelled <> l.quantity_ordered - l.quantity_shipped))
            OR (o.order_status IN ({pre}) AND (l.quantity_shipped <> 0 OR l.line_status NOT IN ('OPEN', 'BACKORDERED', 'CANCELLED')))
            OR (l.line_status = 'CANCELLED' AND l.quantity_cancelled <> l.quantity_ordered)
-           OR (l.line_status IN ('OPEN', 'BACKORDERED') AND l.quantity_shipped <> 0)""")]
+           OR (l.line_status IN ('OPEN', 'BACKORDERED') AND l.quantity_shipped <> 0)
+           OR (l.line_status = 'PARTIALLY_SHIPPED'
+               AND NOT (l.quantity_shipped > 0 AND l.quantity_shipped < l.quantity_ordered - l.quantity_cancelled))
+           OR (l.line_status = 'SHIPPED' AND l.quantity_shipped <> l.quantity_ordered - l.quantity_cancelled)
+           OR (l.line_status = 'DELIVERED' AND (l.quantity_shipped <> l.quantity_ordered - l.quantity_cancelled
+                                                OR l.quantity_delivered + l.quantity_rto <> l.quantity_shipped))""")]
     found += [{**r, "problem": "BACKORDERED order ⇔ a BACKORDERED line"} for r in ctx.rows(f"""
         SELECT o.order_id, o.order_status, SUM(l.line_status = 'BACKORDERED') AS backordered_lines FROM orders o
         JOIN order_line_items l ON l.order_id = o.order_id WHERE o.order_status IN ({pre})
@@ -127,6 +156,18 @@ def order_statuses(ctx: ValidationContext) -> Rows:
         SELECT o.order_id, o.order_status FROM orders o JOIN order_line_items l ON l.order_id = o.order_id
         WHERE o.order_status IN ({pre}) GROUP BY o.order_id, o.order_status
         HAVING SUM(l.line_status <> 'CANCELLED') = 0""")]
+    found += [{**r, "problem": "order status doesn't fit what its lines shipped or delivered"} for r in ctx.rows("""
+        SELECT o.order_id, o.order_status, SUM(l.line_status <> 'CANCELLED') AS open_lines,
+               SUM(l.quantity_shipped > 0) AS shipped_lines,
+               SUM(l.line_status <> 'CANCELLED' AND l.quantity_shipped < l.quantity_ordered - l.quantity_cancelled)
+                   AS unshipped_lines,
+               SUM(l.line_status NOT IN ('CANCELLED', 'DELIVERED')) AS undelivered_lines
+        FROM orders o JOIN order_line_items l ON l.order_id = o.order_id
+        WHERE o.order_status IN ('PARTIALLY_SHIPPED', 'SHIPPED', 'DELIVERED') GROUP BY o.order_id, o.order_status
+        HAVING open_lines = 0
+            OR (o.order_status = 'SHIPPED' AND unshipped_lines > 0)
+            OR (o.order_status = 'PARTIALLY_SHIPPED' AND (unshipped_lines = 0 OR shipped_lines = 0))
+            OR (o.order_status = 'DELIVERED' AND undelivered_lines > 0)""")]
     return found
 
 

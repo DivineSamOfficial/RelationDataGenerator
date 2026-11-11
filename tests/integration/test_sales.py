@@ -31,7 +31,9 @@ from scmgen.validation.framework import ValidationContext, run_checks
 pytestmark = pytest.mark.integration
 
 CATALOGUE = load_catalogue()
-RULES = sorted(r for r in framework.registered_checks() if r.startswith(("V-SO", "V-PY", "V-AR")) or r == "V-IN-03")
+FULFILMENT_RULES = ("V-SO-03", "V-SO-04")          # tests/integration/test_fulfilment.py
+RULES = sorted(r for r in framework.registered_checks()
+               if (r.startswith(("V-SO", "V-PY", "V-AR")) or r == "V-IN-03") and r not in FULFILMENT_RULES)
 WINDOW = {"history.start_date": "2025-08-01", "history.end_date": "2025-11-30", "sales.backorder_cancel_days": 7}
 
 
@@ -250,7 +252,9 @@ _CHECKED = ("(SELECT x FROM (SELECT MIN(o.customer_id) x FROM orders o JOIN orde
             "JOIN customers c ON c.customer_id = o.customer_id WHERE h.change_reason = 'Credit check passed' "
             "AND c.credit_limit IS NOT NULL) t)")
 _PAYMENT = "(SELECT x FROM (SELECT MIN(customer_payment_id) x FROM customer_payments WHERE payment_status = 'SUCCESS') t)"
-_ITEM = "(SELECT x FROM (SELECT MIN(accounts_receivable_id) x FROM accounts_receivable) t)"
+_ITEM = "(SELECT x FROM (SELECT MIN(accounts_receivable_id) x FROM accounts_receivable WHERE item_status = 'OPEN') t)"
+_INVOICE_ITEM = ("(SELECT x FROM (SELECT MIN(accounts_receivable_id) x FROM accounts_receivable "
+                 "WHERE item_status = 'OPEN' AND item_type = 'INVOICE') t)")
 
 MUTATIONS = {
     "V-SO-01": [f"UPDATE orders SET items_taxable_amount = items_taxable_amount + 1, "
@@ -264,12 +268,12 @@ MUTATIONS = {
     "V-AR-01": [f"UPDATE accounts_receivable SET original_amount = original_amount + 1, open_amount = open_amount + 1 "
                 f"WHERE accounts_receivable_id = {_ITEM}"],
     "V-AR-02": [f"UPDATE accounts_receivable SET customer_id = customer_id + 1 WHERE accounts_receivable_id = {_ITEM}"],
-    "V-IN-03": ["UPDATE inventory SET qty_reserved = qty_reserved + 1 WHERE (warehouse_id, product_id) = "
+    "V-IN-03": ["UPDATE inventory SET qty_reserved = qty_reserved - 1 WHERE (warehouse_id, product_id) = "
                 "(SELECT w, p FROM (SELECT r.warehouse_id w, l.product_id p FROM inventory_reservations r "
                 "JOIN order_line_items l USING (order_line_item_id) WHERE r.reservation_status = 'ACTIVE' "
                 "ORDER BY r.inventory_reservation_id LIMIT 1) t)"],
-    "V-AR-03": [f"UPDATE accounts_receivable SET open_amount = open_amount + 1, item_status = 'PARTIALLY_SETTLED' "
-                f"WHERE accounts_receivable_id = {_ITEM}"],
+    "V-AR-03": [f"UPDATE accounts_receivable SET open_amount = open_amount - 1, item_status = 'PARTIALLY_SETTLED' "
+                f"WHERE accounts_receivable_id = {_INVOICE_ITEM}"],
 }
 
 

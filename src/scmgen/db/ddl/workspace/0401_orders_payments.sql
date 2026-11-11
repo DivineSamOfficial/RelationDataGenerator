@@ -65,7 +65,9 @@ CREATE TABLE orders (
     CONSTRAINT ck_orders_date CHECK (order_date = DATE(order_placed_at)),
     CONSTRAINT ck_orders_amounts CHECK (
         items_taxable_amount >= 0 AND items_tax_amount >= 0 AND shipping_charge_amount >= 0
-        AND order_total_estimate >= items_taxable_amount + items_tax_amount + shipping_charge_amount),
+        -- The estimate is rounded to the nearest rupee (what a prepaid customer pays), so it may fall short of
+        -- the exact amount by the same round-off an invoice allows (step 3.9a).
+        AND order_total_estimate >= items_taxable_amount + items_tax_amount + shipping_charge_amount - 0.50),
     CONSTRAINT ck_orders_status CHECK (REGEXP_LIKE(order_status,
         '^(PENDING_PAYMENT|PENDING_CREDIT_CHECK|ON_HOLD|CONFIRMED|BACKORDERED|PARTIALLY_SHIPPED|SHIPPED|PARTIALLY_DELIVERED|DELIVERED|CLOSED|CANCELLED)$', 'c')),
     CONSTRAINT ck_orders_hold CHECK (
