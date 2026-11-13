@@ -26,6 +26,7 @@ from typing import Any, Iterable
 
 from scmgen.generation.engine.day import DayContext
 from scmgen.generation.engine.documents import record_status
+from scmgen.generation.engine.order_status import order_status
 
 PRE_DISPATCH = ("PENDING_CREDIT_CHECK", "ON_HOLD", "CONFIRMED", "BACKORDERED")
 
@@ -252,19 +253,19 @@ def release_backorders(day: DayContext, stock: Stock, backordered: dict[int, dic
         day.execute("UPDATE order_line_items SET line_status = 'CANCELLED', "
                     "quantity_cancelled = quantity_ordered - quantity_shipped, updated_at = :t "
                     "WHERE order_line_item_id = :l", [{"t": at, "l": line} for line in waiting])
-        left = day.rows("""
-            SELECT COUNT(*) AS open_lines,
-                   COALESCE(SUM(quantity_shipped + quantity_cancelled < quantity_ordered), 0) AS unshipped
-            FROM order_line_items WHERE order_id = :o AND line_status <> 'CANCELLED'""", o=order_id)[0]
-        reason = "Backordered lines cancelled: out of stock"
-        if not left["open_lines"]:
+        lines = day.rows("""
+            SELECT quantity_ordered, quantity_shipped, quantity_delivered, quantity_cancelled, quantity_rto, line_status
+            FROM order_line_items WHERE order_id = :o""", o=order_id)
+        target = order_status(lines, status)
+        if target == "CANCELLED":
             _cancel(day, stock, order_id, status, at, "OUT_OF_STOCK", f"Out of stock for {settings.backorder_cancel_days} days")
             continue
-        target = "CONFIRMED" if status == "BACKORDERED" else ("SHIPPED" if not left["unshipped"] else status)
+        if target == status and status == "BACKORDERED":
+            target = "CONFIRMED"                 # nothing waits any more: the rest is reserved
         if target != status:
             day.execute("UPDATE orders SET order_status = :s, updated_at = :t WHERE order_id = :o",
                         {"s": target, "t": at, "o": order_id})
-            record_status(day, "order", order_id, status, target, at, None, reason)
+            record_status(day, "order", order_id, status, target, at, None, "Backordered lines cancelled: out of stock")
 
 
 # ------------------------------------------------------------------------------------------ cancellations

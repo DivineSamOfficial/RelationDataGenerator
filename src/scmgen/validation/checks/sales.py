@@ -27,6 +27,10 @@ ORDER_TRANSITIONS: set[tuple[str | None, str]] = {
     ("PARTIALLY_SHIPPED", "SHIPPED"), ("SHIPPED", "PARTIALLY_DELIVERED"), ("SHIPPED", "DELIVERED"),
     ("PARTIALLY_DELIVERED", "DELIVERED"), ("DELIVERED", "CLOSED"),
     ("CONFIRMED", "DELIVERED"),                         # store handover: counter sale or pickup (3.9a)
+    # Deliveries and returns to origin (3.9b, engine/order_status.py): a later shipment or a delivery moves on.
+    ("PARTIALLY_SHIPPED", "PARTIALLY_DELIVERED"), ("PARTIALLY_SHIPPED", "DELIVERED"), ("PARTIALLY_SHIPPED", "CLOSED"),
+    ("SHIPPED", "CLOSED"),                              # everything came back to origin (D41)
+    ("SHIPPED", "CANCELLED"),                           # cancelled before transit (D40)
     ("CONFIRMED", "CANCELLED"), ("BACKORDERED", "CANCELLED"),
 }
 PRE_DISPATCH = ("PENDING_PAYMENT", "PENDING_CREDIT_CHECK", "ON_HOLD", "CONFIRMED", "BACKORDERED")
@@ -129,9 +133,10 @@ def order_statuses(ctx: ValidationContext) -> Rows:
     """Status histories are continuous chains of allowed transitions ending at the order's status; a cancelled
     order has every line cancelled; an order before dispatch has nothing shipped and only OPEN / BACKORDERED /
     CANCELLED lines; BACKORDERED ⇔ some line BACKORDERED (before dispatch); a CANCELLED line has all of its
-    quantity cancelled; a line's status fits its quantities (PARTIALLY_SHIPPED, SHIPPED, DELIVERED); a SHIPPED
-    order has every open line shipped, a PARTIALLY_SHIPPED one some but not all, a DELIVERED one every open line
-    delivered."""
+    quantity cancelled; a line's status fits its quantities (PARTIALLY_SHIPPED, SHIPPED, DELIVERED, CLOSED = all of
+    it came back to origin); a SHIPPED order has every open line shipped and nothing delivered, a PARTIALLY_SHIPPED
+    one some but not all; PARTIALLY_DELIVERED: something delivered, not everything finished; DELIVERED / CLOSED:
+    every open line finished (delivered or returned to origin), DELIVERED with something delivered."""
     found = status_chain_problems(ctx, "order", "orders", "order_id", "order_status", ORDER_TRANSITIONS)
     pre = ", ".join(f"'{s}'" for s in PRE_DISPATCH)
     found += [{**r, "problem": "line state doesn't fit the order status"} for r in ctx.rows(f"""
@@ -146,7 +151,10 @@ def order_statuses(ctx: ValidationContext) -> Rows:
                AND NOT (l.quantity_shipped > 0 AND l.quantity_shipped < l.quantity_ordered - l.quantity_cancelled))
            OR (l.line_status = 'SHIPPED' AND l.quantity_shipped <> l.quantity_ordered - l.quantity_cancelled)
            OR (l.line_status = 'DELIVERED' AND (l.quantity_shipped <> l.quantity_ordered - l.quantity_cancelled
-                                                OR l.quantity_delivered + l.quantity_rto <> l.quantity_shipped))""")]
+                                                OR l.quantity_delivered + l.quantity_rto <> l.quantity_shipped
+                                                OR l.quantity_delivered = 0))
+           OR (l.line_status = 'CLOSED' AND (l.quantity_shipped <> l.quantity_ordered - l.quantity_cancelled
+                                             OR l.quantity_delivered + l.quantity_rto <> l.quantity_shipped))""")]
     found += [{**r, "problem": "BACKORDERED order ⇔ a BACKORDERED line"} for r in ctx.rows(f"""
         SELECT o.order_id, o.order_status, SUM(l.line_status = 'BACKORDERED') AS backordered_lines FROM orders o
         JOIN order_line_items l ON l.order_id = o.order_id WHERE o.order_status IN ({pre})
@@ -161,13 +169,18 @@ def order_statuses(ctx: ValidationContext) -> Rows:
                SUM(l.quantity_shipped > 0) AS shipped_lines,
                SUM(l.line_status <> 'CANCELLED' AND l.quantity_shipped < l.quantity_ordered - l.quantity_cancelled)
                    AS unshipped_lines,
-               SUM(l.line_status NOT IN ('CANCELLED', 'DELIVERED')) AS undelivered_lines
+               SUM(l.line_status NOT IN ('CANCELLED', 'DELIVERED', 'CLOSED')) AS unfinished_lines,
+               SUM(l.quantity_delivered > 0) AS delivered_lines
         FROM orders o JOIN order_line_items l ON l.order_id = o.order_id
-        WHERE o.order_status IN ('PARTIALLY_SHIPPED', 'SHIPPED', 'DELIVERED') GROUP BY o.order_id, o.order_status
+        WHERE o.order_status IN ('PARTIALLY_SHIPPED', 'SHIPPED', 'PARTIALLY_DELIVERED', 'DELIVERED', 'CLOSED')
+        GROUP BY o.order_id, o.order_status
         HAVING open_lines = 0
+            OR (o.order_status IN ('SHIPPED', 'PARTIALLY_SHIPPED') AND delivered_lines > 0)
             OR (o.order_status = 'SHIPPED' AND unshipped_lines > 0)
             OR (o.order_status = 'PARTIALLY_SHIPPED' AND (unshipped_lines = 0 OR shipped_lines = 0))
-            OR (o.order_status = 'DELIVERED' AND undelivered_lines > 0)""")]
+            OR (o.order_status = 'PARTIALLY_DELIVERED' AND (delivered_lines = 0 OR unfinished_lines = 0))
+            OR (o.order_status = 'DELIVERED' AND (unfinished_lines > 0 OR delivered_lines = 0))
+            OR (o.order_status = 'CLOSED' AND unfinished_lines > 0)""")]
     return found
 
 
@@ -201,7 +214,9 @@ def credit_holds(ctx: ValidationContext) -> Rows:
 @check("V-PY-02")
 def prepaid_orders_paid_first(ctx: ValidationContext) -> Rows:
     """Prepaid orders are confirmed only after a SUCCESS prepayment ≥ the order estimate (D5); at most one
-    successful prepayment per order; orders cancelled for failed payment have none. (COD part: step 3.9.)"""
+    successful prepayment per order; orders cancelled for failed payment have none. COD (D43): exactly one
+    COD_COLLECTION per delivered COD shipment, by its carrier, for its COD amount, on the delivery date, settled by
+    the carrier's remittance later; none for anything else."""
     found = [{**r, "problem": "prepaid order confirmed without a prior SUCCESS payment ≥ estimate"} for r in ctx.rows("""
         SELECT o.order_id, h.changed_at, o.order_total_estimate FROM orders o
         JOIN payment_terms t ON t.payment_term_id = o.payment_term_id
@@ -216,4 +231,18 @@ def prepaid_orders_paid_first(ctx: ValidationContext) -> Rows:
              AND p.payment_status IN ('SUCCESS', 'REVERSED')
         GROUP BY o.order_id, o.cancellation_reason
         HAVING COUNT(*) > 1 OR o.cancellation_reason = 'PAYMENT_FAILED'""")]
+    found += [{**r, "problem": "COD collection missing, extra or different from the delivered parcel"} for r in ctx.rows("""
+        SELECT s.shipment_id, s.cod_amount, COUNT(p.customer_payment_id) AS collections FROM shipments s
+        LEFT JOIN customer_payments p ON p.order_id = s.order_id AND p.payment_type = 'COD_COLLECTION'
+             AND p.gateway_reference = s.tracking_number
+        WHERE s.is_cod AND s.shipment_status = 'DELIVERED'
+        GROUP BY s.shipment_id, s.cod_amount, s.shipping_carrier_id, s.delivered_at
+        HAVING COUNT(p.customer_payment_id) <> 1 OR MAX(p.amount) <> s.cod_amount
+            OR MAX(p.collected_by_shipping_carrier_id) <> s.shipping_carrier_id
+            OR MAX(p.payment_date) <> DATE(s.delivered_at) OR MAX(p.payment_status) <> 'SUCCESS'
+            OR MAX(p.settlement_date) <= MAX(p.payment_date)
+        UNION ALL
+        SELECT p.customer_payment_id, p.amount, 0 FROM customer_payments p
+        LEFT JOIN shipments s ON s.tracking_number = p.gateway_reference AND s.order_id = p.order_id
+        WHERE p.payment_type = 'COD_COLLECTION' AND (s.shipment_id IS NULL OR NOT s.is_cod OR s.shipment_status <> 'DELIVERED')""")]
     return found

@@ -96,6 +96,12 @@ LEDGER_SOURCES = [
                IF(s.shipment_status = 'CANCELLED', 0, -sl.quantity_shipped) AS qty
         FROM shipment_line_items sl JOIN shipments s ON s.shipment_id = sl.shipment_id
         WHERE s.dispatched_at IS NOT NULL""", True),
+    # Return to origin (3.9b, D41): every line of a RETURNED_TO_SENDER shipment comes back in one row.
+    ("RTO_RECEIPT", "shipment_line_item_id", """
+        SELECT sl.shipment_line_item_id AS source_id, DATE(s.rto_received_at) AS business_date,
+               sl.quantity_shipped AS qty
+        FROM shipment_line_items sl JOIN shipments s ON s.shipment_id = sl.shipment_id
+        WHERE s.shipment_status = 'RETURNED_TO_SENDER'""", True),
     # Store handover: the invoice line is the source, one row per batch picked.
     ("SALES_ISSUE", "invoice_line_item_id", """
         SELECT il.invoice_line_item_id AS source_id, i.invoice_date AS business_date,
@@ -225,4 +231,26 @@ def issues_at_moving_average_cost(ctx: ValidationContext) -> Rows:
                                   "value_change": row["value_change"], "expected_value": expected.value_change,
                                   "problem": "issue not at the moving-average cost"})
         positions[key] = (qty + row["quantity"], value + row["value_change"])
+    return found
+
+
+@check("V-IN-06")
+def reversals_mirror_their_original(ctx: ValidationContext) -> Rows:
+    """Reversal rows (D33) mirror their original: same type, source, warehouse, product, batch and unit cost,
+    opposite quantity and value, not earlier; an original is reversed at most once and never itself a reversal."""
+    found = [{**r, "problem": "reversal doesn't mirror its original"} for r in ctx.rows("""
+        SELECT r.inventory_transaction_id, o.inventory_transaction_id AS original_id FROM inventory_transactions r
+        JOIN inventory_transactions o ON o.inventory_transaction_id = r.reversal_of_inventory_transaction_id
+        WHERE r.transaction_type <> o.transaction_type OR r.warehouse_id <> o.warehouse_id OR r.product_id <> o.product_id
+           OR NOT (r.inventory_batch_id <=> o.inventory_batch_id) OR r.unit_cost <> o.unit_cost
+           OR r.quantity <> -o.quantity OR r.value_change <> -o.value_change OR r.transaction_at < o.transaction_at
+           OR o.reversal_of_inventory_transaction_id IS NOT NULL
+           OR NOT (r.shipment_line_item_id <=> o.shipment_line_item_id)
+           OR NOT (r.invoice_line_item_id <=> o.invoice_line_item_id)
+           OR NOT (r.goods_receipt_line_item_id <=> o.goods_receipt_line_item_id)
+           OR NOT (r.stock_adjustment_line_item_id <=> o.stock_adjustment_line_item_id)
+           OR NOT (r.stock_transfer_line_item_id <=> o.stock_transfer_line_item_id)""")]
+    found += [{**r, "problem": "original reversed more than once"} for r in ctx.rows("""
+        SELECT reversal_of_inventory_transaction_id AS original_id, COUNT(*) AS reversals FROM inventory_transactions
+        WHERE reversal_of_inventory_transaction_id IS NOT NULL GROUP BY 1 HAVING COUNT(*) > 1""")]
     return found

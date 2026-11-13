@@ -1,6 +1,7 @@
-"""Phase 3 step 3.9a: dispatch waves, shipments, stock issue at moving-average cost (FEFO batches), tax invoices
+"""Phase 3 step 3.9: dispatch waves, shipments, stock issue at moving-average cost (FEFO batches), tax invoices
 with shipping charges and GST split, P06 with COGS, AR items, prepayment allocation, counter sales paid at the
-till and store pickups, on generated data.
+till and store pickups (3.9a); carrier journeys and tracking feed, delivery attempts, COD collection, returns to
+origin with RTO credit notes, invoice cancellation before transit (3.9b), on generated data.
 
 Window: August–November 2025 (includes the 22 Sep 2025 GST rate change, so some orders are invoiced at a lower
 rate than they were placed at). Every fulfilment rule must pass, and each mutation (rolled back) must make its
@@ -28,7 +29,8 @@ from scmgen.validation.framework import ValidationContext, run_checks
 pytestmark = pytest.mark.integration
 
 CATALOGUE = load_catalogue()
-RULES = ("V-SO-03", "V-SO-04", "V-SH-01", "V-SH-02", "V-IV-01", "V-IV-02", "V-IV-05", "V-IN-09")
+RULES = ("V-SO-03", "V-SO-04", "V-SH-01", "V-SH-02", "V-IV-01", "V-IV-02", "V-IV-05", "V-IN-09",
+         "V-SH-03", "V-SH-04", "V-IV-03", "V-IV-04", "V-RT-06", "V-IN-06")
 WINDOW = {"history.start_date": "2025-08-01", "history.end_date": "2025-11-30"}
 
 
@@ -163,8 +165,9 @@ def test_cogs_posted_with_the_invoice(generated):
                    LEFT JOIN invoice_line_items il1 ON il1.shipment_line_item_id = t.shipment_line_item_id
                    LEFT JOIN invoice_line_items il2 ON il2.invoice_line_item_id = t.invoice_line_item_id
                    WHERE t.transaction_type = 'SALES_ISSUE' GROUP BY 1) x ON x.invoice_id = i.invoice_id
-        WHERE j.journal_source <> 'SALES_INVOICE' OR p.ar <> i.total_amount OR p.cogs <> x.issued
-           OR p.stock <> x.issued""") == 0
+        WHERE i.invoice_status = 'ISSUED' AND j.journal_source = 'SALES_INVOICE'
+          AND (p.ar <> i.total_amount OR p.cogs <> x.issued
+           OR p.stock <> x.issued)""") == 0
     # Gross margin is positive overall (list prices are set from the pack margins).
     revenue, cogs = _rows(conn, """SELECT SUM(taxable_amount), (SELECT -SUM(value_change) FROM inventory_transactions
                                                                WHERE transaction_type = 'SALES_ISSUE')
@@ -213,7 +216,7 @@ def test_prepayments_clear_their_invoices(generated):
     assert all(open_amount <= 0 for _, open_amount, *_ in rows)              # never short-paid
     assert _one(conn, """SELECT COUNT(*) FROM invoices i JOIN orders o USING (order_id) JOIN payment_terms t
                          ON t.payment_term_id = o.payment_term_id JOIN accounts_receivable a ON a.invoice_id = i.invoice_id
-                         WHERE t.is_prepaid AND a.item_status <> 'SETTLED'""") == 0
+                         WHERE t.is_prepaid AND i.invoice_status = 'ISSUED' AND a.item_status <> 'SETTLED'""") == 0
 
 
 def test_counter_sales_paid_at_the_till(generated):
@@ -264,6 +267,106 @@ def test_backordered_orders_ship_in_parts(generated):
                          WHERE to_status = 'PARTIALLY_SHIPPED'""") > 0
 
 
+def test_carrier_journey(generated):
+    _, conn = generated
+    # 4-10 scans per parcel, received within the feed lag (≤ 6 h, same day), numbered in time order (V-SH-03).
+    per_shipment, max_lag = _rows(conn, """SELECT COUNT(*) / COUNT(DISTINCT shipment_id),
+                                                  MAX(TIMESTAMPDIFF(MINUTE, event_at, received_at))
+                                           FROM shipment_tracking""")[0]
+    assert 4 <= per_shipment <= 10 and max_lag <= 360
+    # Delivered parcels: mostly on the promised date (late_share 15%, plus failed attempts), none on a Sunday.
+    late, sundays, delivered = _rows(conn, """SELECT SUM(DATE(delivered_at) > expected_delivery_date),
+                                                     SUM(DAYOFWEEK(delivered_at) = 1), COUNT(*)
+                                              FROM shipments WHERE shipment_status = 'DELIVERED'""")[0]
+    assert delivered > 1000 and sundays == 0 and Decimal("0.05") < late / delivered < Decimal("0.35")
+    # Failed attempts ~8-10% of parcels, returns to origin ~3%, COD parcels fail and return more often.
+    rows = _rows(conn, """
+        SELECT s.is_cod, COUNT(*), SUM(EXISTS (SELECT 1 FROM delivery_attempts a WHERE a.shipment_id = s.shipment_id
+                                               AND a.attempt_outcome = 'FAILED')),
+               SUM(s.shipment_status = 'RETURNED_TO_SENDER')
+        FROM shipments s WHERE s.planned_dispatch_date < '2025-11-10' AND s.shipment_status <> 'CANCELLED'
+        GROUP BY s.is_cod""")
+    by_cod = {bool(cod): (n, failed, rto) for cod, n, failed, rto in rows}
+    total = sum(n for n, _, _ in by_cod.values())
+    assert Decimal("0.04") < sum(f for _, f, _ in by_cod.values()) / total < Decimal("0.16")
+    assert Decimal("0.01") < sum(r for _, _, r in by_cod.values()) / total < Decimal("0.06")
+    assert by_cod[True][2] / by_cod[True][0] > by_cod[False][2] / by_cod[False][0]
+    reasons = {r for (r,) in _rows(conn, "SELECT DISTINCT failure_reason FROM delivery_attempts WHERE failure_reason IS NOT NULL")}
+    assert {"CUSTOMER_UNAVAILABLE", "REFUSED"} <= reasons
+    # COD_CASH_NOT_READY only on COD parcels.
+    assert _one(conn, """SELECT COUNT(*) FROM delivery_attempts a JOIN shipments s USING (shipment_id)
+                         WHERE a.failure_reason = 'COD_CASH_NOT_READY' AND NOT s.is_cod""") == 0
+    # Delivered orders reach DELIVERED; a split order is PARTIALLY_DELIVERED while one part is on the way.
+    assert _one(conn, "SELECT COUNT(*) FROM orders WHERE order_status = 'DELIVERED' AND fulfilment_type = 'SHIP'") > 1000
+
+
+def test_cod_collection(generated):
+    _, conn = generated
+    # D43: one COD collection per delivered COD parcel, into Payment Clearing (P08), settling the invoice.
+    assert _one(conn, """SELECT COUNT(*) FROM shipments s JOIN invoices i USING (shipment_id)
+                         JOIN accounts_receivable a ON a.invoice_id = i.invoice_id
+                         WHERE s.is_cod AND s.shipment_status = 'DELIVERED' AND a.item_status <> 'SETTLED'""") == 0
+    assert _one(conn, """SELECT COUNT(*) FROM customer_payments p JOIN journal_entries j USING (customer_payment_id)
+                         JOIN journal_entry_lines l ON l.journal_entry_id = j.journal_entry_id AND l.debit_amount > 0
+                         JOIN chart_of_accounts a ON a.account_id = l.account_id
+                         WHERE p.payment_type = 'COD_COLLECTION' AND a.system_role <> 'PAYMENT_CLEARING'""") == 0
+    remit = {d for (d,) in _rows(conn, """SELECT DISTINCT DATEDIFF(settlement_date, payment_date) FROM customer_payments
+                                          WHERE payment_type = 'COD_COLLECTION'""")}
+    assert remit == {7}
+    # Payment Clearing still equals the receipts the bank hasn't settled (gateway and COD, V-CLR).
+    clearing = _one(conn, """SELECT SUM(l.debit_amount - l.credit_amount) FROM journal_entry_lines l
+                             JOIN chart_of_accounts a USING (account_id) WHERE a.system_role = 'PAYMENT_CLEARING'""")
+    unsettled = _one(conn, """SELECT SUM(p.amount) FROM customer_payments p JOIN payment_methods m USING (payment_method_id)
+                              WHERE p.payment_status = 'SUCCESS' AND p.settlement_bank_transaction_id IS NULL
+                                AND (m.method_code IN ('UPI', 'CARD', 'NET_BANKING') OR p.payment_type = 'COD_COLLECTION')""")
+    assert clearing == unsettled
+
+
+def test_returns_to_origin(generated):
+    _, conn = generated
+    returned = _one(conn, "SELECT COUNT(*) FROM shipments WHERE shipment_status = 'RETURNED_TO_SENDER'")
+    assert returned > 0
+    # P13 per returned shipment: Dr Inventory = Cr COGS = Σ RTO receipt values.
+    assert _one(conn, """SELECT COUNT(*) FROM shipments s
+                         LEFT JOIN journal_entries j ON j.shipment_id = s.shipment_id AND j.journal_source = 'RTO_RECEIPT'
+                         LEFT JOIN (SELECT sl.shipment_id, SUM(t.value_change) AS value FROM inventory_transactions t
+                                    JOIN shipment_line_items sl USING (shipment_line_item_id)
+                                    WHERE t.transaction_type = 'RTO_RECEIPT' GROUP BY sl.shipment_id) r
+                              ON r.shipment_id = s.shipment_id
+                         WHERE s.shipment_status = 'RETURNED_TO_SENDER' AND (j.journal_entry_id IS NULL OR j.total_debit <> r.value)""") == 0
+    # The RTO credit note clears an unpaid (COD) invoice; a prepaid one leaves the customer a credit (refund: 3.11).
+    states = dict(_rows(conn, """SELECT s.is_cod, GROUP_CONCAT(DISTINCT a.item_status) FROM shipments s
+                                 JOIN invoices i USING (shipment_id) JOIN credit_notes n ON n.invoice_id = i.invoice_id
+                                 JOIN accounts_receivable a ON a.credit_note_id = n.credit_note_id
+                                 WHERE s.shipment_status = 'RETURNED_TO_SENDER' GROUP BY s.is_cod"""))
+    assert states[1] == "SETTLED" and "OPEN" in states[0]
+    # A fully returned order is CLOSED with its lines CLOSED.
+    assert _one(conn, """SELECT COUNT(*) FROM orders o WHERE o.order_status = 'CLOSED'
+                         AND EXISTS (SELECT 1 FROM order_line_items l WHERE l.order_id = o.order_id
+                                     AND l.line_status NOT IN ('CLOSED', 'CANCELLED'))""") == 0
+    assert _one(conn, "SELECT COUNT(*) FROM orders WHERE order_status = 'CLOSED'") > 0
+
+
+def test_invoice_cancelled_before_transit(generated):
+    _, conn = generated
+    cancelled = _rows(conn, """SELECT i.invoice_id, i.issued_at, i.cancelled_at, s.shipment_status, o.order_status
+                               FROM invoices i JOIN shipments s USING (shipment_id) JOIN orders o ON o.order_id = i.order_id
+                               WHERE i.invoice_status = 'CANCELLED'""")
+    assert cancelled
+    assert all(status == "CANCELLED" and order == "CANCELLED" for _, _, _, status, order in cancelled)
+    ids = ", ".join(str(r[0]) for r in cancelled)
+    # P07: the sales journal is REVERSED and mirrored by a REVERSAL journal; the stock issue is reversed.
+    assert _one(conn, f"""SELECT COUNT(*) FROM journal_entries j
+                          LEFT JOIN journal_entries r ON r.reverses_journal_entry_id = j.journal_entry_id
+                          WHERE j.invoice_id IN ({ids}) AND (j.entry_status <> 'REVERSED' OR r.total_debit <> j.total_debit
+                                                            OR r.journal_type <> 'REVERSAL')""") == 0
+    assert _one(conn, f"""SELECT SUM(t.quantity) FROM inventory_transactions t JOIN shipment_line_items sl USING (shipment_line_item_id)
+                          JOIN invoices i ON i.shipment_id = sl.shipment_id
+                          WHERE i.invoice_id IN ({ids}) AND t.transaction_type = 'SALES_ISSUE'""") == 0
+    # Nothing of a cancelled order stays reserved or receivable.
+    assert _one(conn, f"""SELECT COUNT(*) FROM accounts_receivable WHERE invoice_id IN ({ids}) AND item_status <> 'REVERSED'""") == 0
+
+
 _SHIPPED_LINE = ("(SELECT x FROM (SELECT MIN(shipment_line_item_id) x FROM shipment_line_items) t)")
 _SHIPMENT = "(SELECT x FROM (SELECT MIN(shipment_id) x FROM shipments) t)"
 _INVOICE = "(SELECT x FROM (SELECT MIN(invoice_id) x FROM invoices WHERE shipment_id IS NOT NULL) t)"
@@ -274,6 +377,21 @@ _PRODUCT_LINE = ("(SELECT x FROM (SELECT MIN(invoice_line_item_id) x FROM invoic
 _B2CS = ("(SELECT x FROM (SELECT MIN(tax_transaction_id) x FROM tax_transactions WHERE gstr1_section = 'B2CS') t)")
 _SHIPPED_ORDER_LINE = ("(SELECT x FROM (SELECT MIN(order_line_item_id) x FROM order_line_items "
                        "WHERE line_status = 'SHIPPED') t)")
+
+_FIRST = "(SELECT x FROM (SELECT MIN({key}) x FROM {table} WHERE {where}) t)"
+_DELIVERED_ATTEMPT = _FIRST.format(key="delivery_attempt_id", table="delivery_attempts", where="attempt_outcome = 'DELIVERED'")
+_TRACKING = _FIRST.format(key="shipment_tracking_id", table="shipment_tracking", where="TRUE")
+_RTO_NOTE = _FIRST.format(key="credit_note_id", table="credit_notes", where="reason = 'RTO'")
+_RTO_LINE = _FIRST.format(key="credit_note_line_item_id", table="credit_note_line_items", where="TRUE")
+_RTO_RECEIPT = _FIRST.format(key="inventory_transaction_id", table="inventory_transactions",
+                             where="transaction_type = 'RTO_RECEIPT'")
+_COD = _FIRST.format(key="customer_payment_id", table="customer_payments", where="payment_type = 'COD_COLLECTION'")
+_CDNUR = _FIRST.format(key="tax_transaction_id", table="tax_transactions", where="gstr1_section = 'CDNUR'")
+_MIRROR = _FIRST.format(key="tax_transaction_id", table="tax_transactions", where="is_cancellation")
+_CLOSED_LINE = _FIRST.format(key="order_line_item_id", table="order_line_items", where="line_status = 'CLOSED'")
+_STOCK_REVERSAL = _FIRST.format(key="inventory_transaction_id", table="inventory_transactions",
+                                where="reversal_of_inventory_transaction_id IS NOT NULL")
+_REVERSED_ITEM = _FIRST.format(key="accounts_receivable_id", table="accounts_receivable", where="item_status = 'REVERSED'")
 
 MUTATIONS = {
     "V-SO-03": [f"UPDATE shipment_line_items SET quantity_shipped = quantity_shipped + 1 "
@@ -294,6 +412,25 @@ MUTATIONS = {
     "V-SO-05/shipped": [f"UPDATE order_line_items SET line_status = 'PARTIALLY_SHIPPED' "
                         f"WHERE order_line_item_id = {_SHIPPED_ORDER_LINE}"],
     "V-TX-01/sales": [f"UPDATE tax_transactions SET gstr1_section = 'B2CL' WHERE tax_transaction_id = {_B2CS}"],
+    # Step 3.9b.
+    "V-SH-03": [f"UPDATE shipment_tracking SET received_at = event_at + INTERVAL 7 HOUR, "
+                f"created_at = event_at + INTERVAL 7 HOUR, updated_at = event_at + INTERVAL 7 HOUR "
+                f"WHERE shipment_tracking_id = {_TRACKING}"],
+    "V-SH-04": [f"UPDATE delivery_attempts SET attempted_at = attempted_at + INTERVAL 1 MINUTE "
+                f"WHERE delivery_attempt_id = {_DELIVERED_ATTEMPT}"],
+    "V-IV-03": [f"UPDATE credit_notes n JOIN invoices i ON i.invoice_id = n.invoice_id "
+                f"SET n.credit_note_date = i.invoice_date - INTERVAL 1 DAY WHERE n.credit_note_id = {_RTO_NOTE}"],
+    "V-IV-04": [f"UPDATE credit_note_line_items SET quantity = quantity + 1 WHERE credit_note_line_item_id = {_RTO_LINE}"],
+    "V-RT-06": [f"UPDATE inventory_transactions SET unit_cost = unit_cost + 1 WHERE inventory_transaction_id = {_RTO_RECEIPT}"],
+    "V-PY-02/cod": [f"UPDATE customer_payments SET amount = amount + 1 WHERE customer_payment_id = {_COD}"],
+    "V-TX-01/credit": [f"UPDATE tax_transactions SET gstr1_section = 'CDNR' WHERE tax_transaction_id = {_CDNUR}"],
+    "V-TX-01/cancel": [f"UPDATE tax_transactions SET taxable_value = taxable_value - 1 WHERE tax_transaction_id = {_MIRROR}"],
+    "V-IN-05/rto": [f"UPDATE inventory_transactions SET quantity = quantity + 1 WHERE inventory_transaction_id = {_RTO_RECEIPT}"],
+    "V-IN-06": [f"UPDATE inventory_transactions SET unit_cost = unit_cost + 1 "
+                f"WHERE inventory_transaction_id = {_STOCK_REVERSAL}"],
+    "V-SO-05/closed": [f"UPDATE order_line_items SET line_status = 'DELIVERED' WHERE order_line_item_id = {_CLOSED_LINE}"],
+    "V-AR-02/reversed": [f"UPDATE accounts_receivable SET item_status = 'SETTLED', settled_at = updated_at "
+                         f"WHERE accounts_receivable_id = {_REVERSED_ITEM}"],
     "V-IN-05/sales": [f"UPDATE inventory_transactions SET quantity = quantity - 1 WHERE inventory_transaction_id = {_ISSUE}"],
 }
 

@@ -1,8 +1,8 @@
 """Fulfilment and invoicing rules (1D §9: V-SO-03, V-SO-04, V-SH-*, V-IV-*). Each check returns the violating rows.
 
 Step 3.9a implements the dispatch and invoicing side: ★ V-SO-03, ★ V-SO-04, V-SH-01, V-SH-02, V-IV-01, V-IV-02 and
-V-IV-05. Carrier events (V-SH-03, V-SH-04) come with deliveries (3.9b), credit notes (V-IV-03, V-IV-04) with RTOs
-and returns, freight bills (V-SH-05) with expenses.
+V-IV-05; step 3.9b the carrier side: V-SH-03 (tracking feed), V-SH-04 (delivery attempts, COD), V-IV-03, ★ V-IV-04
+(credit notes) and V-RT-06 (returns to origin). Freight bills (V-SH-05) come with expenses.
 """
 
 from __future__ import annotations
@@ -245,4 +245,169 @@ def invoice_numbers_and_cancellations(ctx: ValidationContext) -> Rows:
         WHERE i.invoice_status = 'CANCELLED'
           AND (i.cancelled_at > i.issued_at + INTERVAL 24 HOUR OR i.cancelled_at >= t.in_transit_at
                OR (s.shipment_id IS NOT NULL AND s.shipment_status <> 'CANCELLED'))""")]
+    return found
+
+
+# Which carrier scans may be the latest one for a shipment status (V-SH-03).
+LAST_EVENTS = {
+    "PICKED_UP": ("PICKED_UP", "ARRIVED_AT_HUB"),
+    "IN_TRANSIT": ("DEPARTED_HUB", "IN_TRANSIT", "ARRIVED_AT_HUB"),
+    "OUT_FOR_DELIVERY": ("OUT_FOR_DELIVERY",),
+    "DELIVERED": ("DELIVERED",),
+    "DELIVERY_FAILED": ("DELIVERY_ATTEMPTED", "RTO_INITIATED", "RTO_IN_TRANSIT"),
+    "RETURNED_TO_SENDER": ("RTO_DELIVERED",),
+}
+
+
+@check("V-SH-03")
+def tracking_feed(ctx: ValidationContext) -> Rows:
+    """Carrier events per shipment are numbered 1, 2, 3 … in time order and received at most 6 hours after the
+    scan (clean mode); the latest event agrees with the shipment's status; no events before the dispatch."""
+    found = [{**r, "problem": "sequence gap, out of time order or feed lag above 6 h"} for r in ctx.rows("""
+        SELECT shipment_id, event_sequence, event_at, received_at FROM (
+            SELECT shipment_id, event_sequence, event_at, received_at,
+                   ROW_NUMBER() OVER (PARTITION BY shipment_id ORDER BY event_sequence) AS n,
+                   LAG(event_at) OVER (PARTITION BY shipment_id ORDER BY event_sequence) AS previous_at
+            FROM shipment_tracking) t
+        WHERE event_sequence <> n OR event_at < previous_at OR received_at > event_at + INTERVAL 6 HOUR""")]
+    cases = " ".join(f"WHEN '{status}' THEN t.event_code IN ({', '.join(repr(c) for c in codes)})"
+                     for status, codes in LAST_EVENTS.items())
+    found += [{**r, "problem": "latest carrier event doesn't fit the shipment status"} for r in ctx.rows(f"""
+        SELECT s.shipment_id, s.shipment_status, t.event_code FROM shipments s
+        JOIN (SELECT shipment_id, MAX(event_sequence) AS last_sequence FROM shipment_tracking GROUP BY shipment_id) m
+             ON m.shipment_id = s.shipment_id
+        JOIN shipment_tracking t ON t.shipment_id = m.shipment_id AND t.event_sequence = m.last_sequence
+        WHERE s.shipment_status <> 'CANCELLED' AND NOT (CASE s.shipment_status {cases} ELSE FALSE END)""")]
+    found += [{**r, "problem": "carrier event before the dispatch, or a shipment in transit without events"}
+              for r in ctx.rows("""
+        SELECT s.shipment_id, s.dispatched_at, MIN(t.event_at) AS first_event FROM shipments s
+        LEFT JOIN shipment_tracking t ON t.shipment_id = s.shipment_id
+        WHERE s.shipment_status IN ('IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED', 'DELIVERY_FAILED', 'RETURNED_TO_SENDER')
+           OR t.shipment_id IS NOT NULL
+        GROUP BY s.shipment_id, s.dispatched_at
+        HAVING MIN(t.event_at) IS NULL OR MIN(t.event_at) < s.dispatched_at""")]
+    return found
+
+
+@check("V-SH-04")
+def delivery_attempts(ctx: ValidationContext) -> Rows:
+    """Attempts numbered 1, 2, 3 in time order; a delivered shipment has exactly one DELIVERED attempt, its last,
+    at its delivered time; a shipment returned to origin had three failed attempts or a refusal and no delivery;
+    COD collected exactly on delivered COD parcels, for the COD amount."""
+    found = [{**r, "problem": "attempt numbers or times out of order"} for r in ctx.rows("""
+        SELECT shipment_id, attempt_number, attempted_at FROM (
+            SELECT shipment_id, attempt_number, attempted_at,
+                   ROW_NUMBER() OVER (PARTITION BY shipment_id ORDER BY attempt_number) AS n,
+                   LAG(attempted_at) OVER (PARTITION BY shipment_id ORDER BY attempt_number) AS previous_at
+            FROM delivery_attempts) a
+        WHERE attempt_number <> n OR attempted_at <= previous_at""")]
+    found += [{**r, "problem": "delivery outcome doesn't fit the shipment"} for r in ctx.rows("""
+        SELECT s.shipment_id, s.shipment_status, COUNT(a.delivery_attempt_id) AS attempts,
+               SUM(a.attempt_outcome = 'DELIVERED') AS delivered, SUM(a.failure_reason = 'REFUSED') AS refused,
+               MAX(a.attempt_number) AS last_attempt,
+               MAX(IF(a.attempt_outcome = 'DELIVERED', a.attempt_number, NULL)) AS delivered_attempt,
+               MAX(IF(a.attempt_outcome = 'DELIVERED', a.attempted_at, NULL)) AS delivered_at_attempt
+        FROM shipments s LEFT JOIN delivery_attempts a ON a.shipment_id = s.shipment_id
+        GROUP BY s.shipment_id, s.shipment_status, s.delivered_at
+        HAVING (s.shipment_status = 'DELIVERED' AND (COALESCE(delivered, 0) <> 1 OR delivered_attempt <> last_attempt
+                                                     OR delivered_at_attempt <> s.delivered_at))
+            OR (s.shipment_status <> 'DELIVERED' AND COALESCE(delivered, 0) > 0)
+            OR (s.shipment_status = 'RETURNED_TO_SENDER' AND attempts < 3 AND COALESCE(refused, 0) = 0)
+            OR (s.shipment_status IN ('PENDING', 'PICKING', 'PICKED', 'PACKING', 'PACKED', 'READY_FOR_PICKUP',
+                                      'PICKED_UP', 'IN_TRANSIT', 'CANCELLED') AND attempts > 0)""")]
+    found += [{**r, "problem": "COD collected ≠ the COD amount, or on a parcel that isn't a delivered COD"}
+              for r in ctx.rows("""
+        SELECT a.delivery_attempt_id, a.cod_collected_amount, s.cod_amount FROM delivery_attempts a
+        JOIN shipments s ON s.shipment_id = a.shipment_id
+        WHERE (a.attempt_outcome = 'DELIVERED' AND s.is_cod) <> (a.cod_collected_amount IS NOT NULL)
+           OR a.cod_collected_amount <> s.cod_amount""")]
+    return found
+
+
+@check("V-IV-03")
+def credit_note_headers(ctx: ValidationContext) -> Rows:
+    """Credit notes: against an ISSUED invoice, with its customer, GSTIN and tax type; dated on or after the
+    invoice and by 30 November after the invoice's financial year (GST time limit); header = Σ lines + round-off;
+    Σ credit notes per invoice ≤ the invoice total; e-invoice reference iff the buyer is registered (D46)."""
+    found = [{**r, "problem": "invoice cancelled, or tax type / date outside the rules"} for r in ctx.rows("""
+        SELECT n.credit_note_id, i.invoice_status, n.is_inter_state, i.is_inter_state AS invoice_inter_state,
+               n.credit_note_date, i.invoice_date FROM credit_notes n JOIN invoices i ON i.invoice_id = n.invoice_id
+        CROSS JOIN (SELECT fy_start_month FROM companies LIMIT 1) c
+        WHERE i.invoice_status <> 'ISSUED' OR n.is_inter_state <> i.is_inter_state OR n.credit_note_date < i.invoice_date
+           OR n.credit_note_date > MAKEDATE(YEAR(i.invoice_date) - (MONTH(i.invoice_date) < c.fy_start_month) + 1, 1)
+                                   + INTERVAL 10 MONTH + INTERVAL 29 DAY
+           OR (n.irn IS NULL) <> (i.customer_gstin IS NULL)""")]
+    found += [{**r, "problem": "header ≠ Σ lines + round-off"} for r in ctx.rows("""
+        SELECT n.credit_note_id, n.taxable_amount, s.taxable FROM credit_notes n
+        LEFT JOIN (SELECT credit_note_id, SUM(taxable_amount) AS taxable, SUM(cgst_amount) AS cgst,
+                          SUM(sgst_amount) AS sgst, SUM(igst_amount) AS igst FROM credit_note_line_items
+                   GROUP BY credit_note_id) s ON s.credit_note_id = n.credit_note_id
+        WHERE s.credit_note_id IS NULL OR n.taxable_amount <> s.taxable OR n.cgst_amount <> s.cgst
+           OR n.sgst_amount <> s.sgst OR n.igst_amount <> s.igst
+           OR n.total_amount <> s.taxable + s.cgst + s.sgst + s.igst + n.round_off_amount""")]
+    found += [{**r, "problem": "credit notes exceed the invoice total"} for r in ctx.rows("""
+        SELECT i.invoice_id, i.total_amount, SUM(n.total_amount) AS credited FROM invoices i
+        JOIN credit_notes n ON n.invoice_id = i.invoice_id AND n.credit_note_status = 'ISSUED'
+        GROUP BY i.invoice_id, i.total_amount HAVING SUM(n.total_amount) > i.total_amount""")]
+    return found
+
+
+@check("V-IV-04")
+def credited_quantities(ctx: ValidationContext) -> Rows:
+    """★ Per invoice line: Σ credited quantity ≤ invoiced quantity and Σ credited taxable ≤ its taxable value; a
+    credit line belongs to its credit note's invoice and carries the invoice line's rate. (Return credits =
+    received quantity: with returns, 3.11.)"""
+    found = [{**r, "problem": "credit line of another invoice, or at another rate"} for r in ctx.rows("""
+        SELECT cl.credit_note_line_item_id, n.invoice_id, il.invoice_id AS line_invoice, cl.gst_rate, il.gst_rate AS rate
+        FROM credit_note_line_items cl JOIN credit_notes n ON n.credit_note_id = cl.credit_note_id
+        JOIN invoice_line_items il ON il.invoice_line_item_id = cl.invoice_line_item_id
+        WHERE il.invoice_id <> n.invoice_id OR cl.gst_rate <> il.gst_rate""")]
+    found += [{**r, "problem": "credited more than invoiced"} for r in ctx.rows("""
+        SELECT il.invoice_line_item_id, il.quantity, SUM(cl.quantity) AS credited_quantity, il.taxable_amount,
+               SUM(cl.taxable_amount) AS credited_taxable
+        FROM invoice_line_items il JOIN credit_note_line_items cl ON cl.invoice_line_item_id = il.invoice_line_item_id
+        JOIN credit_notes n ON n.credit_note_id = cl.credit_note_id AND n.credit_note_status = 'ISSUED'
+        GROUP BY il.invoice_line_item_id, il.quantity, il.taxable_amount
+        HAVING SUM(cl.quantity) > il.quantity OR SUM(cl.taxable_amount) > il.taxable_amount""")]
+    return found
+
+
+@check("V-RT-06")
+def returns_to_origin(ctx: ValidationContext) -> Rows:
+    """RTO (D41): every line of a RETURNED_TO_SENDER shipment has an RTO_RECEIPT at its warehouse, batch and
+    original issue cost, at the return time, and the shipment's invoice has an RTO credit note for every line in
+    full; RTO receipts and RTO credit notes exist only for returned shipments."""
+    found = [{**r, "problem": "RTO receipt missing or not at the issue cost / batch / time"} for r in ctx.rows("""
+        SELECT sl.shipment_line_item_id, r.inventory_transaction_id, r.unit_cost, i.unit_cost AS issue_cost
+        FROM shipment_line_items sl JOIN shipments s ON s.shipment_id = sl.shipment_id
+        JOIN inventory_transactions i ON i.shipment_line_item_id = sl.shipment_line_item_id
+             AND i.transaction_type = 'SALES_ISSUE' AND i.reversal_of_inventory_transaction_id IS NULL
+        LEFT JOIN inventory_transactions r ON r.shipment_line_item_id = sl.shipment_line_item_id
+             AND r.transaction_type = 'RTO_RECEIPT'
+        WHERE s.shipment_status = 'RETURNED_TO_SENDER'
+          AND (r.inventory_transaction_id IS NULL OR r.unit_cost <> i.unit_cost OR r.value_change <> -i.value_change
+               OR r.quantity <> sl.quantity_shipped OR r.warehouse_id <> s.warehouse_id
+               OR NOT (r.inventory_batch_id <=> sl.inventory_batch_id) OR r.transaction_at <> s.rto_received_at)
+        UNION ALL
+        SELECT r.shipment_line_item_id, r.inventory_transaction_id, r.unit_cost, NULL FROM inventory_transactions r
+        JOIN shipment_line_items sl ON sl.shipment_line_item_id = r.shipment_line_item_id
+        JOIN shipments s ON s.shipment_id = sl.shipment_id
+        WHERE r.transaction_type = 'RTO_RECEIPT' AND s.shipment_status <> 'RETURNED_TO_SENDER'""")]
+    found += [{**r, "problem": "returned shipment's invoice not credited in full by an RTO credit note"} for r in ctx.rows("""
+        SELECT s.shipment_id, i.invoice_id, COUNT(n.credit_note_id) AS rto_notes, MIN(n.total_amount) AS credited,
+               i.total_amount
+        FROM shipments s JOIN invoices i ON i.shipment_id = s.shipment_id
+        LEFT JOIN credit_notes n ON n.invoice_id = i.invoice_id AND n.reason = 'RTO' AND n.credit_note_status = 'ISSUED'
+        WHERE s.shipment_status = 'RETURNED_TO_SENDER'
+        GROUP BY s.shipment_id, i.invoice_id, i.total_amount
+        HAVING COUNT(n.credit_note_id) <> 1 OR MIN(n.total_amount) <> i.total_amount
+            OR (SELECT COUNT(*) FROM invoice_line_items il WHERE il.invoice_id = i.invoice_id)
+               <> (SELECT COUNT(*) FROM credit_note_line_items cl JOIN credit_notes c ON c.credit_note_id = cl.credit_note_id
+                   JOIN invoice_line_items il ON il.invoice_line_item_id = cl.invoice_line_item_id
+                   WHERE c.invoice_id = i.invoice_id AND c.reason = 'RTO' AND cl.quantity = il.quantity
+                     AND cl.taxable_amount = il.taxable_amount)""")]
+    found += [{**r, "problem": "RTO credit note for a shipment that didn't return"} for r in ctx.rows("""
+        SELECT n.credit_note_id, s.shipment_status FROM credit_notes n JOIN invoices i ON i.invoice_id = n.invoice_id
+        LEFT JOIN shipments s ON s.shipment_id = i.shipment_id
+        WHERE n.reason = 'RTO' AND COALESCE(s.shipment_status, '') <> 'RETURNED_TO_SENDER'""")]
     return found

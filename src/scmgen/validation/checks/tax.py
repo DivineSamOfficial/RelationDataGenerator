@@ -30,6 +30,15 @@ TAX_SOURCES = {
                CASE WHEN i.customer_gstin IS NOT NULL THEN 'B2B'
                     WHEN i.is_inter_state AND i.total_amount > {b2cl} THEN 'B2CL' ELSE 'B2CS' END AS gstr1_section
         FROM invoice_line_items il JOIN invoices i ON i.invoice_id = il.invoice_id"""),
+    # Credit notes (3.9b): negative OUTPUT rows, CDNR for a registered buyer, CDNUR otherwise.
+    "CREDIT_NOTE": ("credit_note_line_item_id", """
+        SELECT cl.credit_note_line_item_id AS source_id, -cl.taxable_amount AS taxable_amount,
+               -cl.cgst_amount AS cgst_amount, -cl.sgst_amount AS sgst_amount, -cl.igst_amount AS igst_amount,
+               cl.gst_rate, n.company_gst_registration_id, n.credit_note_date AS document_date, NULL AS supplier_id,
+               n.customer_id, i.customer_gstin AS counterparty_gstin,
+               IF(i.customer_gstin IS NULL, 'CDNUR', 'CDNR') AS gstr1_section
+        FROM credit_note_line_items cl JOIN credit_notes n ON n.credit_note_id = cl.credit_note_id
+        JOIN invoices i ON i.invoice_id = n.invoice_id WHERE n.credit_note_status = 'ISSUED'"""),
 }
 DEFAULT_B2CL_THRESHOLD = 100000
 
@@ -63,6 +72,20 @@ def tax_rows_equal_their_source_lines(ctx: ValidationContext) -> Rows:
             UNION ALL
             SELECT t.{column}, 'tax row without a taxable source line' FROM tax_transactions t
             WHERE t.document_type = '{kind}' AND t.{column} NOT IN (SELECT source_id FROM ({lines}) s2)""")]
+    found += [{**r, "problem": "cancelled invoice line without exactly one mirror row (or a mirror of a live one)"}
+              for r in ctx.rows("""
+        SELECT il.invoice_line_item_id, i.invoice_status, COUNT(t.tax_transaction_id) AS mirrors FROM invoice_line_items il
+        JOIN invoices i ON i.invoice_id = il.invoice_id
+        LEFT JOIN tax_transactions t ON t.invoice_line_item_id = il.invoice_line_item_id AND t.is_cancellation
+             AND t.taxable_value = -il.taxable_amount AND t.cgst_amount = -il.cgst_amount
+             AND t.sgst_amount = -il.sgst_amount AND t.igst_amount = -il.igst_amount
+        GROUP BY il.invoice_line_item_id, i.invoice_status
+        HAVING COUNT(t.tax_transaction_id) <> (i.invoice_status = 'CANCELLED')
+        UNION ALL
+        SELECT t.invoice_line_item_id, 'mirror differs', 1 FROM tax_transactions t
+        JOIN invoice_line_items il ON il.invoice_line_item_id = t.invoice_line_item_id
+        WHERE t.is_cancellation AND (t.taxable_value <> -il.taxable_amount OR t.igst_amount <> -il.igst_amount
+                                     OR t.cgst_amount <> -il.cgst_amount)""")]
     found += [{"document_type": t, "problem": "document type not generated yet"} for (t,) in ctx.conn.exec_driver_sql(
         "SELECT DISTINCT document_type FROM tax_transactions") if t not in TAX_SOURCES]
     return found

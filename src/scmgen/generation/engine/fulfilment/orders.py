@@ -5,8 +5,7 @@
 drop (``release_rest``), and ``write_orders`` writes reservations, line counters and order statuses once, with a
 status-history row for every order whose status changed (1D §3 transitions):
 
-* shipped orders: every open line fully shipped → ``SHIPPED``, otherwise ``PARTIALLY_SHIPPED``;
-* handovers (counter sale, store pickup): ``DELIVERED`` (shipped = delivered = invoiced at the counter).
+statuses follow ``engine/order_status.py`` (a handover is shipped = delivered = invoiced at once, so ``DELIVERED``).
 """
 
 from __future__ import annotations
@@ -18,6 +17,7 @@ from typing import Any
 
 from scmgen.generation.engine.day import DayContext
 from scmgen.generation.engine.documents import record_status
+from scmgen.generation.engine.order_status import line_status, open_quantity, order_status
 
 
 @dataclass
@@ -47,7 +47,7 @@ class OrderBook:
         in_orders = ", ".join(map(str, orders))
         lines = {r["order_line_item_id"]: r for r in day.rows(f"""
             SELECT order_line_item_id, order_id, line_number, product_id, quantity_ordered, quantity_shipped,
-                   quantity_delivered, quantity_invoiced, quantity_cancelled, unit_price, inclusive_unit_price,
+                   quantity_delivered, quantity_invoiced, quantity_cancelled, quantity_rto, unit_price, inclusive_unit_price,
                    discount_percent, line_status
             FROM order_line_items WHERE order_id IN ({in_orders}) ORDER BY order_id, line_number""")}
         reservations = day.rows(f"""
@@ -86,24 +86,27 @@ class OrderBook:
         self.released[key] = self.released.get(key, Decimal(0)) + rest
         self._touch(reservation, at)
 
+    def touch_line(self, line_id: int, at: datetime) -> None:
+        """A line changed outside a reservation (delivered, returned to origin)."""
+        order_id = self.lines[line_id]["order_id"]
+        for touched, key in ((self.touched_lines, line_id), (self.touched_orders, order_id)):
+            touched[key] = max(at, touched.get(key, at))
+
     def _touch(self, reservation: dict[str, Any], at: datetime) -> None:
         for touched, key in ((self.touched_reservations, reservation["inventory_reservation_id"]),
                              (self.touched_lines, reservation["order_line_item_id"]),
                              (self.touched_orders, reservation["order_id"])):
             touched[key] = max(at, touched.get(key, at))
 
-    def open_quantity(self, line: dict[str, Any]) -> Decimal:
-        return line["quantity_ordered"] - line["quantity_cancelled"]
-
     def completes(self, order_id: int) -> bool:
         """After what was issued so far, is every open line of the order fully invoiced?"""
-        return all(line["quantity_invoiced"] == self.open_quantity(line)
+        return all(line["quantity_invoiced"] == open_quantity(line)
                    for line in self.lines.values() if line["order_id"] == order_id)
 
     # ------------------------------------------------------------------------------------------ writing
 
-    def write_orders(self, mode: str) -> None:
-        """``mode``: SHIPPED (dispatch) or DELIVERED (handover)."""
+    def write_orders(self, mode: str, reason: str | None = None) -> None:
+        """``mode``: SHIPPED (dispatch), DELIVERED (handover) or CARRIER (deliveries and returns, with ``reason``)."""
         day = self.day
         for reservation in self.reservations:
             at = self.touched_reservations.get(reservation["inventory_reservation_id"])
@@ -120,24 +123,17 @@ class OrderBook:
                                   "closed_at": at if done else None, "updated_at": at})
         for line_id, at in sorted(self.touched_lines.items()):
             line = self.lines[line_id]
-            line["line_status"] = self.line_status(line, mode)
+            line["line_status"] = line_status(line)
             day.writer.update("order_line_items", "order_line_item_id", line_id, {
                 "quantity_shipped": line["quantity_shipped"], "quantity_delivered": line["quantity_delivered"],
                 "quantity_invoiced": line["quantity_invoiced"], "quantity_cancelled": line["quantity_cancelled"],
-                "line_status": line["line_status"], "updated_at": at})
+                "quantity_rto": line["quantity_rto"], "line_status": line["line_status"], "updated_at": at})
         for order_id, at in sorted(self.touched_orders.items()):
             order = self.orders[order_id]
-            lines = [l for l in self.lines.values() if l["order_id"] == order_id]
-            live = [l for l in lines if self.open_quantity(l) > 0]
-            if not live:
-                status = "CANCELLED"         # nothing could be handed over (only expired batches on the shelf)
-            elif mode == "DELIVERED":
-                status = "DELIVERED"
-            elif not any(l["quantity_shipped"] > 0 for l in live):
-                status = order["order_status"]   # nothing went out (expired reserved stock was released)
-            else:
-                status = "SHIPPED" if all(l["quantity_shipped"] == self.open_quantity(l) for l in live) \
-                    else "PARTIALLY_SHIPPED"
+            # Never before the order's last recorded change (a same-day delivery of one parcel can come before
+            # the dispatch of the order's last parcel; the status follows what is known).
+            at = max(at, order["updated_at"])
+            status = order_status((l for l in self.lines.values() if l["order_id"] == order_id), order["order_status"])
             if status != order["order_status"]:
                 cancelled = status == "CANCELLED"
                 day.writer.update("orders", "order_id", order_id, {
@@ -145,11 +141,13 @@ class OrderBook:
                     "cancellation_reason": "OUT_OF_STOCK" if cancelled else None, "updated_at": at})
                 record_status(day, "order", order_id, order["order_status"], status, at,
                               order["sales_employee_id"] if mode == "DELIVERED" else None,
-                              {"SHIPPED": "Dispatched", "PARTIALLY_SHIPPED": "Partly dispatched",
-                               "DELIVERED": "Handed over to the customer",
-                               "CANCELLED": "Reserved stock expired"}[status])
+                              "Reserved stock expired" if cancelled else reason if reason else
+                              "Handed over to the customer" if mode == "DELIVERED" else
+                              {"SHIPPED": "Dispatched", "PARTIALLY_SHIPPED": "Partly dispatched"}.get(status, "Dispatched"))
                 order["order_status"] = status
+                order["updated_at"] = at
             else:
+                order["updated_at"] = at
                 day.writer.update("orders", "order_id", order_id, {"updated_at": at})
         if self.released:
             day.execute("UPDATE inventory SET qty_reserved = qty_reserved - :q, updated_at = GREATEST(updated_at, :t) "
@@ -160,13 +158,3 @@ class OrderBook:
         self.touched_lines.clear()
         self.touched_reservations.clear()
         self.released.clear()
-
-    def line_status(self, line: dict[str, Any], mode: str) -> str:
-        open_qty = self.open_quantity(line)
-        if open_qty == 0:
-            return "CANCELLED"
-        if mode == "DELIVERED" and line["quantity_delivered"] == open_qty:
-            return "DELIVERED"
-        if line["quantity_shipped"] == open_qty:
-            return "SHIPPED"
-        return "PARTIALLY_SHIPPED" if line["quantity_shipped"] > 0 else line["line_status"]

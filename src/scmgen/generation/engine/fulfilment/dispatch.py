@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -33,7 +33,7 @@ from scmgen.generation.engine.fulfilment.stock import Issuer, ledger_row
 from scmgen.generation.engine.sales.allocation import _distance
 from scmgen.generation.numbering import Registration
 
-SHIPPABLE = ("CONFIRMED", "BACKORDERED", "PARTIALLY_SHIPPED")
+SHIPPABLE = ("CONFIRMED", "BACKORDERED", "PARTIALLY_SHIPPED", "PARTIALLY_DELIVERED")
 EXPIRED_REASON = "Stock expired before dispatch"
 WAREHOUSE_STEPS = ("PICKING", "PICKED", "PACKING", "PACKED", "READY_FOR_PICKUP")
 STEP_MINUTES = {"PICKING": (5, 60), "PICKED": (15, 90), "PACKING": (5, 30), "PACKED": (10, 45),
@@ -58,6 +58,12 @@ def transit_days(day: DayContext, carrier_type: str, km: float) -> int:
     settings = day.world.config.fulfilment
     days = next((d for limit, d in settings.transit_days if km <= limit), settings.transit_days[-1][1])
     return days + (settings.surface_extra_days if carrier_type in ("SURFACE_LTL", "FULL_TRUCKLOAD") else 0)
+
+
+def expected_delivery(dispatched: date, days: int) -> date:
+    """The carrier's promised date: dispatch + transit days, never a Sunday (no deliveries)."""
+    expected = dispatched + timedelta(days=days)
+    return expected + timedelta(days=1) if expected.weekday() == 6 else expected
 
 
 def dispatch_step(day: DayContext, invoicer: Invoicer) -> None:
@@ -191,7 +197,7 @@ def _ship(day: DayContext, invoicer: Invoicer, issuer: Issuer, book: OrderBook, 
         "total_weight_kg": max(Decimal("0.001"), weight.quantize(Decimal("0.001"))), "freight_cost_amount": freight,
         "eway_bill_number": eway_bill_number(rng) if bill.total_amount > settings.eway_bill_threshold else None,
         "planned_dispatch_date": day.day, "dispatched_at": dispatched,
-        "expected_delivery_date": day.day + timedelta(days=transit_days(day, service, km)), "delivered_at": None,
+        "expected_delivery_date": expected_delivery(day.day, transit_days(day, service, km)), "delivered_at": None,
         "rto_received_at": None, "shipment_status": "PICKED_UP", "created_at": created, "updated_at": dispatched,
     })
     for number, (line_id, reservation, piece) in enumerate(shipment_lines, 1):

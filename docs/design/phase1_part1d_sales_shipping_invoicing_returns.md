@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phase 2
-**Last updated:** 2026-11-11 (Phase 3 step 3.9a implementation notes §1.6; step 3.8 §1.5; earlier: Part 1E D60, D63; Part 1H D79, D80, F5)
+**Last updated:** 2026-11-13 (Phase 3 step 3.9b notes §1.7; step 3.9a §1.6; step 3.8 §1.5; earlier: Part 1E D60, D63; Part 1H D79, D80, F5)
 **Builds on:** Part 1A (D1–D14, A1 attribution / stores), Part 1B (master data, D15–D24), Part 1C (procurement / inventory, D25–D36, document conventions §2)
 
 ---
@@ -103,7 +103,22 @@ One small constraint change (below); no tables or columns change. Settings: `ful
 | Customer cancellation time | Never earlier than the order's, its lines' or its reservations' latest change (the medium run found a cancellation timed before a reservation made by that morning's backorder release, which leaves the order row untouched) |
 | Effects until later steps | B2B invoices stay unpaid until collections (3.10), so AR only grows and more B2B orders go on credit hold or expire (medium: 789 expired holds in two years, was 16 before invoices existed). Stores are not replenished until 3.12, so their shelves thin out over time and counter sales fall |
 | Constraint change | `ck_orders_amounts`: the estimate may be up to ₹0.50 below items + tax + shipping (it is rounded to the nearest rupee; same tolerance as an invoice round-off). Was `estimate ≥ items + tax + shipping` |
-| Later | Carrier events, delivery attempts, COD collection, RTO with credit notes, invoice cancellation within 24 h (D40): step 3.9b |
+| Later | Carrier events, delivery attempts, COD collection, RTO with credit notes, invoice cancellation within 24 h (D40): step 3.9b (§1.7) |
+
+### 1.7 Implementation notes (Phase 3 step 3.9b: carriers, delivery, COD, returns to origin, cancellation before transit)
+
+No tables, columns or constraints change. Settings: the carrier part of `fulfilment:` in `config/generation.yaml`.
+
+| Topic | Implementation |
+|---|---|
+| Journey | Planned once per shipment from a stream keyed by the shipment (D65). Hub carriers: PICKED_UP scan at the warehouse, ARRIVED_AT_HUB, DEPARTED_HUB 4–14 h after pickup (our status `IN_TRANSIT`), an IN_TRANSIT scan on routes over 300 km, ARRIVED_AT_HUB at the destination state's hub (its biggest market city), OUT_FOR_DELIVERY and the attempt on the delivery day. Hyperlocal riders: pickup, on the way (`IN_TRANSIT`), out for delivery, same day (next day after 18:00). The delivery day is the promised `expected_delivery_date` (dispatch + transit days by distance, never a Sunday), 1–3 days later for `late_share` (15%) of parcels; no deliveries on Sundays; riders attempt until 20:30. Medium trial: ~6 scans per parcel |
+| Feed and statuses | Each scan reaches us 1–120 minutes later, within the same day (clean mode, ≤ 6 h); the tracking row is recorded at receipt (`created_at = received_at`, Part 1H F5). Our status changes at the scan's time (business time) when the scan arrives; the history row is recorded at receipt. How far a parcel has got is read from its stored events (D66): each day writes the planned events received that day |
+| Attempts | First attempt fails 6% (prepaid / B2B) or 15% (COD); a repeat fails 35%; a failure is a refusal 5% / 35% (COD). Reasons from `failure_reasons` (COD_CASH_NOT_READY only for COD). A refusal or the third failure starts the return. Trial: ~10% of parcels with a failed attempt, ~2.6% returned to origin (7% of COD parcels) |
+| COD (D43) | The delivered attempt records the COD amount; a `COD_COLLECTION` payment (method CASH, the carrier as collector, the AWB as reference, payment date = delivery date, settlement date = +7 days remittance) → P08 Dr Payment Clearing / Cr AR (D53), an AR payment item allocated to the shipment's invoice (settled). Attempt numbers continue per order (a split COD order pays twice) |
+| Return to origin (D41) | RTO_INITIATED the morning after the last attempt, RTO_IN_TRANSIT, RTO_DELIVERED back at the warehouse after the forward transit time: `RETURNED_TO_SENDER`, `rto_received_at`, an `RTO_RECEIPT` per shipment line (+SELLABLE, its batch, at the original issue cost and value), P13 (Dr Inventory / Cr COGS per BU), the order lines' RTO counters, and a full **RTO credit note** (every invoice line incl. the shipping charge, the invoice's round-off, so it equals the invoice total; IRN for registered buyers; negative OUTPUT tax rows CDNR / CDNUR; P11 Dr Sales Returns per BU, Dr Shipping Income, Dr output GST / Cr AR; approved by Finance). The credit is allocated to the invoice: a COD invoice is cleared, a prepaid one leaves the customer a credit (refund: 3.11). A batch that expired meanwhile comes back into the expired-stock view |
+| Cancellation before transit (D40) | The customer-cancellation plan (`sales.cancel.<order>`, the same stream as the pre-dispatch sweep) may fall after the dispatch: if it is before the parcel leaves the origin hub and within 24 h of the invoice, for an order shipped in one parcel, the shipment and invoice are cancelled: reversal rows for the stock issue (D33), P07 = REVERSAL journal of P06 with the original marked REVERSED (D61), negative mirror tax rows (`is_cancellation`), the invoice's AR item REVERSED and its allocations undone (a prepayment is open again until refunded), reservations released, the order `CANCELLED`. Trial: 0.28% of invoices |
+| Order statuses | One rule set (`engine/order_status.py`) for dispatch, handover, delivery, return to origin and backorder expiry: a line is DELIVERED when every shipped unit was delivered or returned (some delivered), CLOSED when all of it came back; an order is PARTIALLY_DELIVERED while something is delivered and something still open, DELIVERED / CLOSED when every open line is finished. New transitions: PARTIALLY_SHIPPED → PARTIALLY_DELIVERED / DELIVERED / CLOSED, SHIPPED → CLOSED (all returned), SHIPPED → CANCELLED (D40). Orders still PARTIALLY_DELIVERED ship their released backorders |
+| Day order | The fulfilment step first writes the carrier events of parcels dispatched before today and their outcomes (stock coming back, at its time, must be in place before today's issues: moving-average cost, V-IN-09; returned stock also delays today's picking of the product until it is back), then handovers, the dispatch wave, and finally the first scans of today's parcels |
 
 ### 1.3 Open questions
 

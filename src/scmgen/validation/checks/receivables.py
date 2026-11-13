@@ -15,7 +15,7 @@ Rows = list[dict[str, Any]]
 # AR item type → (source column, documents (alias d) with their customer, signed original amount, item exists when).
 # A refund's customer is its credit note's.
 SOURCES = {
-    "INVOICE": ("invoice_id", "invoices d", "d.customer_id", "d.total_amount", "d.invoice_status = 'ISSUED'"),
+    "INVOICE": ("invoice_id", "invoices d", "d.customer_id", "d.total_amount", "TRUE"),     # cancelled: REVERSED item
     "CREDIT_NOTE": ("credit_note_id", "credit_notes d", "d.customer_id", "-d.total_amount",
                     "d.credit_note_status <> 'CANCELLED'"),
     "PAYMENT": ("customer_payment_id", "customer_payments d", "d.customer_id", "-d.amount",
@@ -46,8 +46,9 @@ def subledger_equals_gl_per_customer(ctx: ValidationContext) -> Rows:
 
 @check("V-AR-02")
 def items_follow_their_documents(ctx: ValidationContext) -> Rows:
-    """Exactly one AR item per ISSUED invoice, non-cancelled credit note, SUCCESS (or later REVERSED) payment and
-    COMPLETED refund, for the document's customer and with the document's total (signed); none for others."""
+    """Exactly one AR item per invoice, non-cancelled credit note, SUCCESS (or later REVERSED) payment and
+    COMPLETED refund, for the document's customer and with the document's total (signed); none for others. A
+    cancelled invoice's item is REVERSED (D40), an issued invoice's never is."""
     found: Rows = []
     for item_type, (column, documents, customer, amount, exists) in SOURCES.items():
         found += [{**r, "item_type": item_type, "problem": "AR item missing, extra or with another amount/customer"}
@@ -56,6 +57,10 @@ def items_follow_their_documents(ctx: ValidationContext) -> Rows:
             FROM {documents} LEFT JOIN accounts_receivable a ON a.{column} = d.{column}
             WHERE ({exists}) <> (a.accounts_receivable_id IS NOT NULL)
                OR a.original_amount <> {amount} OR a.customer_id <> {customer} OR a.item_type <> '{item_type}'""")]
+    found += [{**r, "problem": "item REVERSED ⇔ invoice CANCELLED"} for r in ctx.rows("""
+        SELECT i.invoice_id, i.invoice_status, a.item_status FROM invoices i
+        JOIN accounts_receivable a ON a.invoice_id = i.invoice_id
+        WHERE (i.invoice_status = 'CANCELLED') <> (a.item_status = 'REVERSED')""")]
     return found
 
 

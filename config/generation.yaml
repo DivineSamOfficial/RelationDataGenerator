@@ -253,3 +253,13 @@ fulfilment:
   handover_minutes: [2, 10]             # counter sale: from keying in the order to payment and handover
   counter_methods: {CASH: 0.45, UPI: 0.40, CARD: 0.15}
   b2cl_threshold: 100000                # GSTR-1 B2CL: unregistered inter-state invoice above this value (1E §5)
+  # Carrier journey and delivery (step 3.9b)
+  linehaul_hours: [4, 14]               # from pickup until the parcel leaves the origin hub (status IN_TRANSIT)
+  late_share: 0.15                      # deliveries later than the expected date
+  late_days: [1, 3]
+  feed_lag_minutes: [1, 120]            # carrier scan → event received in our system (clean mode ≤ 6 h)
+  first_attempt_failure: {COD: 0.15, PREPAID: 0.06}
+  repeat_attempt_failure: 0.35          # a parcel that failed once fails again this often
+  refusal_share: {COD: 0.35, PREPAID: 0.05}   # of failures: the customer refuses → straight back to origin
+  failure_reasons: {CUSTOMER_UNAVAILABLE: 0.40, ADDRESS_NOT_FOUND: 0.15, PREMISES_CLOSED: 0.20, WEATHER_DELAY: 0.10, COD_CASH_NOT_READY: 0.15}
+  cod_remittance_days: 7                # carrier pays collected cash to the company after this (D43)

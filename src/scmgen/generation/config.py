@@ -80,7 +80,10 @@ _SALES_KEYS = {"trend_per_year", "weekday_factors", "holiday_factor", "hours", "
 _FULFILMENT_KEYS = {"dispatch_cutoff_hour", "pick_start_hour", "carrier_pickup_hours", "kg_per_package", "surface_min_kg",
                     "truckload_min_kg", "hyperlocal_max_km", "hyperlocal_share", "freight_rates",
                     "transit_days", "surface_extra_days", "eway_bill_threshold", "pickup_delay_days", "handover_minutes", "counter_methods",
-                    "b2cl_threshold"}
+                    "b2cl_threshold", "linehaul_hours", "late_share", "late_days", "feed_lag_minutes",
+                    "first_attempt_failure", "repeat_attempt_failure", "refusal_share", "failure_reasons",
+                    "cod_remittance_days"}
+FAILURE_REASONS = ("CUSTOMER_UNAVAILABLE", "ADDRESS_NOT_FOUND", "PREMISES_CLOSED", "WEATHER_DELAY", "COD_CASH_NOT_READY")
 CARRIER_TYPES = ("EXPRESS_COURIER", "SURFACE_LTL", "FULL_TRUCKLOAD", "HYPERLOCAL")
 B2B_SEGMENTS = ("RETAILER", "WHOLESALER", "CORPORATE", "INSTITUTION", "WORKSHOP")
 _ORG_KEYS = {"job_levels", "warehouse_staff_share", "departments", "warehouse_titles", "chief_executive"}
@@ -263,6 +266,15 @@ class FulfilmentSettings:
     handover_minutes: tuple[int, int]
     counter_methods: dict[str, float]
     b2cl_threshold: int
+    linehaul_hours: tuple[int, int]                 # pickup → departure from the origin hub
+    late_share: float
+    late_days: tuple[int, int]
+    feed_lag_minutes: tuple[int, int]
+    first_attempt_failure: dict[str, float]         # COD / PREPAID
+    repeat_attempt_failure: float
+    refusal_share: dict[str, float]                 # COD / PREPAID: share of failures that are refusals
+    failure_reasons: dict[str, float]
+    cod_remittance_days: int
 
 
 @dataclass(frozen=True)
@@ -801,7 +813,22 @@ def _parse_fulfilment(raw: dict[str, Any]) -> FulfilmentSettings:
         handover_minutes=_pair(raw["handover_minutes"], "fulfilment.handover_minutes", 0, 120),
         counter_methods=_mix(raw["counter_methods"], "fulfilment.counter_methods", ("CASH", "UPI", "CARD")),
         b2cl_threshold=_int(raw["b2cl_threshold"], "fulfilment.b2cl_threshold", 0, 10**9),
+        linehaul_hours=_pair(raw["linehaul_hours"], "fulfilment.linehaul_hours", 1, 48),
+        late_share=_share(raw["late_share"], "fulfilment.late_share"),
+        late_days=_pair(raw["late_days"], "fulfilment.late_days", 1, 30),
+        feed_lag_minutes=_pair(raw["feed_lag_minutes"], "fulfilment.feed_lag_minutes", 0, 360),
+        first_attempt_failure=_by_payment(raw["first_attempt_failure"], "fulfilment.first_attempt_failure"),
+        repeat_attempt_failure=_share(raw["repeat_attempt_failure"], "fulfilment.repeat_attempt_failure"),
+        refusal_share=_by_payment(raw["refusal_share"], "fulfilment.refusal_share"),
+        failure_reasons=_mix(raw["failure_reasons"], "fulfilment.failure_reasons", FAILURE_REASONS),
+        cod_remittance_days=_int(raw["cod_remittance_days"], "fulfilment.cod_remittance_days", 0, 60),
     )
+
+
+def _by_payment(value: Any, name: str) -> dict[str, float]:
+    if not isinstance(value, dict) or set(value) != {"COD", "PREPAID"}:
+        raise ConfigError(f"{name} needs exactly COD and PREPAID")
+    return {key: _share(value[key], f"{name}.{key}") for key in ("COD", "PREPAID")}
 
 
 def _parse_sales(raw: dict[str, Any]) -> SalesSettings:

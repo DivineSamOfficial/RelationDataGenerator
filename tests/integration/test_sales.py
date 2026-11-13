@@ -143,18 +143,20 @@ def test_prepaid_checkout_posts_receipts(generated):
     assert successes > 0 and successes == journals == items
     assert _one(conn, """SELECT COUNT(*) FROM journal_entries j JOIN customer_payments p USING (customer_payment_id)
                          WHERE p.payment_status <> 'SUCCESS'""") == 0
-    # V-CLR: Payment Clearing = successful gateway receipts not yet settled by the bank (settlement comes in 3.14).
+    # V-CLR: Payment Clearing = successful gateway and COD receipts not yet settled by the bank (settlement: 3.14).
     clearing = _one(conn, """SELECT SUM(l.debit_amount - l.credit_amount) FROM journal_entry_lines l
                              JOIN chart_of_accounts a USING (account_id) WHERE a.system_role = 'PAYMENT_CLEARING'""")
     unsettled = _one(conn, """SELECT SUM(p.amount) FROM customer_payments p JOIN payment_methods m USING (payment_method_id)
                               WHERE p.payment_status = 'SUCCESS' AND p.settlement_bank_transaction_id IS NULL
-                                AND m.method_code IN ('UPI', 'CARD', 'NET_BANKING')""")
+                                AND (m.method_code IN ('UPI', 'CARD', 'NET_BANKING')
+                                     OR p.payment_type = 'COD_COLLECTION')""")   # COD sits there too (D53)
     assert clearing == unsettled
     # Gateway fee = amount × the method's fee %, settlement date = payment date + the method's lag.
     assert _one(conn, """SELECT COUNT(*) FROM customer_payments p JOIN payment_methods m USING (payment_method_id)
                          WHERE p.gateway_fee_amount <> ROUND(p.amount * COALESCE(m.gateway_fee_percent, 0) / 100, 2)
-                            OR (p.payment_status = 'SUCCESS'
+                            OR (p.payment_status = 'SUCCESS' AND p.payment_type <> 'COD_COLLECTION'
                                 AND p.settlement_date <> DATE_ADD(p.payment_date, INTERVAL m.settlement_lag_days DAY))""") == 0
+    # (COD settles at the carrier's remittance: tests/integration/test_fulfilment.py.)
 
 
 def test_payment_terms_follow_the_checkout(generated):

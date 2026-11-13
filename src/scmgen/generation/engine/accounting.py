@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
-from scmgen.domain.journal import AccountBook, BusinessUnitAccounts, Journal
+from scmgen.domain.journal import AccountBook, BusinessUnitAccounts, Journal, JournalLine
 from scmgen.generation.engine.day import DayContext
 
 SOURCE_COLUMNS = {
@@ -62,12 +62,14 @@ def posting_period(day: DayContext, event_date: date) -> tuple[int, date]:
 
 
 def post_journal(day: DayContext, journal: Journal, *, source: str, journal_type: str = "SYSTEM",
-                 document_date: date | None = None, created_by: int | None = None,
+                 document_date: date | None = None, created_by: int | None = None, reverses: int | None = None,
                  **source_fk: int) -> int:
-    """Buffer one posted journal (header + lines). Returns its id."""
+    """Buffer one posted journal (header + lines). Returns its id. A reversal (``reverses``) links no document."""
     unknown = set(source_fk) - SOURCE_COLUMNS
     if unknown or len(source_fk) > 1:
         raise ValueError(f"A journal links at most one source document, got {sorted(source_fk)}")
+    if reverses is not None and (source_fk or source != "REVERSAL" or journal_type != "REVERSAL"):
+        raise ValueError("A reversal journal has source and type REVERSAL and links no document")
     event_date = document_date or day.day
     period_id, posting_date = posting_period(day, event_date)
     journal_id = day.ids.next("journal_entries")
@@ -80,7 +82,7 @@ def post_journal(day: DayContext, journal: Journal, *, source: str, journal_type
         "journal_entry_id": journal_id, "journal_number": number, "journal_source": source,
         "journal_type": journal_type, "posting_date": posting_date, "document_date": event_date,
         "accounting_period_id": period_id, "description": journal.description[:255], "total_debit": total,
-        "total_credit": journal.total_credit, "entry_status": "POSTED", "reverses_journal_entry_id": None,
+        "total_credit": journal.total_credit, "entry_status": "POSTED", "reverses_journal_entry_id": reverses,
         **header, "created_by_employee_id": created_by, "generation_run_id": day.run_id,
         "created_at": stamp, "updated_at": stamp,
     })
@@ -95,3 +97,18 @@ def post_journal(day: DayContext, journal: Journal, *, source: str, journal_type
     return journal_id
 
 
+
+
+def reverse_journal(day: DayContext, journal_id: int, description: str, document_date: date | None = None) -> int:
+    """D61 / P07: post the mirror image of a posted journal and mark the original REVERSED (its only update).
+    Reads the original's lines, so call it before buffering rows that depend on rows not yet written."""
+    lines = day.rows("""
+        SELECT line_number, account_id, debit_amount, credit_amount, cost_center_id, customer_id, supplier_id,
+               employee_id, warehouse_id, line_description FROM journal_entry_lines
+        WHERE journal_entry_id = :j ORDER BY line_number""", j=journal_id)
+    original = Journal(description, tuple(JournalLine(**line) for line in lines))
+    reversal_id = post_journal(day, original.reversal(description), source="REVERSAL", journal_type="REVERSAL",
+                               document_date=document_date, reverses=journal_id)
+    day.writer.update("journal_entries", "journal_entry_id", journal_id,
+                      {"entry_status": "REVERSED", "updated_at": day.at(23, 0)})
+    return reversal_id
