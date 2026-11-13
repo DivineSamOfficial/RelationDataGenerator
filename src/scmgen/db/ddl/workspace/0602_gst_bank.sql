@@ -188,7 +188,9 @@ CREATE TABLE bank_transactions (
          AND customer_payment_id IS NULL AND supplier_payment_id IS NULL AND expense_payment_id IS NULL
          AND refund_id IS NULL AND gst_return_id IS NULL)
      OR transaction_type = 'REVERSAL'),
-    CONSTRAINT ck_bank_transactions_transfer CHECK ((transaction_type = 'INTERNAL_TRANSFER') = (counter_bank_transaction_id IS NOT NULL)),
+    -- Only a transfer leg links its other leg. The pair is a self-reference cycle, so both legs are inserted with
+    -- the link NULL and linked by UPDATE in the same transaction (D86 late link, step 3.14a); V-BK-01 checks pairs.
+    CONSTRAINT ck_bank_transactions_transfer CHECK (counter_bank_transaction_id IS NULL OR transaction_type = 'INTERNAL_TRANSFER'),
     CONSTRAINT ck_bank_transactions_cod CHECK ((transaction_type = 'COD_REMITTANCE') = (shipping_carrier_id IS NOT NULL)),
     CONSTRAINT ck_bank_transactions_value_date CHECK (value_date >= statement_date - INTERVAL 3 DAY),
     CONSTRAINT ck_bank_transactions_audit CHECK (updated_at >= created_at)

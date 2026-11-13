@@ -28,9 +28,12 @@ _INT_MAX = {
 #       points to the line); a loss line points to a batch that already exists.
 #   customer_payments.settlement_bank_transaction_id: a clearing-method receipt is settled by a bank
 #       line days later (D63); bank lines and refunds point back to payments.
+#   bank_transactions.counter_bank_transaction_id (step 3.14a): the two legs of an internal transfer point
+#       at each other (a self-reference cycle between two rows).
 LATE_LINK_FOREIGN_KEYS: frozenset[tuple[str, str]] = frozenset({
     ("stock_adjustment_line_items", "inventory_batch_id"),
     ("customer_payments", "settlement_bank_transaction_id"),
+    ("bank_transactions", "counter_bank_transaction_id"),
 })
 
 

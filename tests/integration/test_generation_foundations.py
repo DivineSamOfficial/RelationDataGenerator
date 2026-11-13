@@ -78,8 +78,9 @@ def test_dependency_order_puts_every_fk_target_first(conn):
         {"s": SCHEMA}).all()
     backwards = {(child, column) for child, column, parent in edges if position[parent] > position[child]}
     assert len(edges) > 300
-    # Only the two late links (D86) point to a table ordered later; the writer sets them by UPDATE.
-    assert backwards == LATE_LINK_FOREIGN_KEYS
+    # Only the two cross-table late links (D86) point to a table ordered later; the writer sets them by UPDATE.
+    # The third late link (bank transfer legs, 3.14a) is a self-reference, which ordering ignores.
+    assert backwards == {link for link in LATE_LINK_FOREIGN_KEYS if link[0] != "bank_transactions"}
     assert order[0] == "account_types"                 # level 0 tables first, alphabetical
 
 

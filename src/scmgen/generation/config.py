@@ -97,6 +97,8 @@ _EXPENSES_KEYS = {"approval_days", "rejection_share", "payment_weekday", "paymen
                   "ad_hoc", "travel_claims_per_month", "travel_claim_amount", "petty_cash_per_month",
                   "petty_cash_amount", "petty_cash_items", "campaign_spend_share", "cost_centres", "sac_codes"}
 WAREHOUSE_TYPES = ("DISTRIBUTION_CENTRE", "RETAIL_STORE")
+_BANK_KEYS = {"statement_hour", "monthly_charges", "interest_rate", "petty_float", "reconciliation_working_day",
+              "payments_buffer", "collections_minimum"}
 PAYMENT_PROFILES = ("ON_TIME", "SLIGHTLY_LATE", "CHRONIC_LATE")
 FAILURE_REASONS = ("CUSTOMER_UNAVAILABLE", "ADDRESS_NOT_FOUND", "PREMISES_CLOSED", "WEATHER_DELAY", "COD_CASH_NOT_READY")
 CARRIER_TYPES = ("EXPRESS_COURIER", "SURFACE_LTL", "FULL_TRUCKLOAD", "HYPERLOCAL")
@@ -364,6 +366,17 @@ class ExpensesSettings:
 
 
 @dataclass(frozen=True)
+class BankSettings:
+    statement_hour: int
+    monthly_charges: dict[str, tuple[int, int]]
+    interest_rate: float
+    petty_float: dict[str, dict[str, int]]
+    reconciliation_working_day: int
+    payments_buffer: int
+    collections_minimum: int
+
+
+@dataclass(frozen=True)
 class Organisation:
     job_levels: dict[str, JobLevel]
     warehouse_staff_share: float
@@ -394,6 +407,7 @@ class GenerationConfig:
     returns: ReturnsSettings | None = None
     inventory: InventorySettings | None = None
     expenses: ExpensesSettings | None = None
+    bank: BankSettings | None = None
 
     @property
     def days(self) -> int:
@@ -496,7 +510,7 @@ def load_generation_config(
     raw = _read(config_dir / GENERATION_FILE)
     _reject_unknown(raw, {"defaults", "presets", "setup", "organisation", "master_data", "daily", "opening_balances",
                           "procurement", "sales", "fulfilment", "collections", "returns",
-                          "inventory", "expenses"}, GENERATION_FILE)
+                          "inventory", "expenses", "bank"}, GENERATION_FILE)
     defaults, presets = raw.get("defaults"), raw.get("presets")
     if not isinstance(defaults, dict) or not isinstance(presets, dict) or not presets:
         raise ConfigError(f"{GENERATION_FILE} needs a 'defaults' mapping and at least one preset under 'presets'")
@@ -535,6 +549,7 @@ def load_generation_config(
         "returns": copy.deepcopy(raw.get("returns") or {}),
         "inventory": copy.deepcopy(raw.get("inventory") or {}),
         "expenses": copy.deepcopy(raw.get("expenses") or {}),
+        "bank": copy.deepcopy(raw.get("bank") or {}),
     }
     for dotted, value in (overrides or {}).items():
         _apply_override(effective, dotted, _parse_override_value(value) if isinstance(value, str) else value)
@@ -573,7 +588,9 @@ def load_generation_config(
     returns = _parse_returns(effective["returns"])
     inventory = _parse_inventory(effective["inventory"])
     expenses = _parse_expenses(effective["expenses"])
+    bank = _parse_bank(effective["bank"])
     return GenerationConfig(
+        bank=bank,
         expenses=expenses,
         returns=returns,
         inventory=inventory,
@@ -992,6 +1009,35 @@ def _parse_inventory(raw: dict[str, Any]) -> InventorySettings:
         disposition_weekday=_int(raw["disposition_weekday"], "inventory.disposition_weekday", 0, 6),
         disposition_min_days=_int(raw["disposition_min_days"], "inventory.disposition_min_days", 1, 60),
         repair_cost_share=_share_pair(raw["repair_cost_share"], "inventory.repair_cost_share", ordered=True))
+
+
+def _parse_bank(raw: dict[str, Any]) -> BankSettings:
+    _reject_unknown(raw, _BANK_KEYS, "bank")
+    missing = sorted(_BANK_KEYS - set(raw))
+    if missing:
+        raise ConfigError(f"bank is missing: {', '.join(missing)}")
+    charges = raw["monthly_charges"]
+    if not isinstance(charges, dict) or not set(charges) <= {"CURRENT", "CASH_CREDIT", "PETTY_CASH"}:
+        raise ConfigError("bank.monthly_charges is per account type: CURRENT / CASH_CREDIT / PETTY_CASH")
+    floats = raw["petty_float"]
+    if not isinstance(floats, dict) or set(floats) != set(WAREHOUSE_TYPES):
+        raise ConfigError("bank.petty_float needs DISTRIBUTION_CENTRE and RETAIL_STORE")
+    levels = {}
+    for kind, level in floats.items():
+        if not isinstance(level, dict) or not {"min", "top_up_to"} <= set(level) <= {"min", "top_up_to", "deposit_above"}:
+            raise ConfigError(f"bank.petty_float.{kind} needs min and top_up_to (and optionally deposit_above)")
+        parsed = {k: _int(v, f"bank.petty_float.{kind}.{k}", 0, 10_000_000) for k, v in level.items()}
+        if not parsed["min"] < parsed["top_up_to"] < parsed.get("deposit_above", 10_000_001):
+            raise ConfigError(f"bank.petty_float.{kind}: min < top_up_to < deposit_above")
+        levels[kind] = parsed
+    return BankSettings(
+        statement_hour=_int(raw["statement_hour"], "bank.statement_hour", 0, 22),
+        monthly_charges={k: _amounts(v, f"bank.monthly_charges.{k}") for k, v in charges.items()},
+        interest_rate=_share(raw["interest_rate"], "bank.interest_rate", high=0.2),
+        petty_float=levels,
+        reconciliation_working_day=_int(raw["reconciliation_working_day"], "bank.reconciliation_working_day", 1, 10),
+        payments_buffer=_int(raw["payments_buffer"], "bank.payments_buffer", 0, 1_000_000_000),
+        collections_minimum=_int(raw["collections_minimum"], "bank.collections_minimum", 0, 1_000_000_000))
 
 
 def _amounts(value: Any, name: str) -> tuple[int, int]:

@@ -238,6 +238,16 @@ def test_invalid_expense_settings_are_refused(overrides, message):
         load_generation_config(today=TODAY, overrides=overrides)
 
 
+@pytest.mark.parametrize("overrides, message", [
+    ({"bank.petty_float.RETAIL_STORE": {"min": 50000, "top_up_to": 40000}}, "min < top_up_to"),
+    ({"bank.monthly_charges": {"SAVINGS": [1, 2]}}, "per account type"),
+    ({"bank.reconciliation_working_day": 0}, "reconciliation_working_day"),
+])
+def test_invalid_bank_settings_are_refused(overrides, message):
+    with pytest.raises(ConfigError, match=message):
+        load_generation_config(today=TODAY, overrides=overrides)
+
+
 def test_future_dates_need_allow_future():
     config = load_generation_config(today=TODAY, overrides={"history.end_date": "2026-12-31",
                                                             "history.allow_future": True})

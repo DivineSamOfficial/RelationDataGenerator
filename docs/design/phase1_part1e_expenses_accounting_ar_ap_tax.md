@@ -309,7 +309,7 @@ Bank statement lines (and petty-cash book lines), in the **bank's** sign convent
 | `shipping_carrier_id` | `SMALLINT UNSIGNED` | | FK. COD remittance sender |
 | `bank_reconciliation_id` | `BIGINT UNSIGNED` | | FK → `bank_reconciliations`. Set when reconciled |
 
-- **Constraints:** CHECK `(credit_amount > 0 AND debit_amount = 0) OR (debit_amount > 0 AND credit_amount = 0)`; CHECK at most one document FK; CHECK type ↔ FK (e.g. `transaction_type <> 'SUPPLIER_PAYMENT' OR supplier_payment_id IS NOT NULL`); CHECK `(transaction_type = 'INTERNAL_TRANSFER') = (counter_bank_transaction_id IS NOT NULL)`; CHECK `(transaction_type = 'COD_REMITTANCE') = (shipping_carrier_id IS NOT NULL)`; CHECK `value_date >= statement_date - INTERVAL 3 DAY`.
+- **Constraints:** CHECK `(credit_amount > 0 AND debit_amount = 0) OR (debit_amount > 0 AND credit_amount = 0)`; CHECK at most one document FK; CHECK type ↔ FK (e.g. `transaction_type <> 'SUPPLIER_PAYMENT' OR supplier_payment_id IS NOT NULL`); CHECK `counter_bank_transaction_id IS NULL OR transaction_type = 'INTERNAL_TRANSFER'` (step 3.14a: was `=`, which no insert order can satisfy for the self-referencing pair; both legs are linked by UPDATE, D86, and V-BK-01 checks every transfer has its paired leg); CHECK `(transaction_type = 'COD_REMITTANCE') = (shipping_carrier_id IS NOT NULL)`; CHECK `value_date >= statement_date - INTERVAL 3 DAY`.
 - **Who posts the journal:** a line created by one of our documents (payments, refunds, GST) is **not** posted again: the document already posted, and the bank line is what reconciliation matches against. Lines originating at the bank (`GATEWAY_SETTLEMENT`, `COD_REMITTANCE`, `BANK_CHARGES`, `INTEREST_CREDIT`, `INTERNAL_TRANSFER` outgoing leg, `REVERSAL` of a bounced item) post their own journal with `bank_transaction_id` as the source (§6).
 - **Indexes:** `(bank_account_id, statement_date)`, `(bank_reconciliation_id)`, `(transaction_type, statement_date)`.
 - **Populated:** Generated from the bank's point of view after the documents exist. Direct receipts and payments land on `payment_date` (NEFT/RTGS/IMPS) or after clearing (cheques). One `GATEWAY_SETTLEMENT` per bank account per method per settlement day = Σ the day's UPI/card/net-banking receipts minus fees. One `COD_REMITTANCE` per carrier per week. Monthly bank charges and quarterly interest. Petty-cash top-ups when a float falls below its threshold. `balance_after` is computed in strict `(statement_date, id)` order per account.
@@ -566,6 +566,18 @@ Invoice `KA2627-I000123` from DC Bengaluru (GSTIN 29…) to a registered Bengalu
 The allocation (payment → invoice) posts nothing. It sets both AR items' `open_amount` to 0. The ₹1,800 of output GST stays in the liability accounts until the GSTR-3B settlement (P22) for that month offsets it against input credit and the cash payment.
 
 ---
+
+### Implementation notes (Phase 3 step 3.14a: bank, `engine/bank.py`)
+
+| Topic | As built |
+|---|---|
+| Day step | `bank` after `expenses`: the reconciliation of last month (on `bank.reconciliation_working_day`), then today's statement lines in order (`balance_after` per account, starting from the account's opening balance in P01); everything at `statement_hour` on the event's date |
+| Document lines | NEFT / RTGS / IMPS receipts and store cash (CUSTOMER_RECEIPT) on the payment date, cheques on clearance (CHEQUE_DEPOSIT; a bounced cheque adds a REVERSAL line, net nothing, no journal), supplier and expense payments, refunds; none posts a journal |
+| Settlements (P10) | Per collections account × method (UPI T+1, net banking T+1, card T+2 from `settlement_date`) and per carrier for COD (7-day remittance): net of `gateway_fee_amount`; Dr Bank net, Dr Payment Gateway Charges (Finance CC) fees, Cr Payment Clearing gross; `settlement_bank_transaction_id` on each payment (late link, D86). A receipt reversed before its settlement date is never settled (P08 and P09 net out in Clearing); one reversed after it is clawed back by a REVERSAL line, Dr Clearing / Cr Bank (`BANK_SETTLEMENT`) |
+| Bank-originated (P21) | Monthly charges per CURRENT / CASH_CREDIT account (last working day), quarterly interest on the COLLECTIONS balance (`interest_rate`), INTERNAL_TRANSFER pairs: treasury funds PAYMENTS from COLLECTIONS (or the cash-credit GENERAL account when COLLECTIONS would fall below `collections_minimum`) before a payment it can't cover, floats are topped up from PAYMENTS before a petty payment they can't cover and at the end of a day below `min`, store floats above `deposit_above` bank the excess. Journal on the outgoing leg: Dr receiving bank / Cr sending bank |
+| Self-link (D86) | `counter_bank_transaction_id`: both legs inserted with it NULL and linked by UPDATE (`ck_bank_transactions_transfer` relaxed to "only transfers carry it"); listed with the late-link FKs in `schema_info.py` |
+| Reconciliation | Per active account and month: statement closing balance (last `balance_after` up to the month end) vs the bank GL account balance (journal lines posted up to the month end); in clean mode the books and the statement agree to the paisa, so timing items are 0 and the status RECONCILED; the month's lines get the reconciliation id |
+| Rules | ★ V-BK-01 (one line per document of its type, account and amount; settlement lines = Σ receipts − fees; transfer pairs; `balance_after` chain), ★ V-BK-02 (a RECONCILED zero-difference reconciliation per account and completed month) |
 
 ### Implementation notes (Phase 3 step 3.13: expenses and payroll, `engine/expenses.py`)
 

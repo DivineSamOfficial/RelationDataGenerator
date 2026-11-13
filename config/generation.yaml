@@ -404,3 +404,17 @@ expenses:
     OFFICE_SUPPLIES: "998599"
     INSURANCE: "997137"
     TRAVEL: "996411"
+
+# Bank statements, settlements and reconciliations (1E §4, D53; Phase 3 step 3.14a).
+bank:
+  statement_hour: 21                    # statement lines are recorded in the evening
+  monthly_charges:                      # per account type, last working day of the month
+    CURRENT: [400, 2500]
+    CASH_CREDIT: [800, 3000]
+  interest_rate: 0.03                   # yearly, credited quarterly on the collections balance
+  petty_float:                          # cash floats per warehouse type
+    DISTRIBUTION_CENTRE: {min: 15000, top_up_to: 60000}
+    RETAIL_STORE: {min: 10000, top_up_to: 40000, deposit_above: 80000}
+  reconciliation_working_day: 3         # bank reconciliation on this working day of the next month
+  payments_buffer: 2500000              # funding the PAYMENTS account leaves this much after the payment
+  collections_minimum: 1000000          # COLLECTIONS keeps this much; below it the cash-credit line is drawn
