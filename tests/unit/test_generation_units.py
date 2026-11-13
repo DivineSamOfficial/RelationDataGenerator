@@ -226,6 +226,18 @@ def test_invalid_inventory_settings_are_refused(overrides, message):
         load_generation_config(today=TODAY, overrides=overrides)
 
 
+@pytest.mark.parametrize("overrides, message", [
+    ({"expenses.cost_centres": {"RENT": "WAREHOUSE"}}, "no rule for"),
+    ({"expenses.sac_codes.RENT": "99A"}, "not a 4/6/8-digit code"),
+    ({"expenses.petty_cash_amount": [200, 20000]}, "petty_cash_amount"),
+    ({"expenses.electricity_season": [1.0, 1.0]}, "12 monthly factors"),
+    ({"expenses.site_costs.RENT": {"WAREHOUSE": [1, 2]}}, "DISTRIBUTION_CENTRE and/or RETAIL_STORE"),
+])
+def test_invalid_expense_settings_are_refused(overrides, message):
+    with pytest.raises(ConfigError, match=message):
+        load_generation_config(today=TODAY, overrides=overrides)
+
+
 def test_future_dates_need_allow_future():
     config = load_generation_config(today=TODAY, overrides={"history.end_date": "2026-12-31",
                                                             "history.allow_future": True})

@@ -105,6 +105,7 @@ service_suppliers:
   - {category: RENT, per: warehouse, suffixes: [Estates, Properties, Realty, Landholdings], individual_share: 0.4}
   - {category: ELECTRICITY, per: city, suffixes: [Urban Power Supply Co], utility: true}
   - {category: WATER, per: city, suffixes: [Metro Water Services], utility: true}
+  - {category: PETTY_CASH, per: city, suffixes: [General Stores, Hardware Mart, Kirana Store], utility: true}   # local shops paid from petty cash (3.13)
   - {category: INTERNET_PHONE, count: 2, suffixes: [Broadband, Telecom Services, Netlink]}
   - {category: SAAS, count: 3, suffixes: [Software, Cloud Apps, Systems]}
   - {category: AI_TOOLS, count: 2, suffixes: [AI Labs, Intelligence]}

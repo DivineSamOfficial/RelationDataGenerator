@@ -91,6 +91,12 @@ _INVENTORY_KEYS = {"rebalancing_day", "transfer_max_lines", "min_shelf_days", "t
                    "transfer_receipt_hours", "transit_damage_share", "transit_loss_share", "cycle_count_day",
                    "abc_shares", "count_difference_share", "found_share", "max_difference_share",
                    "handling_damage_per_month", "disposition_weekday", "disposition_min_days", "repair_cost_share"}
+_EXPENSES_KEYS = {"approval_days", "rejection_share", "payment_weekday", "payment_failure_share", "bill_day_range",
+                  "attachment_share", "claim_due_days", "annual_escalation", "billed_in_advance", "site_costs",
+                  "electricity_season", "company_costs", "cloud_per_order", "packaging_per_shipment", "annual_costs",
+                  "ad_hoc", "travel_claims_per_month", "travel_claim_amount", "petty_cash_per_month",
+                  "petty_cash_amount", "petty_cash_items", "campaign_spend_share", "cost_centres", "sac_codes"}
+WAREHOUSE_TYPES = ("DISTRIBUTION_CENTRE", "RETAIL_STORE")
 PAYMENT_PROFILES = ("ON_TIME", "SLIGHTLY_LATE", "CHRONIC_LATE")
 FAILURE_REASONS = ("CUSTOMER_UNAVAILABLE", "ADDRESS_NOT_FOUND", "PREMISES_CLOSED", "WEATHER_DELAY", "COD_CASH_NOT_READY")
 CARRIER_TYPES = ("EXPRESS_COURIER", "SURFACE_LTL", "FULL_TRUCKLOAD", "HYPERLOCAL")
@@ -330,6 +336,34 @@ class InventorySettings:
 
 
 @dataclass(frozen=True)
+class ExpensesSettings:
+    approval_days: tuple[int, int]
+    rejection_share: float
+    payment_weekday: int
+    payment_failure_share: float
+    bill_day_range: tuple[int, int]
+    attachment_share: float
+    claim_due_days: int
+    annual_escalation: float
+    billed_in_advance: tuple[str, ...]
+    site_costs: dict[str, dict[str, tuple[int, int]]]
+    electricity_season: tuple[float, ...]
+    company_costs: dict[str, tuple[int, int]]
+    cloud_per_order: float
+    packaging_per_shipment: float
+    annual_costs: dict[str, tuple[int, int, int]]
+    ad_hoc: dict[str, tuple[float, int, int]]
+    travel_claims_per_month: float
+    travel_claim_amount: tuple[int, int]
+    petty_cash_per_month: tuple[int, int]
+    petty_cash_amount: tuple[int, int]
+    petty_cash_items: tuple[str, ...]
+    campaign_spend_share: tuple[float, float]
+    cost_centres: dict[str, str]
+    sac_codes: dict[str, str]
+
+
+@dataclass(frozen=True)
 class Organisation:
     job_levels: dict[str, JobLevel]
     warehouse_staff_share: float
@@ -359,6 +393,7 @@ class GenerationConfig:
     collections: CollectionsSettings | None = None
     returns: ReturnsSettings | None = None
     inventory: InventorySettings | None = None
+    expenses: ExpensesSettings | None = None
 
     @property
     def days(self) -> int:
@@ -461,7 +496,7 @@ def load_generation_config(
     raw = _read(config_dir / GENERATION_FILE)
     _reject_unknown(raw, {"defaults", "presets", "setup", "organisation", "master_data", "daily", "opening_balances",
                           "procurement", "sales", "fulfilment", "collections", "returns",
-                          "inventory"}, GENERATION_FILE)
+                          "inventory", "expenses"}, GENERATION_FILE)
     defaults, presets = raw.get("defaults"), raw.get("presets")
     if not isinstance(defaults, dict) or not isinstance(presets, dict) or not presets:
         raise ConfigError(f"{GENERATION_FILE} needs a 'defaults' mapping and at least one preset under 'presets'")
@@ -499,6 +534,7 @@ def load_generation_config(
         "collections": copy.deepcopy(raw.get("collections") or {}),
         "returns": copy.deepcopy(raw.get("returns") or {}),
         "inventory": copy.deepcopy(raw.get("inventory") or {}),
+        "expenses": copy.deepcopy(raw.get("expenses") or {}),
     }
     for dotted, value in (overrides or {}).items():
         _apply_override(effective, dotted, _parse_override_value(value) if isinstance(value, str) else value)
@@ -536,7 +572,9 @@ def load_generation_config(
     collections = _parse_collections(effective["collections"])
     returns = _parse_returns(effective["returns"])
     inventory = _parse_inventory(effective["inventory"])
+    expenses = _parse_expenses(effective["expenses"])
     return GenerationConfig(
+        expenses=expenses,
         returns=returns,
         inventory=inventory,
         collections=collections,
@@ -954,6 +992,80 @@ def _parse_inventory(raw: dict[str, Any]) -> InventorySettings:
         disposition_weekday=_int(raw["disposition_weekday"], "inventory.disposition_weekday", 0, 6),
         disposition_min_days=_int(raw["disposition_min_days"], "inventory.disposition_min_days", 1, 60),
         repair_cost_share=_share_pair(raw["repair_cost_share"], "inventory.repair_cost_share", ordered=True))
+
+
+def _amounts(value: Any, name: str) -> tuple[int, int]:
+    return _pair(value, name, 0, 100_000_000)
+
+
+def _parse_expenses(raw: dict[str, Any]) -> ExpensesSettings:
+    _reject_unknown(raw, _EXPENSES_KEYS, "expenses")
+    missing = sorted(_EXPENSES_KEYS - set(raw))
+    if missing:
+        raise ConfigError(f"expenses is missing: {', '.join(missing)}")
+
+    def mapping(key: str) -> dict[str, Any]:
+        if not isinstance(raw[key], dict) or not raw[key]:
+            raise ConfigError(f"expenses.{key} must be a mapping of category codes")
+        return raw[key]
+
+    site_costs = {}
+    for category, bands in mapping("site_costs").items():
+        if not isinstance(bands, dict) or not set(bands) <= set(WAREHOUSE_TYPES) or not bands:
+            raise ConfigError(f"expenses.site_costs.{category} needs DISTRIBUTION_CENTRE and/or RETAIL_STORE")
+        site_costs[category] = {kind: _amounts(band, f"expenses.site_costs.{category}.{kind}")
+                                for kind, band in bands.items()}
+    season = raw["electricity_season"]
+    if not isinstance(season, list) or len(season) != 12:
+        raise ConfigError("expenses.electricity_season needs 12 monthly factors")
+    annual = {}
+    for category, plan in mapping("annual_costs").items():
+        if not isinstance(plan, dict) or set(plan) != {"month", "amount"}:
+            raise ConfigError(f"expenses.annual_costs.{category} needs month and amount")
+        annual[category] = (_int(plan["month"], f"expenses.annual_costs.{category}.month", 1, 12),
+                            *_amounts(plan["amount"], f"expenses.annual_costs.{category}.amount"))
+    ad_hoc = {}
+    for category, plan in mapping("ad_hoc").items():
+        if not isinstance(plan, dict) or set(plan) != {"per_month", "amount"}:
+            raise ConfigError(f"expenses.ad_hoc.{category} needs per_month and amount")
+        ad_hoc[category] = (_share(plan["per_month"], f"expenses.ad_hoc.{category}.per_month", high=500.0),
+                            *_amounts(plan["amount"], f"expenses.ad_hoc.{category}.amount"))
+    cost_centres = {str(k): str(v) for k, v in mapping("cost_centres").items()}
+    used = set(site_costs) | set(raw["company_costs"]) | set(annual) | set(ad_hoc) | {
+        "PETTY_CASH", "FREIGHT_OUTWARD", "MARKETPLACE_FEES", "DIGITAL_ADS", "TRAVEL", "SALARIES"}
+    unmapped = sorted(used - set(cost_centres))
+    if unmapped:
+        raise ConfigError(f"expenses.cost_centres has no rule for {', '.join(unmapped)}")
+    sac = {str(k): str(v) for k, v in mapping("sac_codes").items()}
+    for category, code in sac.items():
+        if not code.isdigit() or len(code) not in (4, 6, 8):
+            raise ConfigError(f"expenses.sac_codes.{category}: {code!r} is not a 4/6/8-digit code")
+    petty = _pair(raw["petty_cash_amount"], "expenses.petty_cash_amount", 1, 10_000)
+    items = raw["petty_cash_items"]
+    if not isinstance(items, list) or not items:
+        raise ConfigError("expenses.petty_cash_items needs at least one item")
+    return ExpensesSettings(
+        approval_days=_pair(raw["approval_days"], "expenses.approval_days", 0, 60),
+        rejection_share=_share(raw["rejection_share"], "expenses.rejection_share"),
+        payment_weekday=_int(raw["payment_weekday"], "expenses.payment_weekday", 0, 6),
+        payment_failure_share=_share(raw["payment_failure_share"], "expenses.payment_failure_share"),
+        bill_day_range=_pair(raw["bill_day_range"], "expenses.bill_day_range", 1, 28),
+        attachment_share=_share(raw["attachment_share"], "expenses.attachment_share"),
+        claim_due_days=_int(raw["claim_due_days"], "expenses.claim_due_days", 0, 90),
+        annual_escalation=_share(raw["annual_escalation"], "expenses.annual_escalation", high=0.5),
+        billed_in_advance=tuple(raw["billed_in_advance"] or ()),
+        site_costs=site_costs,
+        electricity_season=tuple(_share(f, "expenses.electricity_season", high=3.0) for f in season),
+        company_costs={k: _amounts(v, f"expenses.company_costs.{k}") for k, v in mapping("company_costs").items()},
+        cloud_per_order=_share(raw["cloud_per_order"], "expenses.cloud_per_order", high=1000.0),
+        packaging_per_shipment=_share(raw["packaging_per_shipment"], "expenses.packaging_per_shipment", high=1000.0),
+        annual_costs=annual, ad_hoc=ad_hoc,
+        travel_claims_per_month=_share(raw["travel_claims_per_month"], "expenses.travel_claims_per_month", high=1000.0),
+        travel_claim_amount=_amounts(raw["travel_claim_amount"], "expenses.travel_claim_amount"),
+        petty_cash_per_month=_pair(raw["petty_cash_per_month"], "expenses.petty_cash_per_month", 0, 200),
+        petty_cash_amount=petty, petty_cash_items=tuple(str(i) for i in items),
+        campaign_spend_share=_share_pair(raw["campaign_spend_share"], "expenses.campaign_spend_share", ordered=True),
+        cost_centres=cost_centres, sac_codes=sac)
 
 
 def _share_pair(value: Any, name: str, total_max: float | None = None, ordered: bool = False) -> tuple[float, float]:

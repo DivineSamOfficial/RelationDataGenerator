@@ -61,6 +61,15 @@ TAX_SOURCES = {
         JOIN warehouses d ON d.warehouse_id = t.destination_warehouse_id
         JOIN company_gst_registrations g ON g.company_gst_registration_id = s.company_gst_registration_id
         WHERE t.is_inter_gstin AND t.dispatched_at IS NOT NULL"""),
+    # Expenses (3.13): every GST line of an approved bill of a registered supplier, eligible or not (ITC
+    # eligibility is on the row; only eligible credit reaches the Input GST accounts, V-TX-02).
+    "EXPENSE": ("expense_line_item_id", """
+        SELECT l.expense_line_item_id AS source_id, l.taxable_amount, l.cgst_amount, l.sgst_amount, l.igst_amount,
+               l.gst_rate, e.company_gst_registration_id, e.expense_date AS document_date, e.supplier_id,
+               NULL AS customer_id, s.gstin AS counterparty_gstin, NULL AS gstr1_section
+        FROM expense_line_items l JOIN expenses e ON e.expense_id = l.expense_id
+        JOIN suppliers s ON s.supplier_id = e.supplier_id
+        WHERE e.expense_status = 'APPROVED' AND s.gst_registration_type = 'REGISTERED' AND l.gst_rate > 0"""),
 }
 DEFAULT_B2CL_THRESHOLD = 100000
 
@@ -117,7 +126,7 @@ def tax_rows_equal_their_source_lines(ctx: ValidationContext) -> Rows:
 @check("V-TX-02")
 def tax_rows_equal_gl_tax_accounts(ctx: ValidationContext) -> Rows:
     """Σ tax transactions per GSTIN × return period × component × direction = the movement on that GSTIN's tax
-    account. Journals are attributed by their document date (the tax document's date, also when D59 moved the
+    account (input credit that isn't eligible is expensed, 3.13, so its rows aren't on the tax accounts). Journals are attributed by their document date (the tax document's date, also when D59 moved the
     posting into a later open period); GST settlement journals (P22) move balances between heads and are left out."""
     return ctx.rows("""
         SELECT k.company_gst_registration_id, k.period, k.tax_component, k.tax_direction,
@@ -127,13 +136,13 @@ def tax_rows_equal_gl_tax_accounts(ctx: ValidationContext) -> Rows:
               CROSS JOIN (SELECT DISTINCT return_period AS period FROM tax_transactions
                           UNION SELECT DISTINCT DATE_FORMAT(document_date, '%Y-%m') FROM journal_entries) p) k
         LEFT JOIN (SELECT company_gst_registration_id, return_period AS period, tax_direction, 'CGST' AS tax_component,
-                          SUM(cgst_amount) AS amount FROM tax_transactions GROUP BY 1, 2, 3
+                          SUM(cgst_amount) AS amount FROM tax_transactions WHERE itc_eligibility <> 'INELIGIBLE' GROUP BY 1, 2, 3
                    UNION ALL
                    SELECT company_gst_registration_id, return_period, tax_direction, 'SGST', SUM(sgst_amount)
-                   FROM tax_transactions GROUP BY 1, 2, 3
+                   FROM tax_transactions WHERE itc_eligibility <> 'INELIGIBLE' GROUP BY 1, 2, 3
                    UNION ALL
                    SELECT company_gst_registration_id, return_period, tax_direction, 'IGST', SUM(igst_amount)
-                   FROM tax_transactions GROUP BY 1, 2, 3) t
+                   FROM tax_transactions WHERE itc_eligibility <> 'INELIGIBLE' GROUP BY 1, 2, 3) t
                ON t.company_gst_registration_id = k.company_gst_registration_id AND t.period = k.period
               AND t.tax_component = k.tax_component AND t.tax_direction = k.tax_direction
         LEFT JOIN (SELECT l.account_id, DATE_FORMAT(j.document_date, '%Y-%m') AS period,

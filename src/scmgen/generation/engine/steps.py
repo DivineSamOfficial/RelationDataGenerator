@@ -14,6 +14,7 @@ from scmgen.generation.master.parties import approve_suppliers, create_campaign
 from scmgen.generation.engine.opening import opening_step
 from scmgen.generation.engine.procurement import procurement_step
 from scmgen.generation.engine.collections import collections_step
+from scmgen.generation.engine.expenses import expenses_step
 from scmgen.generation.engine.fulfilment import fulfilment_step
 from scmgen.generation.engine.inventory import housekeeping_step, morning_stock_step
 from scmgen.generation.engine.returns import returns_step
@@ -172,4 +173,5 @@ DAY_STEPS = (
     ("collections", collections_step),               # 3.10 B2B payments, cheques, chargebacks
     ("returns", returns_step),                       # 3.11 return requests, inspections, credit notes
     ("housekeeping", housekeeping_step),             # 3.12 store replenishment, DC rebalancing
+    ("expenses", expenses_step),                     # 3.13 bills, claims, petty cash, payroll, payments
 )

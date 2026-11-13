@@ -111,7 +111,7 @@ expense_categories:
   - {category_code: RECRUITMENT, category_name: Recruitment Services, category_group: PROFESSIONAL, account: "61300", default_gst_rate: "18", is_itc_eligible: true, recurrence: AD_HOC, payee_type: SUPPLIER}
   - {category_code: STATIONERY, category_name: Printing & Stationery, category_group: ADMIN, account: "61400", default_gst_rate: "18", is_itc_eligible: true, recurrence: AD_HOC, payee_type: SUPPLIER}
   - {category_code: OFFICE_SUPPLIES, category_name: Office Supplies, category_group: ADMIN, account: "61500", default_gst_rate: "18", is_itc_eligible: true, recurrence: AD_HOC, payee_type: SUPPLIER}
-  - {category_code: PETTY_CASH, category_name: Petty Cash Expenses, category_group: ADMIN, account: "61500", default_gst_rate: null, is_itc_eligible: false, recurrence: AD_HOC, payee_type: EMPLOYEE}
+  - {category_code: PETTY_CASH, category_name: Petty Cash Expenses, category_group: ADMIN, account: "61500", default_gst_rate: null, is_itc_eligible: false, recurrence: AD_HOC, payee_type: SUPPLIER}
   - {category_code: INSURANCE, category_name: Insurance, category_group: ADMIN, account: "61600", default_gst_rate: "18", is_itc_eligible: true, recurrence: ANNUAL, payee_type: SUPPLIER}
   - {category_code: BANK_CHARGES, category_name: Bank Charges, category_group: FINANCE, account: "62200", default_gst_rate: "18", is_itc_eligible: true, recurrence: AD_HOC, payee_type: SUPPLIER}
   - {category_code: GATEWAY_CHARGES, category_name: Payment Gateway Charges, category_group: FINANCE, account: "62300", default_gst_rate: "18", is_itc_eligible: true, recurrence: MONTHLY, payee_type: SUPPLIER}

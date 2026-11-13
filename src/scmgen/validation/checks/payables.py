@@ -32,13 +32,25 @@ def subledger_equals_gl_per_payee(ctx: ValidationContext) -> Rows:
 
 @check("V-AP-02")
 def items_follow_their_documents(ctx: ValidationContext) -> Rows:
-    """One AP item per APPROVED supplier invoice (+ total) and per COMPLETED supplier payment (− amount), none
-    for other statuses; open amounts = original − Σ ACTIVE allocations; allocations link a COMPLETED payment
+    """One AP item per APPROVED supplier invoice (+ total), per APPROVED non-payroll expense (D56/D57) and per
+    COMPLETED supplier payment (− amount), none for other statuses; an expense item's open = total − Σ COMPLETED
+    expense payments; open amounts = original − Σ ACTIVE allocations; allocations link a COMPLETED payment
     and an approved invoice of the same supplier, within both amounts."""
     found = [{**r, "problem": "payment AP item missing, extra or with another amount"} for r in ctx.rows("""
         SELECT p.supplier_payment_id, p.payment_status, p.amount, a.original_amount FROM supplier_payments p
         LEFT JOIN accounts_payable a ON a.supplier_payment_id = p.supplier_payment_id
         WHERE (p.payment_status = 'COMPLETED') <> (a.accounts_payable_id IS NOT NULL) OR a.original_amount <> -p.amount""")]
+    found += [{**r, "problem": "expense AP item missing, extra, for payroll or with another amount"} for r in ctx.rows("""
+        SELECT e.expense_id, e.expense_type, e.expense_status, e.total_amount, a.original_amount FROM expenses e
+        LEFT JOIN accounts_payable a ON a.expense_id = e.expense_id
+        WHERE (e.expense_status = 'APPROVED' AND e.expense_type <> 'PAYROLL') <> (a.accounts_payable_id IS NOT NULL)
+           OR a.original_amount <> e.total_amount""")]
+    found += [{**r, "problem": "expense item open ≠ total − Σ completed payments"} for r in ctx.rows("""
+        SELECT a.accounts_payable_id, a.original_amount, a.open_amount, COALESCE(p.paid, 0) AS paid
+        FROM accounts_payable a
+        LEFT JOIN (SELECT expense_id, SUM(amount) AS paid FROM expense_payments WHERE payment_status = 'COMPLETED'
+                   GROUP BY expense_id) p ON p.expense_id = a.expense_id
+        WHERE a.item_type = 'EXPENSE' AND a.open_amount <> a.original_amount - COALESCE(p.paid, 0)""")]
     found += [{**r, "problem": "invoice item open ≠ total − Σ active allocations"} for r in ctx.rows("""
         SELECT a.accounts_payable_id, a.original_amount, a.open_amount, COALESCE(x.allocated, 0) AS allocated
         FROM accounts_payable a
