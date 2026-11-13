@@ -18,6 +18,7 @@ dependencies = [
     "duckdb>=1.1,<2",            # the analytics replica (Phase 4, D70)
     "pyarrow>=17",               # MySQL → Arrow → DuckDB batches (D71)
     "streamlit>=1.38,<2",        # control panel (Phase 5, D12)
+    "pandas>=2",                 # control panel tables and charts
 ]
 
 [project.optional-dependencies]

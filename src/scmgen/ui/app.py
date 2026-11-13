@@ -21,8 +21,8 @@ from scmgen.ui import jobs
 from scmgen.ui.guide import join_example, load_examples, load_table_docs, relations_dot
 
 st.set_page_config(page_title="scmgen control panel", page_icon="📦", layout="wide")
-PAGES = ("Workspaces", "Run monitor", "Data explorer", "Validation", "Scenarios", "DuckDB load", "Table guide",
-         "Reset")
+PAGES = ("Workspaces", "Run monitor", "Data explorer", "Validation", "Scenarios", "DuckDB load", "Simulation",
+         "Table guide", "Reset")
 
 
 # ------------------------------------------------------------------------------------------ shared
@@ -359,6 +359,83 @@ def page_guide(selected) -> None:
                     st.dataframe(query(selected.oltp_schema, f"SELECT * FROM ({sql}) q LIMIT 500"), width="stretch")
 
 
+def page_simulation(selected) -> None:
+    st.header("Simulation: CDC and anomalies (Phase 7)")
+    if selected is None:
+        st.info("Pick a workspace in the sidebar.")
+        return
+    st.caption("Everything here works on scm_<code>_sim and <code>_sim.duckdb; the clean data is never written "
+               "(the anomaly tooling's MySQL user can only read it).")
+    from scmgen.simulation.config import load_simulation_config
+    from scmgen.simulation.detection import latest_report
+    from scmgen.simulation.sim_schema import status as sim_status
+    code = selected.code
+    try:
+        state = sim_status(settings(), code)
+    except Exception as exc:
+        st.error(f"Can't read the simulation schema: {exc}")
+        return
+    info, events = state["info"], state["events"]
+    cols = st.columns(4)
+    cols[0].metric("Staging copies", state["copies"])
+    cols[1].metric("Change events", f"{events['total']:,}", f"{events['anomalous']} anomalous", delta_color="off")
+    cols[2].metric("Registered anomalies", sum(r["anomalies"] for r in state["anomalies"]))
+    cols[3].metric("Copied data up to", (info.get("source_committed_through") or "-")[:10])
+
+    st.subheader("1. Prepare")
+    a, b, c, d = st.columns(4)
+    if a.button("Reset staging copies", help="Re-copy the clean tables and discard every anomaly"):
+        start_job(f"sim reset {code}", ["simulate", "reset", "-w", code])
+    if b.button("Load sim replica", help="Incremental load of the copies into <code>_sim.duckdb"):
+        start_job(f"sim load {code}", ["load", "-w", code, "--source", "sim"])
+    if c.button("CDC capture", help="Capture changes since the last capture into change_event_log"):
+        start_job(f"cdc capture {code}", ["simulate", "cdc", "capture", "-w", code])
+    if d.button("CDC apply", help="Apply new events to cdc_current / cdc_history and check convergence"):
+        start_job(f"cdc apply {code}", ["simulate", "cdc", "apply", "-w", code])
+
+    st.subheader("2. Inject anomalies")
+    scenarios = load_simulation_config().scenarios
+    left, right = st.columns([3, 1])
+    name = left.selectbox("Scenario", list(scenarios), format_func=lambda n: f"{n} — {scenarios[n].description}")
+    seed = right.number_input("Seed", min_value=0, value=1, step=1)
+    chosen = scenarios[name]
+    needs = [t for t, flag in (("a sim load first", chosen.requires_sim_load), ("a CDC capture first", chosen.requires_cdc))
+             if flag]
+    if needs:
+        st.caption("Needs " + " and ".join(needs) + ".")
+    st.dataframe(pd.DataFrame([{"type": i["type"], "table": i["table"], "column": i.get("column", ""),
+                                "count": i.get("count", 1), "must fail": ", ".join(i.get("expect") or []),
+                                "may fail": ", ".join(i.get("may_fail") or [])} for i in chosen.injections]),
+                 hide_index=True, width="stretch")
+    if st.button("Inject", type="primary", disabled=not state["copies"]):
+        start_job(f"inject {name} {code}", ["simulate", "inject", "-w", code, "--scenario", name, "--seed", str(int(seed))])
+    if state["anomalies"]:
+        st.dataframe(pd.DataFrame(state["anomalies"]), hide_index=True, width="stretch")
+
+    st.subheader("3. Detection report")
+    if st.button("Run detection report", help="Sim load, CDC consumer, validation suite and data-quality checks"):
+        start_job(f"sim report {code}", ["simulate", "report", "-w", code])
+    report = latest_report(settings(), code)
+    if report is None:
+        st.info("No detection report yet.")
+    else:
+        counts = report.get("counts", {})
+        cols = st.columns(4)
+        for col, key in zip(cols, ("CAUGHT", "PARTLY_CAUGHT", "MISSED")):
+            col.metric(key.replace("_", " ").title(), counts.get(key, 0))
+        cols[3].metric("Unexplained failures", len(report.get("unexplained", [])))
+        st.caption(f"{report['created_at']} — " + "; ".join(f"{k}: {v}" for k, v in report.get("steps", {}).items()))
+        st.dataframe(pd.DataFrame([{
+            "anomaly": a["anomaly_type"], "table": a["table"], "pk": a["target_pk"], "status": a["status"],
+            "expected checks": ", ".join(f"{c} {'✓' if c in a['failed'] else '✗'}" for c in a["expected"])}
+            for a in report["anomalies"]]), hide_index=True, width="stretch")
+        if report.get("unexplained"):
+            st.error("Unexplained failures (no anomaly expects them): " + ", ".join(report["unexplained"]))
+        with st.expander("Every failing check"):
+            st.json(report["failing_checks"])
+    job_panel(f"-w {code}")
+
+
 def page_reset(selected) -> None:
     st.header("Reset")
     if selected is None:
@@ -388,7 +465,7 @@ def main() -> None:
     page = st.sidebar.radio("Page", PAGES)
     {"Workspaces": page_workspaces, "Run monitor": page_monitor, "Data explorer": page_explorer,
      "Validation": page_validation, "Scenarios": page_scenarios, "DuckDB load": page_load,
-     "Table guide": page_guide, "Reset": page_reset}[page](selected)
+     "Simulation": page_simulation, "Table guide": page_guide, "Reset": page_reset}[page](selected)
 
 
 main()

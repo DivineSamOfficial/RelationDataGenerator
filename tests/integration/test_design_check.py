@@ -38,10 +38,11 @@ def _schema_exists(settings, schema: str) -> bool:
 
 def test_packaged_ddl_and_control_registry_match_the_design(settings):
     scopes = run_design_check(settings)
-    assert [(s.tables, s.views) for s in scopes] == [(92, 1), (1, 0)]
+    assert [(s.tables, s.views) for s in scopes] == [(92, 1), (1, 0), (5, 0)]   # + the _sim control tables
     for scope in scopes:
         assert scope.differences == [], "\n".join(d.describe() for d in scope.differences)
-    assert not _schema_exists(settings, f"scm_{SCRATCH_CODE}_oltp")      # scratch schema dropped
+    assert not _schema_exists(settings, f"scm_{SCRATCH_CODE}_oltp")      # scratch schemas dropped
+    assert not _schema_exists(settings, f"scm_{SCRATCH_CODE}_sim")
 
 
 @pytest.fixture

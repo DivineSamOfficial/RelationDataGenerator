@@ -1,0 +1,51 @@
+# Phase 7: CDC capture and anomaly simulation (Part 1G §8-§9; D72, D73, D89-D92).
+# Everything here works on scm_<code>_sim and <code>_sim.duckdb only: the clean scm_<code>_oltp is never written.
+
+cdc:
+  # Capture change events automatically at the end of every generation run (history / continue).
+  # Off by default: the first capture is a SNAPSHOT of every captured row, later captures emit INSERT / UPDATE.
+  enabled: false
+  # Which tables are captured: "merge" = the MERGE tables of config/loader/tables.yaml (the ones whose rows change),
+  # "all" = every table, or an explicit list.
+  tables: merge
+  batch_size: 2000
+
+anomalies:
+  # Each scenario is a list of injections: type, table (and column where needed), count, and the checks that
+  #   expect:   must fail because of it (on top of the injector's own DQ / LD / CDC checks), and
+  #   may_fail: may also fail, depending on which rows the seed picks (accepted, not reported as unexplained).
+  # Both are recorded per anomaly in anomaly_registry; the detection report compares them with what actually fails.
+  # The business-rule lists were measured on clean Small workspaces (seeds 1 and 2).
+  scenarios:
+    data_quality:
+      description: Duplicates, missing mandatory values, orphan references and broken timestamps in the sim copies
+      injections:
+        - {type: duplicate_rows, table: customers, count: 3, expect: [V-MD-10]}
+        - {type: null_mandatory, table: orders, column: customer_id, count: 3}
+        - {type: orphan_reference, table: order_line_items, column: product_id, count: 3, expect: [V-SH-02, V-SO-01]}
+        - {type: timestamp_reversed, table: shipments, count: 3}
+        - {type: future_business_date, table: invoices, column: invoice_date, count: 2,
+           expect: [V-AR-03, V-IV-01, V-TX-01], may_fail: [V-IV-05, V-IN-10]}
+    business_rules:
+      description: Wrong amounts and quantities that only business-rule and reconciliation checks can catch
+      injections:
+        - {type: invoice_line_amount, table: invoice_line_items, count: 3, expect: [V-SO-01, V-TX-01],
+           may_fail: [V-IV-02, V-IV-03, V-RT-06]}
+        - {type: journal_imbalance, table: journal_entry_lines, count: 2, expect: [V-AC-10],
+           may_fail: [V-AC-13, V-AR-01, V-AP-01, V-TX-02]}
+        - {type: inventory_drift, table: inventory, count: 3, expect: [V-IN-01]}
+        - {type: status_out_of_order, table: shipment_tracking, count: 3}
+    pipeline:
+      description: Late-arriving rows, hard deletes and a schema change, caught by the loader of the sim replica
+      requires_sim_load: true     # run `scmgen load -w CODE --source sim` once before injecting
+      injections:
+        - {type: late_arriving, table: orders, count: 3, expect: [V-SO-01, V-SO-05]}
+        - {type: hard_delete, table: customer_payments, count: 2, expect: [V-AC-12],
+           may_fail: [V-BK-01, V-AR-02, V-PY-02]}
+        - {type: schema_change, table: products, column: legacy_ref}
+    cdc_stream:
+      description: Duplicate and stale (out-of-order) change events, caught by the CDC consumer
+      requires_cdc: true          # run `scmgen simulate cdc capture -w CODE` first
+      injections:
+        - {type: duplicate_cdc_events, table: orders, count: 5}
+        - {type: stale_cdc_events, table: orders, count: 3}

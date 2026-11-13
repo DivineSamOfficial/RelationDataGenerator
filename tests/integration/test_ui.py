@@ -20,7 +20,8 @@ from scmgen import __version__
 from scmgen.ui import jobs
 from scmgen.ui.guide import load_examples, load_table_docs
 
-PAGES = ("Workspaces", "Run monitor", "Data explorer", "Validation", "Scenarios", "DuckDB load", "Table guide", "Reset")
+PAGES = ("Workspaces", "Run monitor", "Data explorer", "Validation", "Scenarios", "DuckDB load", "Simulation",
+         "Table guide", "Reset")
 
 pytestmark = pytest.mark.integration
 APP = str(Path(__file__).resolve().parents[2] / "src" / "scmgen" / "ui" / "app.py")

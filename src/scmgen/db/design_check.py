@@ -34,23 +34,26 @@ from sqlalchemy.engine import Connection
 from scmgen.core.errors import ScmgenError
 from scmgen.core.settings import PROJECT_ROOT, Settings
 from scmgen.db.connection import create_mysql_engine
-from scmgen.db.sql_files import execute_raw
+from scmgen.db.sql_files import execute_raw, read_sql, run_sql
 from scmgen.db.workspace_ddl import apply_workspace_ddl
 from scmgen.db.workspaces import get_workspace
 
-# Design parts that define MySQL tables, in reading order, each with the "## " section that holds
+# Design parts that define MySQL tables, in reading order, each with the "## " section(s) that hold
 # them (None = the whole file). Part 1G §6 defines DuckDB metadata tables: not MySQL, so not checked.
-DESIGN_FILES: dict[str, str | None] = {
+DESIGN_FILES: dict[str, str | tuple[str, ...] | None] = {
     "phase1_part1b_master_data_and_accounting_master.md": None,
     "phase1_part1c_procurement_and_inventory.md": None,
     "phase1_part1d_sales_shipping_invoicing_returns.md": None,
     "phase1_part1e_expenses_accounting_ar_ap_tax.md": None,
-    "phase1_part1g_generation_loader_cdc_architecture.md": "## 5. System Tables",
+    "phase1_part1g_generation_loader_cdc_architecture.md": ("## 5. System Tables",
+                                                             "## 9. Anomaly Simulation Architecture"),
 }
 TEMPLATE_FILE = "phase1_part1c_procurement_and_inventory.md"
 TEMPLATE_HEADING = "### 2.2 Status-history tables"
 AMOUNT_HEADING = "### 2.3 Amount columns on taxable lines"
 CONTROL_PREFIX = "scm_control."
+SIM_PREFIX = "scm_sim."          # control tables of scm_<code>_sim (Phase 7, 1G §9.5)
+SIM_DDL = "ddl/sim/0001_sim_control.sql"
 
 _HEADING = re.compile(r"^####\s+(?:[\d.]+\s+)?`([a-z_.]+)`(.*)$")
 _COLUMN_HEADER = re.compile(r"^\|\s*Column\s*\|\s*Type\s*\|\s*NN\s*\|")
@@ -288,7 +291,8 @@ def parse_design(docs_dir: Path) -> dict[str, DesignTable]:
         index = 0
         while index < len(lines):
             if section_title is not None and lines[index].startswith("## "):
-                in_scope = lines[index].startswith(section_title)
+                titles = (section_title,) if isinstance(section_title, str) else section_title
+                in_scope = lines[index].startswith(titles)
             heading = _HEADING.match(lines[index])
             if not heading or not in_scope:
                 index += 1
@@ -320,8 +324,8 @@ def parse_design(docs_dir: Path) -> dict[str, DesignTable]:
                         if column.name in table.columns:
                             raise DesignParseError(f"{column.source}: column {name}.{column.name} listed twice")
                         table.columns[column.name] = column
-                is_control = name.startswith(CONTROL_PREFIX)
-                if not is_control:   # the control registry lists its audit columns itself
+                is_control = name.startswith((CONTROL_PREFIX, SIM_PREFIX))
+                if not is_control:   # the control and sim registries list their audit columns themselves
                     for column in _standard_columns(table.soft_delete, source):
                         table.columns.setdefault(column.name, column)
             index = end
@@ -437,14 +441,19 @@ def compare(design: Mapping[str, DesignTable], actual: Mapping[str, Mapping[str,
     return found
 
 
-def check_schema(conn: Connection, schema: str, docs_dir: Path, *, control: bool = False) -> list[Difference]:
-    """Compare ``schema`` with the design: workspace tables, or (``control=True``) the control registry."""
+def check_schema(conn: Connection, schema: str, docs_dir: Path, *, control: bool = False,
+                 sim: bool = False) -> list[Difference]:
+    """Compare ``schema`` with the design: workspace tables, the control registry (``control=True``) or the
+    simulation control tables (``sim=True``; the staging copies next to them are ignored)."""
     design = parse_design(docs_dir)
-    if control:
-        selected = {n.removeprefix(CONTROL_PREFIX): t for n, t in design.items() if n.startswith(CONTROL_PREFIX)}
+    if control or sim:
+        prefix = CONTROL_PREFIX if control else SIM_PREFIX
+        selected = {n.removeprefix(prefix): t for n, t in design.items() if n.startswith(prefix)}
     else:
-        selected = {n: t for n, t in design.items() if not n.startswith(CONTROL_PREFIX)}
+        selected = {n: t for n, t in design.items() if not n.startswith((CONTROL_PREFIX, SIM_PREFIX))}
     columns, views = read_schema(conn, schema)
+    if sim:
+        columns = {n: c for n, c in columns.items() if n in selected}
     return compare(selected, columns, views)
 
 
@@ -477,10 +486,11 @@ def run_design_check(settings: Settings, docs_dir: Path = DEFAULT_DOCS_DIR,
     workspace is checked instead, which also catches drift in an existing database.
     """
     design = parse_design(docs_dir)
-    in_workspace = [t for n, t in design.items() if not n.startswith(CONTROL_PREFIX)]
+    in_workspace = [t for n, t in design.items() if not n.startswith((CONTROL_PREFIX, SIM_PREFIX))]
     workspace_tables = sum(not t.is_view for t in in_workspace)
     workspace_views = sum(t.is_view for t in in_workspace)
-    control_tables = len(design) - len(in_workspace)
+    control_tables = sum(n.startswith(CONTROL_PREFIX) for n in design)
+    sim_tables = sum(n.startswith(SIM_PREFIX) for n in design)
     engine = create_mysql_engine(settings, "app")
     scopes: list[CheckedScope] = []
     try:
@@ -503,6 +513,24 @@ def run_design_check(settings: Settings, docs_dir: Path = DEFAULT_DOCS_DIR,
             control = settings.schemas.control_schema
             scopes.append(CheckedScope("control registry", control, control_tables, 0,
                                        check_schema(conn, control, docs_dir, control=True)))
+            if workspace is None:
+                schema = f"{settings.schemas.workspace_prefix}{SCRATCH_CODE}_sim"
+                execute_raw(conn, f"DROP DATABASE IF EXISTS `{schema}`")
+                execute_raw(conn, f"CREATE DATABASE `{schema}`")
+                try:
+                    execute_raw(conn, f"USE `{schema}`")
+                    run_sql(conn, read_sql(SIM_DDL))
+                    scopes.append(CheckedScope("simulation control (packaged DDL)", schema, sim_tables, 0,
+                                               check_schema(conn, schema, docs_dir, sim=True)))
+                finally:
+                    execute_raw(conn, f"DROP DATABASE IF EXISTS `{schema}`")
+            else:
+                schema = get_workspace(settings, workspace).sim_schema
+                present = conn.execute(text("SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = :s "
+                                            "AND TABLE_NAME = 'change_event_log'"), {"s": schema}).scalar()
+                if present:          # only once `simulate reset` / `cdc capture` created them
+                    scopes.append(CheckedScope(f"simulation control ({workspace})", schema, sim_tables, 0,
+                                               check_schema(conn, schema, docs_dir, sim=True)))
     finally:
         engine.dispose()
     return scopes

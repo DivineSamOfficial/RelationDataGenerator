@@ -272,10 +272,12 @@ def test_a_table_that_became_a_view_is_reported(design):
 
 def test_real_design_docs_define_92_tables_one_view_and_the_registry():
     design = parse_design(DEFAULT_DOCS_DIR)
-    workspace = {n: t for n, t in design.items() if not n.startswith("scm_control.")}
+    workspace = {n: t for n, t in design.items() if not n.startswith(("scm_control.", "scm_sim."))}
     assert sum(not t.is_view for t in workspace.values()) == 92
     assert [n for n, t in workspace.items() if t.is_view] == ["v_general_ledger"]
-    assert set(design) - set(workspace) == {"scm_control.workspaces"}
+    assert set(design) - set(workspace) == {"scm_control.workspaces"} | {
+        f"scm_sim.{t}" for t in ("change_event_log", "cdc_capture_watermarks", "sim_copy_info", "anomaly_scenarios",
+                                 "anomaly_registry")}
     # Every table has exactly one PK column, and nearly every column states its type.
     for table in workspace.values():
         if not table.is_view:

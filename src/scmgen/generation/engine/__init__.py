@@ -64,6 +64,7 @@ class HistoryResult:
     report_path: str | None = None
     workspace_status: str | None = None
     master_data_rows: int = 0
+    cdc_events: int | None = None                 # change events captured after the run (cdc.enabled, D89)
 
 
 def generate_history(settings: Settings, code: str, config: GenerationConfig, days: int | None = None,
@@ -98,8 +99,27 @@ def generate_history(settings: Settings, code: str, config: GenerationConfig, da
     if first > last:
         return HistoryResult(None, None, None, 0, "NOTHING_TO_DO", master_data_rows=master_rows,
                              workspace_status=workspace.status)
-    return _run_days(settings, workspace, config, first, last, "CONTINUE" if daily_runs else "HISTORICAL",
-                     triggered_by, master_rows)
+    result = _run_days(settings, workspace, config, first, last, "CONTINUE" if daily_runs else "HISTORICAL",
+                       triggered_by, master_rows)
+    _capture_changes(settings, code, result)
+    return result
+
+
+def _capture_changes(settings: Settings, code: str, result: HistoryResult) -> None:
+    """With ``cdc.enabled`` (config/simulation.yaml), capture the run's changes into the CDC log (D89).
+
+    Runs after the run committed and passed validation; a capture failure is logged and never undoes the run
+    (the next capture picks up from the same keyset position)."""
+    from scmgen.simulation.config import load_simulation_config
+
+    if not load_simulation_config().cdc.enabled or not result.days or (result.report and not result.report.passed):
+        return
+    from scmgen.simulation.cdc import capture
+    try:
+        result.cdc_events = capture(settings, code).total
+        log.info("cdc capture", extra={"event": "cdc.capture", "workspace": code, "events": result.cdc_events})
+    except Exception as exc:                       # pragma: no cover - logged, the run itself stands
+        log.error("cdc capture failed: %s", exc, extra={"event": "cdc.capture.error", "workspace": code})
 
 
 def _run_days(settings: Settings, workspace, config: GenerationConfig, first: date, last: date, mode: str,

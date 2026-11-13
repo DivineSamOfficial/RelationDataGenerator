@@ -2,7 +2,7 @@
 
 **Project:** Synthetic Supply Chain OLTP Database & Data Engineering Practice Platform
 **Status:** Accepted (D9). Baseline for Phases 2–7
-**Last updated:** 2026-11-10 (Phase 3 step 3.1: §2.6, D86; step 3.2: D87; step 3.3: seed and packs; step 3.4: validation framework; step 3.5: master data; step 3.6: daily engine)
+**Last updated:** 2026-11-13 (Phase 3 step 3.1: §2.6, D86; step 3.2: D87; step 3.3: seed and packs; step 3.4: validation framework; step 3.5: master data; step 3.6: daily engine; Phase 4: §6.7a; Phase 7: D89–D92, §8.3, §9.5–§9.6)
 **Builds on:** Parts 1A–1F (D1–D63). Workspaces and re-run actions: 1A Addendum A2 (D13, D14)
 
 ---
@@ -40,6 +40,10 @@ It resolves **Q4** (simulated clock vs watermarks) and **Q5** (load strategy per
 | D75 | Gap-free numbering | `document_sequences` rows are incremented inside the day transaction (D64). A rolled-back day releases its numbers, so committed tax-invoice numbers are consecutive with no gaps | GST requires consecutive invoice serials per GSTIN per FY |
 | D76 | Validation gate | Every generation run ends with the full validation suite (1B–1E rules). The result is stored on `generation_runs`. If a clean run fails validation, the workspace is flagged; Continue and loading refuse to proceed without `--force` | The clean schema is guaranteed to pass its checks (master prompt §14). A failure means a generator bug, and the gate stops it spreading downstream |
 | D77 | Time zone | All timestamps are naive `DATETIME` in **Asia/Kolkata (IST)**, the company's operating time zone. The loader carries them into DuckDB as `TIMESTAMP` (no time zone), unchanged | A single-country business. One documented convention avoids mixed-zone bugs. Time-zone conversion can be practised in dbt |
+| D89 | **CDC capture granularity (refines D72)** | Change events are captured **between two points in time** (`simulate cdc capture`, and automatically after every generation run when `cdc.enabled`), not written row by row inside the day transaction: rows whose `(updated_at, PK)` moved past the table's capture position, up to `committed_through`, become `SNAPSHOT` (first capture of a table), `INSERT` (no earlier event) or `UPDATE` (before-image = the row's previous event) events, numbered in source time order. Several changes of a row between two captures yield one event | Row-level hooks in every engine writer and updater would touch ~80 code paths and slow every run, CDC on or off. Captures are cheap, need no engine change, and with daily Continue (continuous mode) give one capture per simulated day. **Impact:** `change_event_log.operation` gains `SNAPSHOT`; new table `cdc_capture_watermarks` (§9.5) |
+| D90 | Staging copies | `simulate reset` copies every `_oltp` table into `_sim` as the `scm_anomaly` user with `CREATE TABLE … LIKE`, then **drops every CHECK and turns UNIQUE indexes into plain ones** (LIKE copies no foreign keys); NOT NULL is relaxed per column only when an anomaly needs it. A reset also discards the anomaly registry and anomalous change events (genuine ones stay) and gives the copy a new `sim_build_id` | A real source that lost its constraints is what anomaly practice needs: duplicates, orphans and wrong totals must be storable. Keeping PKs and indexes keeps the validation suite as fast as on `_oltp`. **Impact:** V-SY-03 now also checks `updated_at ≥ created_at` itself (the DDL CHECK enforced it before) |
+| D91 | Expected-failure contract | Every anomaly is registered with the checks that **must** fail (`expect`: injector built-ins such as `DQ-UNIQUE:customers.uq_customers_code`, plus the business rules listed per injection in `config/simulation.yaml`) and those that **may** fail depending on the rows hit (`may_fail`). The detection report runs the sim load, the CDC consumer, the full validation suite and generic data-quality checks (`DQ-NOT_NULL`, `DQ-UNIQUE`, `DQ-FK`, `DQ-TIMESTAMP`, `DQ-SCHEMA`, derived from `_oltp` metadata) and marks each anomaly CAUGHT / PARTLY_CAUGHT / MISSED; any other failing check is **unexplained** unless it already fails on clean data | Master prompt §15E ("which checks should fail") made measurable both ways: a check that misses an anomaly and a check that fires without one are both visible |
+| D92 | Loader on the sim side | The same loader loads the staging copies (`load --source sim`) into `<code>_sim.duckdb`, keyed on `sim_build_id` (a reset ⇒ full reload). Before every incremental table load it compares source and replica columns; a difference is logged as `SCHEMA_DRIFT` and that table is reloaded in full with the new shape. The CDC consumer writes `cdc_current` / `cdc_history` (SCD2) / `etl_meta.cdc_*` into the same file | One loader for both sources (D69); schema drift is the most common real-world ingestion break, so it is detected rather than left to fail mid-batch |
 
 ---
 
@@ -464,6 +468,13 @@ Notes on edge cases:
 
 **Business events vs change events (master prompt §15C):** a business event is a document (an order, a payment) living in `_oltp`. A change event is the technical record that some row changed, living in `_sim.change_event_log`. One business event usually produces several change events: an invoice dispatch = INSERT invoice + INSERT lines + UPDATE order + UPDATE inventory + INSERT ledger rows + INSERT journal…
 
+### 8.3 Implementation notes (Phase 7, `src/scmgen/simulation/cdc.py`)
+
+- **Capture (D89):** per captured table (`cdc.tables` in `config/simulation.yaml`: the MERGE tables by default, `all`, or a list), keyset `(updated_at, PK) > position AND updated_at ≤ committed_through`. The first capture streams a `SNAPSHOT` per row; later ones look up each row's previous after-image (index `(source_table, row_pk, change_event_id)`) to emit `INSERT` or `UPDATE` with `changed_columns`, and insert the capture's events sorted by `(source time, table, PK)`, so LSN order is source time order. Images are JSON with exact values (DECIMAL as strings, timestamps with microseconds). `generation_runs` ending with `cdc.enabled` capture automatically (`HistoryResult.cdc_events`).
+- **Consumer:** reads events after its offset (`etl_meta.cdc_offsets`) in LSN order, batch by batch; each batch and the new offset commit in one DuckDB transaction (a re-run applies nothing twice). `cdc_current.<table>` is upserted by PK; `cdc_history.<table>` gets one row per version with `_lsn`, `_operation`, `_valid_from` (the version's `updated_at`), `_valid_to` (the next version's) and `_is_current`. A version whose `updated_at` equals the one held is rejected as `DUPLICATE`, an older one as `STALE` (out-of-order delivery); both are logged in `etl_meta.cdc_rejected_events`, so duplicates and reordering never corrupt the target.
+- **Convergence:** `cdc_current` vs `_oltp` per captured table (rows, max `updated_at`, Σ DECIMAL columns) while the source hasn't moved past the last capture; otherwise SKIPPED.
+- Commands: `scmgen simulate cdc capture -w CODE` and `scmgen simulate cdc apply -w CODE` (apply also prints convergence).
+
 ### 8.2 CDC consumer exercises (Phase 7)
 
 A log-based loader reads `change_event_log` after the last consumed LSN and applies events to a DuckDB target. It practises ordering by LSN, idempotent apply, delete handling, SCD Type 2 history building (e.g. customer addresses, product prices: the D37 exercise), and comparison against the watermark-based replica (both must converge).
@@ -521,6 +532,89 @@ flowchart LR
 
 **Expected-failure contract:** every injector declares which validation checks its anomaly must trip. After a run, the detection report lists for each anomaly whether the expected checks failed (caught), didn't fail (missed), and any checks that failed without a registered anomaly (false alarms). This is the "provide a way to identify which checks should fail" requirement (§15E).
 
+### 9.5 Simulation control tables (Phase 7)
+
+Created in `scm_<code>_sim` by `db/ddl/sim/0001_sim_control.sql` on the first `simulate reset` or `cdc capture`; checked by `scmgen db check-design` like the workspace tables. Timing columns are wall clock (D74) except `source_committed_at`.
+
+#### 9.5.1 `scm_sim.change_event_log`
+
+| Column | Type | NN | Notes |
+|---|---|---|---|
+| `change_event_id` | `BIGINT UNSIGNED` | ✓ | PK, AUTO_INCREMENT: the LSN (global order) |
+| `source_table` | `VARCHAR(64)` | ✓ | |
+| `operation` | `VARCHAR(10)` | ✓ | `SNAPSHOT` / `INSERT` / `UPDATE` / `DELETE` (D89; genuine DELETEs never occur, soft deletes are UPDATEs) |
+| `row_pk` | `BIGINT UNSIGNED` | ✓ | The row's surrogate PK, for lookups (index with `source_table`, `change_event_id`) |
+| `primary_key` | `JSON` | ✓ | `{"order_id": 42}` |
+| `before_image` | `JSON` | | NULL for SNAPSHOT / INSERT |
+| `after_image` | `JSON` | | NULL for DELETE |
+| `changed_columns` | `JSON` | | UPDATE only: array of column names |
+| `source_committed_at` | `DATETIME(6)` | ✓ | The row's `updated_at` (simulated recording time) |
+| `capture_batch_id` | `CHAR(12)` | ✓ | One per capture |
+| `generation_run_id` | `BIGINT UNSIGNED` | | Latest run at capture time (no FK: lives in `_oltp`) |
+| `is_simulated_anomaly` | `BOOLEAN` | ✓ | Default FALSE; TRUE for injected events (§9.4) |
+| `anomaly_id` | `BIGINT UNSIGNED` | | The registry row of an injected event; CHECK only when anomalous |
+| `captured_at` | `DATETIME(6)` | ✓ | Wall clock |
+| `created_at` / `updated_at` | `DATETIME(6)` | ✓ | Wall clock |
+
+#### 9.5.2 `scm_sim.cdc_capture_watermarks`
+
+| Column | Type | NN | Notes |
+|---|---|---|---|
+| `source_table` | `VARCHAR(64)` | ✓ | PK |
+| `last_updated_at` | `DATETIME(6)` | | Keyset position: last captured `(updated_at, PK)` |
+| `last_pk` | `BIGINT UNSIGNED` | | |
+| `high_water_mark` | `DATETIME(6)` | | `committed_through` of the last capture |
+| `captured_events` | `BIGINT UNSIGNED` | ✓ | Running total |
+| `created_at` / `updated_at` | `DATETIME(6)` | ✓ | Wall clock |
+
+#### 9.5.3 `scm_sim.sim_copy_info`
+
+| Column | Type | NN | Notes |
+|---|---|---|---|
+| `info_key` | `VARCHAR(40)` | ✓ | PK: `sim_build_id`, `source_build_id`, `source_committed_through`, `copied_at`, `schema_changes` |
+| `info_value` | `VARCHAR(300)` | | |
+| `created_at` / `updated_at` | `DATETIME(6)` | ✓ | Wall clock |
+
+#### 9.5.4 `scm_sim.anomaly_scenarios`
+
+| Column | Type | NN | Notes |
+|---|---|---|---|
+| `anomaly_scenario_id` | `BIGINT UNSIGNED` | ✓ | PK, AUTO_INCREMENT |
+| `scenario_name` | `VARCHAR(60)` | ✓ | A scenario of `config/simulation.yaml` |
+| `scenario_config` | `JSON` | ✓ | The injections as run |
+| `seed` | `BIGINT UNSIGNED` | ✓ | Same scenario + seed ⇒ same rows damaged |
+| `scenario_status` | `VARCHAR(20)` | ✓ | `RUNNING` / `COMPLETED` / `FAILED` |
+| `anomalies_injected` | `INT UNSIGNED` | ✓ | |
+| `started_at` | `DATETIME(6)` | ✓ | Wall clock |
+| `finished_at` | `DATETIME(6)` | | Wall clock |
+| `error_message` | `TEXT` | | |
+| `created_at` / `updated_at` | `DATETIME(6)` | ✓ | Wall clock |
+
+#### 9.5.5 `scm_sim.anomaly_registry`
+
+| Column | Type | NN | Notes |
+|---|---|---|---|
+| `anomaly_id` | `BIGINT UNSIGNED` | ✓ | PK, AUTO_INCREMENT |
+| `anomaly_scenario_id` | `BIGINT UNSIGNED` | ✓ | FK → `anomaly_scenarios` |
+| `anomaly_type` | `VARCHAR(40)` | ✓ | One of the injector types (§9.6) |
+| `target_table` | `VARCHAR(64)` | ✓ | `change_event_log` for CDC anomalies |
+| `target_pk` | `BIGINT UNSIGNED` | | The damaged / inserted row (NULL for a schema change) |
+| `target_column` | `VARCHAR(64)` | | |
+| `original_value` / `injected_value` | `TEXT` | | |
+| `expected_failing_checks` | `JSON` | ✓ | Array: checks that must fail (D91) |
+| `collateral_checks` | `JSON` | | Array: checks that may also fail (`may_fail`) |
+| `injected_at` | `DATETIME(6)` | ✓ | Wall clock |
+| `created_at` / `updated_at` | `DATETIME(6)` | ✓ | Wall clock |
+
+### 9.6 Implementation notes (Phase 7, `src/scmgen/simulation/`)
+
+- **Modules:** `sim_schema` (copies, reset, status), `cdc` (§8.3), `anomalies` (injectors + registry), `dq` (generic data-quality checks), `detection` (report), `config` (`config/simulation.yaml`).
+- **Injector types** (each picks rows with `random.Random(f"{seed}:{scenario}")`): `duplicate_rows`, `null_mandatory`, `orphan_reference`, `timestamp_reversed`, `future_business_date`, `invoice_line_amount`, `journal_imbalance`, `inventory_drift`, `status_out_of_order`, `late_arriving` (a copied row stamped a day before the sim replica's watermark), `hard_delete`, `schema_change` (ADD COLUMN), `duplicate_cdc_events`, `stale_cdc_events`. Four scenarios ship: `data_quality`, `business_rules`, `pipeline` (needs a sim load first), `cdc_stream` (needs a capture first).
+- **Silent updates:** injectors that change rows without moving `updated_at` can't be seen by an incremental load; when the table is already in the sim replica, `LD-RECON:<table>` is registered as `may_fail` (counts and DECIMAL sums catch some of them, not all: a lesson in why watermark loads need reconciliation).
+- **Calibration:** the `expect` lists were measured on clean Small workspaces (seeds 1, 2) and confirmed with other seeds; the integration test runs all four scenarios and requires every anomaly CAUGHT with no unexplained failure, and the clean `_oltp` checksum unchanged.
+- **Detection report** (`simulate report`): steps loader → CDC → validation → DQ; JSON in `data/reports/<code>/sim_detection_*.json`.
+- Commands: `scmgen simulate reset`, `scenarios`, `inject --scenario S [--seed N]`, `report`, `status` (each with `-w CODE`), and `scmgen load -w CODE --source sim`.
+
 ---
 
 ## 10. Code Structure (refines master prompt §11)
@@ -576,7 +670,7 @@ Key separation: `domain/` holds **pure functions** (no database), so GST, costin
 | `scmgen load --workspace abc [--full] [--table orders] [--source sim]` | DuckDB load (full / incremental / one table) |
 | `scmgen load status --workspace abc` | Watermarks, last loads, errors |
 | `scmgen balances rebuild --workspace abc` | Rebuild `gl_period_balances` |
-| `scmgen simulate cdc|anomalies|reset …` | Phase 7 |
+| `scmgen simulate reset` / `scenarios` / `inject` / `report` / `status`, `scmgen simulate cdc capture` / `apply` | Phase 7 (§8.3, §9.6) |
 | `scmgen workspace delete --workspace abc` | Reset the environment (confirmation) |
 
 **A note on "generate only sales / procurement / accounting" (master prompt §12):** accounting entries are always produced *with* their business events (§4I), and sales can't happen without procurement having put stock in, so running modules separately would break consistency. The CLI therefore offers module-only generation for development and testing, where it fabricates the minimum upstream data in a scratch workspace, plus `validate --module` and `load --module` to work on one module at a time. This is a deliberate interpretation of the requirement, flagged for the owner in Part 1H.

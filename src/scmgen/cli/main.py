@@ -43,6 +43,11 @@ app.add_typer(workspace_app, name="workspace")
 app.add_typer(generate_app, name="generate")
 app.add_typer(report_app, name="report")
 app.add_typer(load_app, name="load")
+simulate_app = typer.Typer(help="Phase 7: CDC capture and anomaly simulation on scm_<code>_sim.", no_args_is_help=True)
+cdc_app = typer.Typer(help="Change data capture: capture events, apply them to DuckDB, check convergence.",
+                      no_args_is_help=True)
+simulate_app.add_typer(cdc_app, name="cdc")
+app.add_typer(simulate_app, name="simulate")
 
 log = logging.getLogger("scmgen.cli")
 
@@ -360,6 +365,8 @@ def generate_master_data_command(
         if check_result.status in ("FAILED", "ERROR"):
             typer.echo(f"  {check_result.rule_id}: {check_result.message or ''} {check_result.sample[:2]}")
     typer.echo(f"Workspace status: {result.workspace_status}")
+    if result.cdc_events is not None:
+        typer.echo(f"CDC: {result.cdc_events:,} change events captured (scmgen simulate cdc apply -w ... to consume)")
     if not result.report.passed:
         raise typer.Exit(1)
 
@@ -407,6 +414,8 @@ def _print_history(result) -> None:
         if check_result.status in ("FAILED", "ERROR"):
             typer.echo(f"  {check_result.rule_id}: {check_result.message or ''} {check_result.sample[:2]}")
     typer.echo(f"Workspace status: {result.workspace_status}")
+    if result.cdc_events is not None:
+        typer.echo(f"CDC: {result.cdc_events:,} change events captured (scmgen simulate cdc apply -w ... to consume)")
     if not result.report.passed:
         raise typer.Exit(1)
 
@@ -618,3 +627,153 @@ def ui_command(
                                       "--server.port", str(port), "--server.address", "localhost",
                                       "--server.headless", "true", "--browser.gatherUsageStats", "false"]))
 
+
+# --- simulate (Phase 7) -----------------------------------------------------------------------
+
+@simulate_app.command("reset")
+def simulate_reset(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+) -> None:
+    """Re-copy every clean table into scm_<code>_sim (no constraints) and discard all anomalies (1G §9.1)."""
+    from scmgen.simulation.sim_schema import reset
+
+    settings = _bootstrap()
+    try:
+        result = reset(settings, code)
+    except ScmgenError as exc:
+        _fail(exc, "simulate.reset.error")
+    typer.secho(f"Staging copies ready: {result.tables} tables, {result.rows:,} rows in {result.seconds} s "
+                f"(sim build {result.sim_build_id}; the next `load --source sim` is a full reload)", fg=typer.colors.GREEN)
+
+
+@simulate_app.command("scenarios")
+def simulate_scenarios() -> None:
+    """List the anomaly scenarios of config/simulation.yaml."""
+    from scmgen.simulation.config import load_simulation_config
+
+    for name, scenario in load_simulation_config().scenarios.items():
+        needs = [n for n, flag in (("a sim load", scenario.requires_sim_load), ("CDC events", scenario.requires_cdc))
+                 if flag]
+        typer.echo(f"{name:<16}{scenario.description}" + (f"  [needs {', '.join(needs)}]" if needs else ""))
+        for spec in scenario.injections:
+            target = spec["table"] + (f".{spec['column']}" if spec.get("column") else "")
+            typer.echo(f"    {spec['type']:<22}{target:<36}x{spec.get('count', 1)}")
+
+
+@simulate_app.command("inject")
+def simulate_inject(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+    scenario: Annotated[str, typer.Option("--scenario", help="Scenario of config/simulation.yaml.")],
+    seed: Annotated[int, typer.Option("--seed", help="Seed for choosing the damaged rows.")] = 1,
+) -> None:
+    """Inject a scenario's anomalies into the staging copies and register each one with its expected checks."""
+    from scmgen.simulation.anomalies import inject
+
+    settings = _bootstrap()
+    try:
+        result = inject(settings, code, scenario, seed=seed)
+    except ScmgenError as exc:
+        _fail(exc, "simulate.inject.error")
+    typer.secho(f"Scenario {result.scenario}: {len(result.records)} anomalies injected and registered", fg=typer.colors.GREEN)
+    for record in result.records:
+        typer.echo(f"  {record.anomaly_type:<22}{record.table}#{record.pk if record.pk is not None else '-':<10} "
+                   f"must fail: {', '.join(record.expected) or '-'}")
+
+
+@simulate_app.command("report")
+def simulate_report(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+    no_load: Annotated[bool, typer.Option("--no-load", help="Skip the sim replica load.")] = False,
+    no_cdc: Annotated[bool, typer.Option("--no-cdc", help="Skip the CDC consumer.")] = False,
+) -> None:
+    """Run loader, CDC consumer, validation and data-quality checks on the sim side; caught / missed / unexplained."""
+    from scmgen.simulation.detection import detect
+
+    settings = _bootstrap()
+    try:
+        report = detect(settings, code, run_load=not no_load, run_cdc=not no_cdc)
+    except ScmgenError as exc:
+        _fail(exc, "simulate.report.error")
+    for step, outcome in report.steps.items():
+        typer.echo(f"  {step:<13}{outcome}")
+    typer.echo(f"{'Anomaly':<24}{'Table':<28}{'PK':>8}  {'Status':<15}Expected checks (failed ✓)")
+    for a in report.anomalies:
+        checks = ", ".join(f"{c} {'✓' if c in a.failed else '✗'}" for c in a.expected) or "-"
+        colour = typer.colors.GREEN if a.status == "CAUGHT" else typer.colors.YELLOW
+        typer.secho(f"{a.anomaly_type:<24}{a.table:<28}{a.target_pk if a.target_pk is not None else '-':>8}  "
+                    f"{a.status:<15}{checks}", fg=colour)
+    counts = report.counts
+    typer.echo("Caught {CAUGHT}, partly caught {PARTLY_CAUGHT}, missed {MISSED}".format(
+        **{k: counts.get(k, 0) for k in ("CAUGHT", "PARTLY_CAUGHT", "MISSED")}))
+    if report.pre_existing:
+        typer.echo(f"Failing on the clean data too (pre-existing): {', '.join(report.pre_existing)}")
+    if report.unexplained:
+        typer.secho(f"Unexplained failures (no anomaly expects them): {', '.join(report.unexplained)}",
+                    fg=typer.colors.RED)
+    typer.echo(f"Report: {report.path}")
+
+
+@simulate_app.command("status")
+def simulate_status(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+) -> None:
+    """Staging copies, registered anomalies and change events of a workspace."""
+    from scmgen.simulation.sim_schema import status
+
+    settings = _bootstrap()
+    try:
+        state = status(settings, code)
+    except ScmgenError as exc:
+        _fail(exc, "simulate.status.error")
+    info = state["info"]
+    if not info:
+        typer.echo(f"No staging copies yet: run `scmgen simulate reset -w {code}`")
+    else:
+        typer.echo(f"Staging copies: {state['copies']} tables, copied {info.get('copied_at')} from data up to "
+                   f"{info.get('source_committed_through')} (sim build {info.get('sim_build_id')})")
+    events = state["events"]
+    typer.echo(f"Change events: {events['total']:,} ({events['anomalous']} anomalous), latest {events['latest'] or '-'}")
+    for row in state["anomalies"]:
+        typer.echo(f"  {row['scenario_name']:<16}{row['anomaly_type']:<24}{row['target_table']:<28}{row['anomalies']:>4}")
+
+
+@cdc_app.command("capture")
+def cdc_capture(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+) -> None:
+    """Capture the changes since the last capture into scm_<code>_sim.change_event_log (D89)."""
+    from scmgen.simulation.cdc import capture
+
+    settings = _bootstrap()
+    try:
+        result = capture(settings, code)
+    except ScmgenError as exc:
+        _fail(exc, "simulate.cdc.capture.error")
+    typer.echo(f"Capture {result.capture_batch_id} up to {result.high_water_mark}: {result.total:,} events "
+               f"in {result.seconds} s")
+    for table, ops in result.events.items():
+        if ops:
+            typer.echo(f"  {table:<34}" + ", ".join(f"{op} {n:,}" for op, n in sorted(ops.items())))
+
+
+@cdc_app.command("apply")
+def cdc_apply(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+) -> None:
+    """Apply new change events to <code>_sim.duckdb (cdc_current + SCD2 cdc_history), then check convergence."""
+    from scmgen.simulation.cdc import apply, compare
+
+    settings = _bootstrap()
+    try:
+        result = apply(settings, code)
+        state = compare(settings, code)
+    except ScmgenError as exc:
+        _fail(exc, "simulate.cdc.apply.error")
+    typer.echo(f"Applied LSN {result.from_lsn + 1:,}..{result.to_lsn:,}: {result.applied:,} events "
+               f"({len(result.tables)} tables), rejected {result.rejected or 'none'} in {result.seconds} s -> {result.path}")
+    failed = {t: s for t, s in state.items() if s.startswith("FAILED")}
+    typer.secho(f"Convergence: {sum(s == 'PASSED' for s in state.values())} tables match the source, "
+                f"{len(failed)} differ, {sum(s.startswith('SKIPPED') for s in state.values())} skipped",
+                fg=typer.colors.RED if failed else typer.colors.GREEN)
+    for table, outcome in failed.items():
+        typer.echo(f"  {table}: {outcome}")

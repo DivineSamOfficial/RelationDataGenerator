@@ -117,6 +117,10 @@ Priorities: correct architecture, relational integrity, realistic business proce
 | D86 | Two FK cycles via nullable "late links" (`stock_adjustment_line_items.inventory_batch_id`, `customer_payments.settlement_bank_transaction_id`): the writer inserts them NULL and sets them by UPDATE in the same transaction; any other cycle is an error (1G §2.6) |
 | D87 | Engine reproduces MySQL DECIMAL division (round to dividend scale + `div_precision_increment` 4, then ROUND) via `core.money.sql_divide`; `db check` requires `div_precision_increment = 4` (test A13) |
 | D88 | System roles extended with `DEPRECIATION`, `ACCUMULATED_DEPRECIATION`, `INTEREST_INCOME` (needed by P01/P21/P23); seed data in `config/seed/*.yaml` |
+| D89 | CDC captured between points in time (`simulate cdc capture`, auto after runs with `cdc.enabled`): SNAPSHOT / INSERT / UPDATE events by `(updated_at, PK)` keyset, before-image from the previous event (refines D72) |
+| D90 | `simulate reset` copies `_oltp` → `_sim` as `scm_anomaly` with `CREATE TABLE LIKE`, no CHECK / UNIQUE / FK; reset discards anomalies, new `sim_build_id` |
+| D91 | Every anomaly registered with `expect` (must fail) and `may_fail` checks; detection report = sim load + CDC consumer + V-* suite + generic DQ-* checks → caught / missed / unexplained |
+| D92 | Same loader for `--source sim` (`<code>_sim.duckdb`); schema drift detected per table (logged, table reloaded in full); CDC consumer writes `cdc_current` / `cdc_history` (SCD2) |
 
 ## Database standards
 

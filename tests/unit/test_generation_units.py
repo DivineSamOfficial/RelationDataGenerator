@@ -310,10 +310,13 @@ class _RecordingConnection:
         self.statements: list[tuple[str, int]] = []
 
     def execute(self, statement, params):
-        self.statements.append((str(statement).split(" (")[0], len(params)))
+        sql = str(statement)
+        # INSERTs are executemany (a list of rows); an UPDATE is one statement over a VALUES table of ROW(…)s.
+        rows = len(params) if isinstance(params, list) else sql.count("ROW(")
+        self.statements.append((sql.split(" (")[0] if sql.startswith("INSERT") else sql.split(" JOIN")[0], rows))
 
         class _Result:
-            rowcount = len(params)
+            rowcount = rows
         return _Result()
 
 
@@ -330,9 +333,19 @@ def test_writer_flushes_parents_before_children_in_batches():
     assert conn.statements == [
         ("INSERT INTO `states`", 1),
         ("INSERT INTO `warehouses`", 2), ("INSERT INTO `warehouses`", 1),        # batch_size 2
-        ("UPDATE `warehouses` SET `warehouse_name` = :warehouse_name WHERE `warehouse_id` = :_pk", 2),
-        ("UPDATE `states` SET `state_name` = :state_name WHERE `state_id` = :_pk", 1),
+        ("UPDATE `warehouses` AS t", 2),
+        ("UPDATE `states` AS t", 1),
     ]
+
+
+def test_writer_batches_updates_and_keeps_the_last_value_of_a_row():
+    writer = BatchWriter(["orders"], batch_size=1000)
+    writer.update("orders", "order_id", 7, {"order_status": "CONFIRMED"})
+    writer.update("orders", "order_id", 8, {"order_status": "CONFIRMED"})
+    writer.update("orders", "order_id", 7, {"order_status": "SHIPPED"})      # same row again: the last one wins
+    conn = _RecordingConnection()
+    writer.flush(conn)
+    assert conn.statements == [("UPDATE `orders` AS t", 2)]
 
 
 

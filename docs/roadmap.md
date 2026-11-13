@@ -8,11 +8,11 @@ Last updated: 2026-11-13
 |---|---|---|
 | 1 | Architecture & database design | **Done — approved by owner 2026-11-08** (incl. interpretations I1–I6, Part 1H §4) |
 | 2 | Database implementation (MySQL schema, constraints, indexes, workspace management) | **Done** — steps 2.1–2.7; signed off by owner 2026-11-10 |
-| 3 | Data generation engine (master data, transactions, industry packs, scenarios, historical + continuous, progress reporting) | **Done** — steps 3.1–3.16 below (Medium throughput above target: performance pass open) |
+| 3 | Data generation engine (master data, transactions, industry packs, scenarios, historical + continuous, progress reporting) | **Done** — steps 3.1–3.16 below (Medium throughput ~1,075 s vs the 900 s target: open item, see 6.1) |
 | 4 | DuckDB loader (full, incremental, metadata, reconciliation) | **Done** — step 4.1 below (standing approval O3) |
 | 5 | Control Panel UI (Streamlit), incl. the **Table guide** (owner request O1 below) | **Done** — step 5.1 below (standing approval O3); awaiting owner testing |
-| 6 | Testing consolidation & documentation | Not started |
-| 7 | Advanced simulation (CDC, anomalies, late data, schema evolution, recovery) | Not started |
+| 6 | Testing consolidation & documentation | **Done** — step 6.1 below (standing approval O3) |
+| 7 | Advanced simulation (CDC, anomalies, late data, schema evolution, recovery) | **Done** — step 7.1 below (standing approval O3); awaiting owner testing |
 
 ## Phase 1 parts
 
@@ -74,6 +74,18 @@ Working principle: from step 3.6 on, a **Small** workspace generates end to end 
 | Step | Scope | Status |
 |---|---|---|
 | 5.1 | Streamlit control panel: Workspaces (create, history with preset / dates / scenario profile, Continue with a plan preview, Rebuild with typed confirmation), Run monitor (live progress from `generation_runs` / `generation_run_steps`, cancel after the current day), Data explorer (row counts, sample rows, charts), Validation reports, Scenario report, DuckDB load and status, **Table guide** (O1), Reset | **Done** — `src/scmgen/ui/` (`app.py` pages, `jobs.py` background CLI jobs logged to `logs/ui_jobs/`, `guide.py` design-doc parser), example queries in `config/ui/table_guide.yaml`, CLI `scmgen ui [--port 8501]`. Actions run the same `scmgen` commands as background processes, so closing the browser doesn't stop a run. The Table guide reads descriptions, columns and population notes from `docs/design/` (every table has a section) and keys / relations / row counts from the live schema, with a relation diagram, curated and generated example queries and a "Run on MySQL" button (SELECT only). 10 UI tests (every page renders, every example query runs, every table documented, background jobs) pass |
+
+## Phase 6 steps
+
+| Step | Scope | Status |
+|---|---|---|
+| 6.1 | Documentation for running and testing the whole platform; dependency pins; a performance pass on the daily flush | **Done** — README rewritten (setup, quick start, every command group), `docs/owner_testing_guide.md` (a 1–2 hour walkthrough with what to expect), `requirements.txt` re-pinned with duckdb / pyarrow / streamlit / pandas. The quick start was run exactly as written (183 days in 55 s, 99/99 rules, load reconciled). Performance: the writer now sends each batch of buffered UPDATEs as one `UPDATE … JOIN (VALUES ROW(…), …)` statement instead of one statement per row (~3× faster in a benchmark); a 6-month Small history regenerated with the new writer is byte-identical to one from the old writer (CHECKSUM TABLE on all 92 tables; only the workspace code and wall-clock system timestamps differ). Profiling a Medium-volume run found no other dominant cost: the remaining time is spread over many queries and PyMySQL's pure-Python row decoding (a C driver would be the next step). **Measured on Medium (2 years, nothing else running): 1,074 s, flush 475 s (was 505 s) — the gain is small, so the 900 s target is still not met and stays open**; the Medium data is byte-identical to the old writer's (`m4` vs `m5`, every business table). Full suite 729 passed; check-design 0 differences (incl. the sim control tables) |
+
+## Phase 7 steps (scope from Part 1G §8-§9)
+
+| Step | Scope | Status |
+|---|---|---|
+| 7.1 | Staging copies in `_sim` (D90), CDC capture and a log-based consumer with SCD2 history (D89), anomaly injectors with the expected-failure contract and a detection report (D91), the loader on the sim side with schema-drift detection (D92) | **Done** — `src/scmgen/simulation/` (`sim_schema`, `cdc`, `anomalies`, `dq`, `detection`, `config`), `db/ddl/sim/`, `config/simulation.yaml` (CDC settings, 4 scenarios / 14 anomaly types), CLI `scmgen simulate reset / scenarios / inject / report / status`, `scmgen simulate cdc capture / apply`, `scmgen load --source sim`; design 1G §8.3, §9.5–§9.6; `check-design` now also checks the 5 sim control tables. Small: copy 160k rows in 4–5 s, snapshot capture of 47 tables (55k events) 3.7 s, apply 2.4 s; all four scenarios together: 39 anomalies, every one CAUGHT, no unexplained failure (seeds 2, 5, 9, 21). Found by the calibration: V-SY-03 didn't check `updated_at ≥ created_at` itself (the DDL CHECK did) — fixed. 7 integration tests (incl. clean `_oltp` checksum unchanged, `scm_anomaly` can't write `_oltp`, CDC idempotency and SCD2, same seed ⇒ same anomalies) pass |
 
 ## Owner requests (scheduled)
 
