@@ -217,9 +217,11 @@ def test_backorders_wait_for_stock(generated):
                                                     "WHERE from_status = 'BACKORDERED'")}
     assert "Backorder released: stock reserved" in outcomes
     assert outcomes & {"Out of stock for 7 days", "Backordered lines cancelled: out of stock"}
-    # The stock check orders backordered demand: every line backordered before the last day has supply coming.
+    # The stock check orders backordered demand: every line backordered before the last day has supply coming
+    # (except a slow perishable whose smallest supplier lot would expire, which isn't bought: step 3.14c).
     assert _one(conn, """SELECT COUNT(*) FROM order_line_items l JOIN orders o USING (order_id)
                          WHERE l.line_status = 'BACKORDERED' AND o.fulfilment_type = 'SHIP' AND o.updated_at < '2025-11-30'
+                           AND (SELECT shelf_life_days FROM products p WHERE p.product_id = l.product_id) IS NULL
                            AND NOT EXISTS (SELECT 1 FROM purchase_order_line_items pl JOIN purchase_order_headers h
                                            USING (purchase_order_id) WHERE pl.product_id = l.product_id
                                            AND h.po_status IN ('PENDING_APPROVAL', 'APPROVED', 'SENT', 'PARTIALLY_RECEIVED'))

@@ -31,7 +31,8 @@ pytestmark = pytest.mark.integration
 CATALOGUE = load_catalogue()
 RULES = ("V-SO-03", "V-SO-04", "V-SH-01", "V-SH-02", "V-IV-01", "V-IV-02", "V-IV-05", "V-IN-09",
          "V-SH-03", "V-SH-04", "V-IV-03", "V-IV-04", "V-RT-06", "V-IN-06")
-WINDOW = {"history.start_date": "2025-08-01", "history.end_date": "2025-11-30"}
+WINDOW = {"history.start_date": "2025-08-01", "history.end_date": "2025-11-30",
+          "sales.customer_cancel_share": 0.08}       # more cancellations, so D40 cancellations before transit occur
 
 
 @pytest.fixture(scope="module")
@@ -393,7 +394,8 @@ _MIRROR = _FIRST.format(key="tax_transaction_id", table="tax_transactions", wher
 _CLOSED_LINE = _FIRST.format(key="order_line_item_id", table="order_line_items", where="line_status = 'CLOSED' AND quantity_delivered = 0")   # RTO
 _STOCK_REVERSAL = _FIRST.format(key="inventory_transaction_id", table="inventory_transactions",
                                 where="reversal_of_inventory_transaction_id IS NOT NULL")
-_REVERSED_ITEM = _FIRST.format(key="accounts_receivable_id", table="accounts_receivable", where="item_status = 'REVERSED'")
+_REVERSED_ITEM = _FIRST.format(key="accounts_receivable_id", table="accounts_receivable",
+                               where="item_status = 'REVERSED' AND item_type = 'INVOICE'")
 
 MUTATIONS = {
     "V-SO-03": [f"UPDATE shipment_line_items SET quantity_shipped = quantity_shipped + 1 "

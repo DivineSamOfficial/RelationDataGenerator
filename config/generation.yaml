@@ -36,7 +36,7 @@ presets:
       customers_b2c: 5800
       suppliers: 260
       products: 2000
-      employees: 180
+      employees: 110
       locations_per_dc: 400
       locations_per_store: 60
       orders_per_day: 70          # ≈ 50,000 orders over two years (master prompt §7)
@@ -47,7 +47,7 @@ presets:
       customers_b2c: 29000
       suppliers: 1300
       products: 10000
-      employees: 900
+      employees: 550
       locations_per_dc: 2000
       locations_per_store: 300
       orders_per_day: 350
@@ -66,9 +66,9 @@ setup:
 # is the target; central departments get the remainder by weight.
 organisation:
   job_levels:                                # monthly gross salary range and approval limit (rupees)
-    EXECUTIVE: {salary: [300000, 500000], approval_limit: 50000000}
-    HEAD:      {salary: [150000, 280000], approval_limit: 5000000}
-    MANAGER:   {salary: [70000, 140000],  approval_limit: 1000000}
+    EXECUTIVE: {salary: [200000, 350000], approval_limit: 50000000}
+    HEAD:      {salary: [100000, 180000], approval_limit: 5000000}
+    MANAGER:   {salary: [50000, 100000],  approval_limit: 1000000}
     LEAD:      {salary: [35000, 60000],   approval_limit: 200000}
     STAFF:     {salary: [15000, 30000],   approval_limit: 0}
   warehouse_staff_share: 0.60                # of employees beyond the fixed roles: DC and store staff
@@ -115,7 +115,7 @@ master_data:
   campaigns:
     history_years: 2                       # past campaigns generated for this many years before day 0
     cancelled_share: 0.05
-    budget: [200000, 1500000]              # rupees per campaign, before the event's uplift
+    budget: [100000, 750000]               # rupees per campaign, before the event's uplift
 
 # Daily engine (1G §2.2). Calendar: warehouses close on the weekly off day and national holidays (MM-DD).
 daily:
@@ -140,7 +140,7 @@ opening_balances:
   accumulated_depreciation_share: 0.35                         # of fixed-asset cost, already depreciated
   store_assortment_share: 0.40                                 # stores stock this share of consumer products
   opening_stock_share: 0.35                                    # opening stock = this share of the default policy
-  perishable_opening_share: 0.15                               # … and this share for products that expire
+  perishable_opening_share: 0.04                               # … and this share for products that expire
 
 # Procure-to-pay (1C §3.0 timing and scenario defaults). Probabilities are per document unless noted.
 procurement:
@@ -151,6 +151,7 @@ procurement:
   target_cover_days: 45                 # order up to this many days of demand
   perishable_cover_days: 30             # at most this (and a third of the shelf life) for products that expire
   new_product_stock_share: 0.10         # a launch's first order: this share of the default reorder policy
+  perishable_lot_sell_share: 0.6       # a perishable isn't bought when its smallest lot exceeds this share of what sells in its shelf life
   rfq_max_lines: 8
   rfq_suppliers: [2, 5]                 # invited per RFQ (preferred supplier always included)
   rfq_response_days: [3, 7]
@@ -330,7 +331,7 @@ expenses:
   annual_escalation: 0.05               # recurring amounts rise every April
   billed_in_advance: [RENT]             # billed on the 1st for the month itself
   site_costs:                           # per warehouse, base amount drawn once per site
-    RENT: {DISTRIBUTION_CENTRE: [250000, 450000], RETAIL_STORE: [100000, 200000]}
+    RENT: {DISTRIBUTION_CENTRE: [180000, 350000], RETAIL_STORE: [80000, 160000]}
     ELECTRICITY: {DISTRIBUTION_CENTRE: [60000, 130000], RETAIL_STORE: [25000, 55000]}
     WATER: {DISTRIBUTION_CENTRE: [6000, 14000], RETAIL_STORE: [2000, 5000]}
     SECURITY: {DISTRIBUTION_CENTRE: [60000, 95000], RETAIL_STORE: [20000, 35000]}

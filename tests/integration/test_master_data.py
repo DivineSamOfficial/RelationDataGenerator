@@ -126,7 +126,7 @@ def test_presets_scale_the_organisation(settings, workspaces):
     medium_rows = generate_master_data(settings, medium, load_generation_config(
         preset="medium", today=TODAY, overrides=DATES)).rows_by_table
     assert 36 <= small_rows["employees"] <= 45                     # structural minimum for 5 DCs + 3 stores
-    assert 170 <= medium_rows["employees"] <= 195                  # design: ~180
+    assert 100 <= medium_rows["employees"] <= 125                  # design: ~110 (calibrated in 3.14c)
     assert medium_rows["warehouse_locations"] == 5 * 400 + 3 * 60
 
 

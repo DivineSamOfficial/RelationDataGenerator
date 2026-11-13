@@ -487,6 +487,15 @@ def replenishment(day: DayContext) -> None:
         need = quantity(row["max_stock_level"] - row["position"])
         if need <= 0:
             continue
+        if row["shelf_life_days"]:
+            # A perishable whose smallest supplier lot can't sell within ~60% of its shelf life isn't bought: the
+            # lot would mostly expire (a buyer lets such a slow line go out of stock; its backorders then wait or
+            # are cancelled). MOQ rounding had bought twice what sold of slow consumer goods.
+            lots = [a["minimum_order_quantity"] for a in approvals.get(row["product_id"], [])]
+            sells = rates.get((row["warehouse_id"], row["product_id"]), Decimal(0)) * row["shelf_life_days"] \
+                * Decimal(str(settings.perishable_lot_sell_share))
+            if lots and min(lots) > max(sells, need):
+                continue
         preferred = next((a for a in approvals.get(row["product_id"], []) if a["is_preferred"]), None)
         if preferred and need * preferred["reference_unit_cost"] <= settings.direct_reorder_max_value:
             direct[row["warehouse_id"]].append((row["product_id"], need))

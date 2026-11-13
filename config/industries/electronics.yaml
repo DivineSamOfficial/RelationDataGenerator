@@ -50,7 +50,7 @@ suppliers:
 
 pricing:
   list_price_ratio: [0.82, 0.92]       # list price (ex-GST, trade) as a share of MRP excluding GST
-  gross_margin: [0.12, 0.24]           # (list price - supplier cost) / list price
+  gross_margin: [0.16, 0.28]           # (list price - supplier cost) / list price
 
 # Brands: tier drives the price band; categories = the level-1 categories the brand sells in.
 brands:

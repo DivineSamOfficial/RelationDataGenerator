@@ -120,7 +120,8 @@ def journey(day: DayContext, shipment: dict[str, Any]) -> Journey:
             first += timedelta(days=rng.randint(*settings.late_days))
         first = _not_sunday(first)
         if km > 300:
-            add("IN_TRANSIT", "In transit", plan.departs + (_at(first, 4, 0) - plan.departs) / 2, None, None)
+            midway = int((_at(first, 4, 0) - plan.departs).total_seconds()) // 2      # whole seconds: a half second
+            add("IN_TRANSIT", "In transit", plan.departs + timedelta(seconds=midway), None, None)   # broke the feed cap
         hub = _hub(day, d_state, d_city)
         add("ARRIVED_AT_HUB", f"Arrived at {hub} hub", _at(first, 4, rng.randint(0, 59))
             + timedelta(minutes=rng.randint(0, 90)), hub, d_state)

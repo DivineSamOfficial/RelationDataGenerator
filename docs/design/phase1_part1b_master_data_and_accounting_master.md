@@ -178,7 +178,7 @@ Master data isn't frozen after the first run. Realistic change is what makes CDC
 | `companies` / `company_gst_registrations` | 1 / 5 | No (setup) |
 | `business_units` | 1–5 (one per chosen industry) | No |
 | `departments` | 10 | No |
-| `employees` | ~180 | Yes |
+| `employees` | ~110 (was ~180; calibrated in Phase 3 step 3.14c so payroll fits revenue) | Yes |
 | `warehouses` | 8 (5 DCs + 3 stores) | No (setup) |
 | `warehouse_locations` | ~2,200 (~400 per DC, ~60 per store) | Yes |
 | `customers` | ~7,000 (≈1,200 B2B, ≈5,800 B2C) | Yes |

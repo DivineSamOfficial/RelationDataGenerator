@@ -69,7 +69,7 @@ _PROCUREMENT_KEYS = {"direct_reorder_max_value", "rfq_max_lines", "rfq_suppliers
                      "invoice_arrival_days", "price_variance_share", "price_variance", "invoice_approval_days",
                      "payment_weekday", "late_payment_share", "late_payment_weeks", "payment_failure_share",
                      "msme_payment_days", "demand_window_days", "reorder_cover_days", "target_cover_days",
-                     "perishable_cover_days", "new_product_stock_share"}
+                     "perishable_cover_days", "new_product_stock_share", "perishable_lot_sell_share"}
 _SALES_KEYS = {"trend_per_year", "weekday_factors", "holiday_factor", "hours", "pack_affinity", "b2b_frequency_sigma",
                "b2b_max_order_share",
                "b2c_lines", "b2c_quantity", "b2b_lines", "b2b_line_value", "store_pickup_share", "cod_share",
@@ -228,6 +228,7 @@ class ProcurementSettings:
     target_cover_days: int = 45
     perishable_cover_days: int = 30
     new_product_stock_share: float = 0.25
+    perishable_lot_sell_share: float = 0.6
 
 
 @dataclass(frozen=True)
@@ -907,6 +908,7 @@ def _parse_procurement(raw: dict[str, Any]) -> ProcurementSettings:
         target_cover_days=_int(raw["target_cover_days"], "procurement.target_cover_days", 1, 365),
         perishable_cover_days=_int(raw["perishable_cover_days"], "procurement.perishable_cover_days", 1, 180),
         new_product_stock_share=_share(raw["new_product_stock_share"], "procurement.new_product_stock_share"),
+        perishable_lot_sell_share=_share(raw["perishable_lot_sell_share"], "procurement.perishable_lot_sell_share"),
     )
 
 
