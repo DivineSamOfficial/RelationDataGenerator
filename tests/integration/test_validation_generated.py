@@ -26,9 +26,10 @@ pytestmark = pytest.mark.integration
 
 CATALOGUE = load_catalogue()
 RULES = sorted(r for r in framework.registered_checks()
-               if r.startswith(("V-AC", "V-IN")) and r not in ("V-IN-03", "V-IN-06", "V-IN-07", "V-IN-08", "V-IN-09"))
+               if r.startswith(("V-AC", "V-IN")) and r not in ("V-IN-03", "V-IN-06", "V-IN-07", "V-IN-08", "V-IN-09", "V-AC-12", "V-AC-13"))
 # V-IN-03 needs orders (tests/integration/test_sales.py), V-IN-06 / V-IN-09 sales issues and their reversals
-# (tests/integration/test_fulfilment.py), V-IN-07 / V-IN-08 transfers (tests/integration/test_transfers.py).
+# (tests/integration/test_fulfilment.py), V-IN-07 / V-IN-08 transfers (tests/integration/test_transfers.py),
+# V-AC-12 / V-AC-13 journals and period balances (tests/integration/test_period_end.py).
 
 
 @pytest.fixture(scope="module")

@@ -89,6 +89,6 @@ def monthly_reconciliations(ctx: ValidationContext) -> Rows:
              AND r.accounting_period_id = p.accounting_period_id
         WHERE b.account_status = 'ACTIVE'
           AND p.start_date >= (SELECT DATE_FORMAT(MIN(statement_date), '%Y-%m-01') FROM bank_transactions)
-          AND p.end_date < (SELECT MAX(sim_end_date) FROM generation_runs) - INTERVAL 10 DAY
+          AND p.end_date < (SELECT DATE(MAX(committed_through)) FROM generation_runs) - INTERVAL 10 DAY
           AND EXISTS (SELECT 1 FROM bank_transactions t WHERE t.statement_date > p.end_date + INTERVAL 10 DAY)
           AND (r.bank_reconciliation_id IS NULL OR r.reconciliation_status <> 'RECONCILED' OR r.difference_amount <> 0)""")

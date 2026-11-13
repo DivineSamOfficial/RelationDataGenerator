@@ -19,6 +19,7 @@ from scmgen.core.money import money, quantity, unit_price
 from scmgen.generation.engine.day import DayContext
 from scmgen.generation.engine.documents import (approver, preload_rates, price_lines, rate_on, record_status,
                                                  staff, totals)
+from scmgen.generation.engine.procurement.demand_rates import daily_rates, dc_target
 from scmgen.generation.engine.sales.allocation import backorder_demand, expired_stock
 from scmgen.generation.numbering import Registration
 
@@ -414,8 +415,9 @@ def _direct_orders(day: DayContext, rng: random.Random, warehouse: dict[str, Any
 
 
 def replenishment(day: DayContext) -> None:
-    """Daily stock check per DC (1C §3.0): what's below its reorder point (counting stock already on order or
-    being sourced) is ordered up to the maximum, directly or via an RFQ; new products are sourced by RFQ."""
+    """Daily stock check per DC (1C §3.0), demand-driven (``demand_rates``): a product whose stock position
+    (available − expired + on order or being sourced − backordered) is at or below its reorder point (days of
+    recent demand) is ordered up to its target cover, directly or via an RFQ; new products are sourced by RFQ."""
     settings = day.world.config.procurement
     rng = day.rng("procurement.replenishment")
     dcs = _dcs(day)
@@ -424,26 +426,21 @@ def replenishment(day: DayContext) -> None:
     in_dc = ", ".join(str(w) for w in dcs)
     statuses_po = ", ".join(f"'{s}'" for s in OPEN_PO_STATUSES)
     statuses_rfq = ", ".join(f"'{s}'" for s in OPEN_RFQ_STATUSES)
-    candidates = day.rows(f"""
-        SELECT i.warehouse_id, p.product_id, p.business_unit_id, i.max_stock_level, i.reorder_level,
-               i.qty_sellable - i.qty_reserved AS available
-        FROM inventory i JOIN products p ON p.product_id = i.product_id
-        WHERE i.warehouse_id IN ({in_dc}) AND p.product_status = 'ACTIVE' AND i.is_stocked
-          AND i.qty_sellable - i.qty_reserved <= i.reorder_level
-        ORDER BY i.warehouse_id, p.product_id""")
     # Backordered sales lines count against their nearest DC's position (1D §2, step 3.8b); expired batches
-    # are not stock that can be sold (step 3.9a).
+    # are not stock that can be sold (step 3.9a). Candidates: what sold recently, is backordered, or expired.
+    rates = daily_rates(day, sorted(dcs))
     backorders = backorder_demand(day)
     expired = {k: q for k, q in expired_stock(day).items() if k[0] in dcs}
-    seen = {(r["warehouse_id"], r["product_id"]) for r in candidates}
-    extra = sorted(k for k in set(backorders) | set(expired) if k not in seen and k[0] in dcs)
-    if extra:
+    keys = sorted(k for k in set(rates) | set(backorders) | set(expired) if k[0] in dcs)
+    candidates = []
+    for start in range(0, len(keys), 2000):
+        chunk = keys[start:start + 2000]
         candidates += day.rows(f"""
-            SELECT i.warehouse_id, p.product_id, p.business_unit_id, i.max_stock_level, i.reorder_level,
+            SELECT i.warehouse_id, p.product_id, p.business_unit_id, p.shelf_life_days,
                    i.qty_sellable - i.qty_reserved AS available
             FROM inventory i JOIN products p ON p.product_id = i.product_id
             WHERE p.product_status = 'ACTIVE' AND i.is_stocked
-              AND (i.warehouse_id, i.product_id) IN ({", ".join(f"({w}, {p})" for w, p in extra)})
+              AND (i.warehouse_id, i.product_id) IN ({", ".join(f"({w}, {p})" for w, p in chunk)})
             ORDER BY i.warehouse_id, p.product_id""")
     on_order: dict[tuple[int, int], Decimal] = defaultdict(Decimal)    # stock on order or being sourced
     if candidates:
@@ -461,11 +458,12 @@ def replenishment(day: DayContext) -> None:
         for key, qty in inbound_transfers(day, sorted(dcs)).items():      # rebalancing on its way (3.12)
             on_order[key] += qty
     below = []
-    for row in candidates:
+    for row in sorted(candidates, key=lambda r: (r["warehouse_id"], r["product_id"])):
         key = (row["warehouse_id"], row["product_id"])
+        goal = dc_target(day, rates.get(key, Decimal(0)), row["shelf_life_days"])
         position = row["available"] - expired.get(key, Decimal(0)) + on_order[key] - backorders.get(key, Decimal(0))
-        if position <= row["reorder_level"]:
-            below.append({**row, "position": position})
+        if position <= goal.reorder_point and (goal.rate > 0 or backorders.get(key)):
+            below.append({**row, "position": position, "max_stock_level": goal.order_up_to})
     # New products (no stock row in the DC yet) and nothing on order or being sourced: one anti-join.
     new = day.rows(f"""
         SELECT w.warehouse_id, p.product_id, p.business_unit_id, p.reorder_level + p.reorder_quantity AS need
@@ -494,8 +492,10 @@ def replenishment(day: DayContext) -> None:
             direct[row["warehouse_id"]].append((row["product_id"], need))
         else:
             sourcing[(row["warehouse_id"], row["business_unit_id"], "REPLENISHMENT")].append((row["product_id"], need))
-    for row in new:
-        sourcing[(row["warehouse_id"], row["business_unit_id"], "NEW_PRODUCT")].append((row["product_id"], quantity(row["need"])))
+    for row in new:                    # a launch starts with a share of the default policy (no demand known yet)
+        first = max(Decimal(1), quantity(row["need"] * Decimal(str(settings.new_product_stock_share))))
+        sourcing[(row["warehouse_id"], row["business_unit_id"], "NEW_PRODUCT")].append((row["product_id"],
+                                                                                         first.to_integral_value()))
     for warehouse_id, needs in sorted(direct.items()):
         _direct_orders(day, rng, dcs[warehouse_id], needs)
     for (warehouse_id, bu_id, rfq_type), needs in sorted(sourcing.items()):

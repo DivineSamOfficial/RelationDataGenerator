@@ -282,7 +282,6 @@ def expiry_sweep(day: DayContext) -> None:
                 break
             movement = stock.take(key, qty, "SELLABLE", at, batch_id)
             room -= qty
-            expired[key] -= qty
             per_warehouse[key[0]].append(AdjustmentLine(
                 key[1], batch_id, "SELLABLE", -qty, movement.unit_cost, movement.value_change, "EXPIRED",
                 shelf_location(day, sites[key[0]], key[1])))

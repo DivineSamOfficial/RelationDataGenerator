@@ -27,7 +27,7 @@ from scmgen.validation.framework import ValidationContext, run_checks
 pytestmark = pytest.mark.integration
 
 CATALOGUE = load_catalogue()
-WINDOW = {"history.start_date": "2025-01-01", "history.end_date": "2025-04-30"}
+WINDOW = {"history.start_date": "2025-01-01", "history.end_date": "2025-04-30", "expenses.rejection_share": 0.3}
 RULES = ("V-EX-01", "V-EX-02", "V-EX-03", "V-SH-05")
 
 

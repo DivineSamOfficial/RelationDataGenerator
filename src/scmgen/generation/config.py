@@ -58,7 +58,8 @@ WEEKDAYS = ("MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", 
 _DAILY_KEYS = {"weekly_off", "national_holidays", "period_close_day", "progress_every_days", "new_products_per_year",
                "discontinued_per_year", "campaign_lead_days", "new_customers_per_year"}
 _OPENING_KEYS = {"share_capital", "bank_balances", "cash_credit_drawn", "petty_cash", "fixed_assets",
-                 "accumulated_depreciation_share", "store_assortment_share"}
+                 "accumulated_depreciation_share", "store_assortment_share", "opening_stock_share",
+                 "perishable_opening_share"}
 _PROCUREMENT_KEYS = {"direct_reorder_max_value", "rfq_max_lines", "rfq_suppliers", "rfq_response_days", "response_mix",
                      "quote_price_factor", "quote_lead_factor", "quote_validity_days", "evaluation_days",
                      "award_price_ceiling", "score_weights", "approval_days", "po_cancel_share", "late_share",
@@ -67,7 +68,8 @@ _PROCUREMENT_KEYS = {"direct_reorder_max_value", "rfq_max_lines", "rfq_suppliers
                      "short_shelf_life_share", "eway_bill_threshold", "invoice_days",
                      "invoice_arrival_days", "price_variance_share", "price_variance", "invoice_approval_days",
                      "payment_weekday", "late_payment_share", "late_payment_weeks", "payment_failure_share",
-                     "msme_payment_days"}
+                     "msme_payment_days", "demand_window_days", "reorder_cover_days", "target_cover_days",
+                     "perishable_cover_days", "new_product_stock_share"}
 _SALES_KEYS = {"trend_per_year", "weekday_factors", "holiday_factor", "hours", "pack_affinity", "b2b_frequency_sigma",
                "b2b_max_order_share",
                "b2c_lines", "b2c_quantity", "b2b_lines", "b2b_line_value", "store_pickup_share", "cod_share",
@@ -87,16 +89,17 @@ _COLLECTIONS_KEYS = {"profiles", "cheque_payer_share", "cheque_bounce_share", "a
                      "partial_share", "chargeback_share", "chargeback_days"}
 _RETURNS_KEYS = {"non_returnable_attempt_factor", "partial_quantity_share", "late_request_share",
                  "further_inspection_share", "refund_approval_days", "refund_failure_share", "cancelled_refund_days"}
-_INVENTORY_KEYS = {"rebalancing_day", "transfer_max_lines", "min_shelf_days", "transfer_dispatch_hours",
+_INVENTORY_KEYS = {"store_reorder_cover_days", "store_target_cover_days", "rebalancing_day", "transfer_max_lines", "min_shelf_days", "transfer_dispatch_hours",
                    "transfer_receipt_hours", "transit_damage_share", "transit_loss_share", "cycle_count_day",
                    "abc_shares", "count_difference_share", "found_share", "max_difference_share",
                    "handling_damage_per_month", "disposition_weekday", "disposition_min_days", "repair_cost_share"}
-_EXPENSES_KEYS = {"approval_days", "rejection_share", "payment_weekday", "payment_failure_share", "bill_day_range",
+_EXPENSES_KEYS = {"reference_orders_per_day", "approval_days", "rejection_share", "payment_weekday", "payment_failure_share", "bill_day_range",
                   "attachment_share", "claim_due_days", "annual_escalation", "billed_in_advance", "site_costs",
                   "electricity_season", "company_costs", "cloud_per_order", "packaging_per_shipment", "annual_costs",
                   "ad_hoc", "travel_claims_per_month", "travel_claim_amount", "petty_cash_per_month",
                   "petty_cash_amount", "petty_cash_items", "campaign_spend_share", "cost_centres", "sac_codes"}
 WAREHOUSE_TYPES = ("DISTRIBUTION_CENTRE", "RETAIL_STORE")
+_PERIOD_END_KEYS = {"depreciation_rates"}
 _GST_KEYS = {"gstr1_due_day", "gstr3b_due_day", "early_days", "late_share", "late_days", "filing_hour"}
 _BANK_KEYS = {"statement_hour", "monthly_charges", "interest_rate", "petty_float", "reconciliation_working_day",
               "payments_buffer", "collections_minimum"}
@@ -179,6 +182,8 @@ class OpeningBalances:
     fixed_assets: dict[str, int]                  # account code → cost
     accumulated_depreciation_share: float
     store_assortment_share: float
+    opening_stock_share: float = 1.0
+    perishable_opening_share: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -218,6 +223,11 @@ class ProcurementSettings:
     late_payment_weeks: tuple[int, int]
     payment_failure_share: float            # failed bank transfers, retried in the next run
     msme_payment_days: int                  # MSME suppliers are always paid within this many days of the invoice
+    demand_window_days: int = 30
+    reorder_cover_days: int = 21
+    target_cover_days: int = 45
+    perishable_cover_days: int = 30
+    new_product_stock_share: float = 0.25
 
 
 @dataclass(frozen=True)
@@ -320,6 +330,8 @@ class ReturnsSettings:
 
 @dataclass(frozen=True)
 class InventorySettings:
+    store_reorder_cover_days: int
+    store_target_cover_days: int
     rebalancing_day: int
     transfer_max_lines: int
     min_shelf_days: int
@@ -340,6 +352,7 @@ class InventorySettings:
 
 @dataclass(frozen=True)
 class ExpensesSettings:
+    reference_orders_per_day: int
     approval_days: tuple[int, int]
     rejection_share: float
     payment_weekday: int
@@ -364,6 +377,11 @@ class ExpensesSettings:
     campaign_spend_share: tuple[float, float]
     cost_centres: dict[str, str]
     sac_codes: dict[str, str]
+
+
+@dataclass(frozen=True)
+class PeriodEndSettings:
+    depreciation_rates: dict[str, float]
 
 
 @dataclass(frozen=True)
@@ -420,6 +438,7 @@ class GenerationConfig:
     expenses: ExpensesSettings | None = None
     bank: BankSettings | None = None
     gst: GstSettings | None = None
+    period_end: PeriodEndSettings | None = None
 
     @property
     def days(self) -> int:
@@ -522,7 +541,7 @@ def load_generation_config(
     raw = _read(config_dir / GENERATION_FILE)
     _reject_unknown(raw, {"defaults", "presets", "setup", "organisation", "master_data", "daily", "opening_balances",
                           "procurement", "sales", "fulfilment", "collections", "returns",
-                          "inventory", "expenses", "bank", "gst"}, GENERATION_FILE)
+                          "inventory", "expenses", "bank", "gst", "period_end"}, GENERATION_FILE)
     defaults, presets = raw.get("defaults"), raw.get("presets")
     if not isinstance(defaults, dict) or not isinstance(presets, dict) or not presets:
         raise ConfigError(f"{GENERATION_FILE} needs a 'defaults' mapping and at least one preset under 'presets'")
@@ -563,6 +582,7 @@ def load_generation_config(
         "expenses": copy.deepcopy(raw.get("expenses") or {}),
         "bank": copy.deepcopy(raw.get("bank") or {}),
         "gst": copy.deepcopy(raw.get("gst") or {}),
+        "period_end": copy.deepcopy(raw.get("period_end") or {}),
     }
     for dotted, value in (overrides or {}).items():
         _apply_override(effective, dotted, _parse_override_value(value) if isinstance(value, str) else value)
@@ -603,7 +623,9 @@ def load_generation_config(
     expenses = _parse_expenses(effective["expenses"])
     bank = _parse_bank(effective["bank"])
     gst = _parse_gst(effective["gst"])
+    period_end = _parse_period_end(effective["period_end"])
     return GenerationConfig(
+        period_end=period_end,
         gst=gst,
         bank=bank,
         expenses=expenses,
@@ -821,6 +843,8 @@ def _parse_opening(raw: dict[str, Any]) -> OpeningBalances:
         accumulated_depreciation_share=_share(raw["accumulated_depreciation_share"],
                                               "opening_balances.accumulated_depreciation_share", 0.95),
         store_assortment_share=_share(raw["store_assortment_share"], "opening_balances.store_assortment_share"),
+        opening_stock_share=_share(raw["opening_stock_share"], "opening_balances.opening_stock_share"),
+        perishable_opening_share=_share(raw["perishable_opening_share"], "opening_balances.perishable_opening_share"),
     )
 
 
@@ -878,6 +902,11 @@ def _parse_procurement(raw: dict[str, Any]) -> ProcurementSettings:
         late_payment_weeks=_pair(raw["late_payment_weeks"], "procurement.late_payment_weeks", 1, 26),
         payment_failure_share=_share(raw["payment_failure_share"], "procurement.payment_failure_share", 0.5),
         msme_payment_days=_int(raw["msme_payment_days"], "procurement.msme_payment_days", 15, 45),
+        demand_window_days=_int(raw["demand_window_days"], "procurement.demand_window_days", 7, 180),
+        reorder_cover_days=_int(raw["reorder_cover_days"], "procurement.reorder_cover_days", 1, 180),
+        target_cover_days=_int(raw["target_cover_days"], "procurement.target_cover_days", 1, 365),
+        perishable_cover_days=_int(raw["perishable_cover_days"], "procurement.perishable_cover_days", 1, 180),
+        new_product_stock_share=_share(raw["new_product_stock_share"], "procurement.new_product_stock_share"),
     )
 
 
@@ -1007,6 +1036,8 @@ def _parse_inventory(raw: dict[str, Any]) -> InventorySettings:
     if missing:
         raise ConfigError(f"inventory is missing: {', '.join(missing)}")
     return InventorySettings(
+        store_reorder_cover_days=_int(raw["store_reorder_cover_days"], "inventory.store_reorder_cover_days", 1, 90),
+        store_target_cover_days=_int(raw["store_target_cover_days"], "inventory.store_target_cover_days", 1, 180),
         rebalancing_day=_int(raw["rebalancing_day"], "inventory.rebalancing_day", 1, 28),
         transfer_max_lines=_int(raw["transfer_max_lines"], "inventory.transfer_max_lines", 1, 500),
         min_shelf_days=_int(raw["min_shelf_days"], "inventory.min_shelf_days", 0, 365),
@@ -1024,6 +1055,15 @@ def _parse_inventory(raw: dict[str, Any]) -> InventorySettings:
         disposition_weekday=_int(raw["disposition_weekday"], "inventory.disposition_weekday", 0, 6),
         disposition_min_days=_int(raw["disposition_min_days"], "inventory.disposition_min_days", 1, 60),
         repair_cost_share=_share_pair(raw["repair_cost_share"], "inventory.repair_cost_share", ordered=True))
+
+
+def _parse_period_end(raw: dict[str, Any]) -> PeriodEndSettings:
+    _reject_unknown(raw, _PERIOD_END_KEYS, "period_end")
+    rates = raw.get("depreciation_rates")
+    if not isinstance(rates, dict) or not rates:
+        raise ConfigError("period_end.depreciation_rates needs a rate per fixed-asset account code")
+    return PeriodEndSettings(depreciation_rates={
+        str(code): _share(rate, f"period_end.depreciation_rates.{code}") for code, rate in rates.items()})
 
 
 def _parse_gst(raw: dict[str, Any]) -> GstSettings:
@@ -1125,6 +1165,7 @@ def _parse_expenses(raw: dict[str, Any]) -> ExpensesSettings:
     if not isinstance(items, list) or not items:
         raise ConfigError("expenses.petty_cash_items needs at least one item")
     return ExpensesSettings(
+        reference_orders_per_day=_int(raw["reference_orders_per_day"], "expenses.reference_orders_per_day", 1, 100_000),
         approval_days=_pair(raw["approval_days"], "expenses.approval_days", 0, 60),
         rejection_share=_share(raw["rejection_share"], "expenses.rejection_share"),
         payment_weekday=_int(raw["payment_weekday"], "expenses.payment_weekday", 0, 6),

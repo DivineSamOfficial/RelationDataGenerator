@@ -217,8 +217,7 @@ def _return_to_origin(day: DayContext, invoicer: Invoicer, book: OrderBook, stoc
     shipment["status_now"] = "DELIVERY_FAILED"
     _shipment_status(day, shipment, "RETURNED_TO_SENDER", at, "Returned to origin", rto_received_at=at)
     cogs: dict[int, Decimal] = defaultdict(Decimal)
-    expired = day.world.refs.get("expired_stock")
-    for line in lines:
+    for line in lines:                  # an expired batch coming back is picked up by the expiry view (ledger delta)
         value = -line["value_change"]                      # back at the original issue cost
         day.writer.insert("inventory_transactions", _ledger(day, shipment, line, "RTO_RECEIPT", at, value, None))
         stock.back_in(shipment["warehouse_id"], line["product_id"], line["quantity_shipped"], value, at, receipt=True)
@@ -226,9 +225,6 @@ def _return_to_origin(day: DayContext, invoicer: Invoicer, book: OrderBook, stoc
         order_line = book.lines[line["order_line_item_id"]]
         order_line["quantity_rto"] += line["quantity_shipped"]
         book.touch_line(line["order_line_item_id"], at)
-        if expired is not None and line["expiry_date"] is not None and line["expiry_date"] <= day.day:
-            key = (shipment["warehouse_id"], line["product_id"])     # an expired batch came back (expiry view, D66)
-            expired["quantity"][key] = expired["quantity"].get(key, Decimal(0)) + line["quantity_shipped"]
     book_ = invoicer.book
     builder = JournalBuilder(f"Return to origin {shipment['tracking_number']}")
     builder.debit(book_.role("INVENTORY"), sum(cogs.values(), Decimal(0)), warehouse_id=shipment["warehouse_id"])

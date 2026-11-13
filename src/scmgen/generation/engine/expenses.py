@@ -178,9 +178,16 @@ def _stream_key(key: str) -> str:
     return key.lower().replace("-", "_")
 
 
+def scale(day: DayContext) -> Decimal:
+    """Company size relative to the volume the amounts are set for (Medium): premises, contracts and bill counts
+    follow it (payroll follows the headcount on its own)."""
+    settings = day.world.config.expenses
+    return Decimal(day.world.config.volumes.orders_per_day) / settings.reference_orders_per_day
+
+
 def _base(day: DayContext, key: str, low: int, high: int) -> Decimal:
     rng = day.streams.stream(day.world.config.start_date, f"expenses.base.{_stream_key(key)}")
-    return Decimal(rng.randint(low, high))
+    return money(Decimal(rng.randint(low, high)) * scale(day))
 
 
 def _bill_dates(day: DayContext, key: str, period_start: date, in_advance: bool) -> tuple[date, date]:
@@ -395,7 +402,7 @@ def _ad_hoc(day: DayContext, ref: _Reference, drafts: list[_Draft]) -> None:
         suppliers = ref.suppliers.get(category, [])
         if not suppliers:
             continue
-        for _ in range(poisson(rng, per_month / 26)):
+        for _ in range(poisson(rng, per_month * float(scale(day)) / 26)):
             supplier = rng.choice(suppliers)
             warehouse_id = rng.choice(sorted(ref.sites)) if settings.cost_centres[category] == "WAREHOUSE" else None
             billed = day.day - timedelta(days=rng.randint(0, 6))
@@ -411,7 +418,7 @@ def _ad_hoc(day: DayContext, ref: _Reference, drafts: list[_Draft]) -> None:
                             WHERE e.employment_status = 'ACTIVE' AND e.hire_date <= :d
                               AND d.department_code IN ('SAL', 'PUR', 'MGMT', 'LOG', 'MKT') ORDER BY e.employee_id""",
                          d=day.day) if settings.travel_claims_per_month else []
-    for _ in range(poisson(rng, settings.travel_claims_per_month / 26) if claimants else 0):
+    for _ in range(poisson(rng, settings.travel_claims_per_month * float(scale(day)) / 26) if claimants else 0):
         claimant = rng.choice(claimants)
         travelled = day.day - timedelta(days=rng.randint(2, 20))
         drafts.append(_Draft(
@@ -432,7 +439,7 @@ def _petty_cash(day: DayContext, ref: _Reference, drafts: list[_Draft]) -> None:
         if warehouse_id not in ref.petty:
             continue
         rng = day.rng(f"expenses.petty.{warehouse_id}")
-        for _ in range(poisson(rng, sum(settings.petty_cash_per_month) / 2 / 26)):
+        for _ in range(poisson(rng, sum(settings.petty_cash_per_month) / 2 * min(1.0, float(scale(day))) / 26)):
             amount = min(PETTY_LIMIT, money(Decimal(rng.randint(*settings.petty_cash_amount))))
             drafts.append(_Draft(
                 "PETTY_CASH", day.day, day.day, f"Petty cash {site['warehouse_code']}",

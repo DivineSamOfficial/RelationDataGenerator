@@ -567,6 +567,14 @@ The allocation (payment → invoice) posts nothing. It sets both AR items' `open
 
 ---
 
+### Implementation notes (Phase 3 step 3.14c: period end, `engine/period_end.py`)
+
+| Topic | As built |
+|---|---|
+| Depreciation (P23) | Day step `period_end` after `bank`, on the last calendar day of each month: straight-line on each fixed-asset account's cost (its opening balance; v1 buys no assets) at `period_end.depreciation_rates` (Furniture 10%, Computers 33.33% a year) / 12, Dr Depreciation (CORP) / Cr Accumulated Depreciation, journal type RECURRING, until accumulated depreciation reaches the cost |
+| Period balances (D54) | The periods step rebuilds a period's `gl_period_balances` when it closes it (close day of the next month), after flushing the buffer: one row per postable account, movements from the journal lines posted into the period, opening = previous closing; P&L accounts restart at 0 in a new financial year and Retained Earnings' opening absorbs the previous year's net P&L. IDs from the run's allocator (D20). `rebuild_period_balances` also rebuilds a period on demand |
+| Rules | ★ V-AC-12: every event of §6 has exactly one journal of its source and every journal its event (GRN, supplier invoice and payment, sales invoice, receipt, credit note, return and RTO receipts, refund, adjustment with value, transfer dispatch / receipt, written-off disposition, expense and payment, settlement / clawback, charges, interest, internal transfer, GST settlement), reversals pair with REVERSED originals, a depreciation per month end; ★ V-AC-13: balance rows per closed period = re-aggregation, opening chain with the D54 year-end rule, trial balance nets to zero |
+
 ### Implementation notes (Phase 3 step 3.14b: GST returns, `engine/gst_returns.py`)
 
 | Topic | As built |
@@ -602,6 +610,7 @@ The allocation (payment → invoice) posts nothing. It sets both AR items' `open
 | Payments | Weekly run (`payment_weekday`, 16:30–18:30) for bills and claims due before the next run, one payment per expense (NEFT, RTGS above its minimum; parts no larger than the largest approval limit), `payment_failure_share` fail and are retried; P20 Dr AP / Cr Bank; the AP item's open amount falls by each completed payment (no allocation table, 1E §2). Petty cash is approved and paid at once in CASH from the warehouse's float |
 | Payroll (D56) | Last day of the month: one PAYROLL expense, a line per cost centre = Σ salaries of employees active in the month, pro-rated by days (`sql_divide`, D87); the header total is whole rupees with a round-off (salaries carry paise; found on Medium); P19 Dr Salaries & Wages / Cr Salaries Payable, Rounding ±, no AP item; paid on the first working day after from the PAYROLL account (PAYMENTS when the workspace has none: the Medium master data has none), P20 Dr Salaries Payable / Cr Bank |
 | Attachments | `attachment_share` of non-payroll expenses get 1–3 metadata rows (vendor invoice, contract, receipt, travel ticket) at `s3://docs.example/…` (D24) |
+| Scale and calibration (3.14c) | Site, company, annual and ad-hoc amounts and bill counts are set for Medium (`reference_orders_per_day` 70) and scale with the preset's `orders_per_day`; payroll follows the headcount. Calibrated with the P&L once all costs existed: rent bands lowered and the salary bands of `organisation.job_levels` lowered (executive ₹3–5 L, head ₹1.5–2.8 L, manager ₹0.7–1.4 L, lead ₹35–60 k, staff ₹15–30 k a month), so Medium earns a distributor's thin margin instead of a loss |
 | Rules | V-EX-01, V-EX-02 (cost-centre rule per category from `expenses.cost_centres` in the run's config snapshot), V-EX-03, ★ V-SH-05; V-AP-02 and V-TX-01 / V-TX-02 extended |
 
 ### Implementation notes (Phase 3 step 3.10: collections)

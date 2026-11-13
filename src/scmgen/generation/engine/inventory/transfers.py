@@ -1,12 +1,13 @@
 """Stock transfers between warehouses (1C §5 ``stock_transfers``; D29, D55; 1E P16, P17; step 3.12a).
 
-* **Store replenishment** (weekly, each store on its own weekday): a store line whose available stock (sellable
-  − reserved − expired + inbound transfers − backordered store orders) is below its reorder level is refilled to
-  its maximum from the store's supplying DC (``warehouses.replenishment_warehouse_id``), as far as the DC has
+* **Store replenishment** (weekly, each store on its own weekday): a store line whose position (sellable − reserved
+  − expired + inbound transfers − backordered store orders) is at or below its reorder point (``store_reorder_cover_days``
+  of its own recent demand, ``demand_rates``) is refilled to ``store_target_cover_days`` from the store's supplying DC (``warehouses.replenishment_warehouse_id``), as far as the DC has
   unreserved, unexpired stock. Stores sit in their DC's state: one GSTIN, a delivery challan, no tax (D29).
   Own vehicle, the next working day.
-* **DC rebalancing** (monthly, first working day on or after ``inventory.rebalancing_day``): a DC whose available
-  stock of a product is below its reorder level gets the excess above the maximum of the DC holding the most.
+* **DC rebalancing** (monthly, first working day on or after ``inventory.rebalancing_day``): a DC whose free stock
+  of a product that sells there is below its reorder point (days of demand), even counting what is on order, gets
+  it from the DC holding the most above three times its own target cover (all of it where nobody buys it).
   Every DC has its own state's GSTIN, so the transfer is a taxable supply: the transfer document is the tax
   invoice (``tax_invoice_number``, T series of the source GSTIN), IGST at the product's rate on its moving-average
   value, two tax rows per line (OUTPUT at the source, INPUT at the destination). Surface or full-truckload
@@ -40,6 +41,7 @@ from scmgen.generation.engine.day import DayContext
 from scmgen.generation.engine.documents import approver, preload_rates, rate_on
 from scmgen.generation.engine.fulfilment.dispatch import _carriers, _place, expected_delivery, transit_days
 from scmgen.generation.engine.fulfilment.stock import Issuer, Piece
+from scmgen.generation.engine.procurement.demand_rates import daily_rates, dc_target, on_order, store_target
 from scmgen.generation.engine.sales.allocation import _distance, expired_stock
 from scmgen.generation.numbering import Registration
 
@@ -149,8 +151,7 @@ def _rebalancing_today(day: DayContext) -> bool:
 
 def _available(day: DayContext, warehouse_ids: list[int], where: str = "") -> list[dict[str, Any]]:
     return day.rows(f"""
-        SELECT i.warehouse_id, i.product_id, i.qty_sellable - i.qty_reserved AS available, i.reorder_level,
-               i.max_stock_level
+        SELECT i.warehouse_id, i.product_id, i.qty_sellable - i.qty_reserved AS available, p.shelf_life_days
         FROM inventory i JOIN products p ON p.product_id = i.product_id
         WHERE i.warehouse_id IN ({", ".join(map(str, warehouse_ids))}) AND i.is_stocked
           AND p.product_status = 'ACTIVE' {where}
@@ -174,11 +175,13 @@ def _store_plans(day: DayContext, sites: dict[int, dict[str, Any]]) -> list[_Pla
         waiting[(row["store_warehouse_id"], row["product_id"])] += row["qty"]
     plans = {s["warehouse_id"]: _Plan("STORE_REPLENISHMENT", s["replenishment_warehouse_id"], s["warehouse_id"])
              for s in stores}
+    rates = daily_rates(day, ids)
     for row in _available(day, ids):
         key = (row["warehouse_id"], row["product_id"])
+        goal = store_target(day, rates.get(key, ZERO), row["shelf_life_days"])
         position = row["available"] - expired.get(key, ZERO) + inbound.get(key, ZERO) - waiting.get(key, ZERO)
-        if position < row["reorder_level"]:
-            need = quantity(row["max_stock_level"] - position)
+        if position <= goal.reorder_point and (goal.rate > 0 or waiting.get(key)):
+            need = quantity(goal.order_up_to - position)
             if need > 0:
                 plans[row["warehouse_id"]].needs.append(_Need(row["product_id"], need))
     return [p for _, p in sorted(plans.items()) if p.needs]
@@ -190,14 +193,17 @@ def _rebalancing_plans(day: DayContext, sites: dict[int, dict[str, Any]]) -> lis
         return []
     expired = expired_stock(day)
     rows = _available(day, dcs)
+    rates = daily_rates(day, dcs)
+    coming = on_order(day, dcs)
     short, excess = [], defaultdict(list)
     for row in rows:
         key = (row["warehouse_id"], row["product_id"])
+        goal = dc_target(day, rates.get(key, ZERO), row["shelf_life_days"])
         free = row["available"] - expired.get(key, ZERO)
-        if free < row["reorder_level"]:
-            short.append((row, quantity(row["max_stock_level"] - free)))
-        elif free > row["max_stock_level"]:
-            excess[row["product_id"]].append([row["warehouse_id"], quantity(free - row["max_stock_level"])])
+        if goal.rate > 0 and free + coming.get(key, ZERO) < goal.reorder_point:   # procurement isn't covering it
+            short.append((row, quantity(goal.order_up_to - free - coming.get(key, ZERO))))
+        elif free > 3 * goal.order_up_to:       # more than three times its own target cover (all if nobody buys)
+            excess[row["product_id"]].append([row["warehouse_id"], quantity(free - 3 * goal.order_up_to)])
     plans: dict[tuple[int, int], _Plan] = {}
     for row, need in short:
         donors = sorted((d for d in excess.get(row["product_id"], []) if d[1] > 0 and d[0] != row["warehouse_id"]),
@@ -278,7 +284,6 @@ def _dispatch(day: DayContext, book, sites: dict[int, dict[str, Any]], issuer: I
     else:
         carrier, arrival = None, None              # chosen once the weight is known
     usable_on = (arrival or day.day + timedelta(days=7)) + timedelta(days=settings.min_shelf_days)
-    transfer_id = day.ids.next("stock_transfers")
     lines = []
     for need in needs:
         qty = _transfer_quantity(day, issuer, expired, taken, plan.source, need, usable_on)
@@ -291,6 +296,9 @@ def _dispatch(day: DayContext, book, sites: dict[int, dict[str, Any]], issuer: I
         weight += qty * products[need.product_id]["weight_kg"]
     if not lines:
         return
+    # The id only once the transfer exists: an id taken and not used leaves a gap that a resumed run (whose
+    # allocator starts from the highest stored id, D66) doesn't reproduce, and every later id would shift.
+    transfer_id = day.ids.next("stock_transfers")
     if plan.transfer_type == "REBALANCING":
         service = "FULL_TRUCKLOAD" if weight >= day.world.config.fulfilment.truckload_min_kg else "SURFACE_LTL"
         choices = [c for c in _carriers(day) if c["carrier_type"] == service]

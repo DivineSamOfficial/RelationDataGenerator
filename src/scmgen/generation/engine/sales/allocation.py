@@ -65,27 +65,45 @@ def expired_stock(day: DayContext) -> dict[tuple[int, int], Decimal]:
     """Sellable stock of expired batches per (warehouse, product): it can't be picked (V-IN-04), so it is neither
     available to promise nor part of the stock position, until the expiry sweep writes it off.
 
-    Read in full from the ledger at the first use of a run (D66), then only the batches expiring each new day are
-    added: an expired batch never moves in the processes generated so far (no issue picks it). A process that
-    moves expired stock (the expiry write-off, a return to origin of an expired batch) must update this view."""
+    Exact at every call and derivable from the ledger (D66): read in full at the first use of a run, then kept up to
+    date from the ledger rows written since the last call (ledger ids only grow): the full balance of batches that
+    expired since, plus every new SELLABLE movement of batches already expired (write-offs, returns of an expired
+    batch, returns to origin, repairs). A view that only added newly expiring batches drifted from the ledger when
+    expired stock came back, and a resumed run then differed from an uninterrupted one."""
     refs = day.world.refs
     cache = refs.get("expired_stock")
-    if cache is not None and cache["through"] >= day.day:
-        return cache["quantity"]
-    since = "" if cache is None else "AND b.expiry_date > :since"
-    found = {(r["warehouse_id"], r["product_id"]): r["expired"] for r in day.rows(f"""
-        SELECT t.warehouse_id, t.product_id, SUM(t.quantity) AS expired
-        FROM inventory_batches b JOIN inventory_transactions t ON t.inventory_batch_id = b.inventory_batch_id
-        WHERE b.expiry_date <= :d {since} AND t.stock_status = 'SELLABLE'
-        GROUP BY t.warehouse_id, t.product_id HAVING SUM(t.quantity) > 0""",
-        d=day.day, since=cache["through"] if cache else None)}
     if cache is None:
-        cache = refs["expired_stock"] = {"through": day.day, "quantity": found}
-    else:
-        for key, qty in found.items():
-            cache["quantity"][key] = cache["quantity"].get(key, Decimal(0)) + qty
+        last = day.rows("SELECT COALESCE(MAX(inventory_transaction_id), 0) AS m FROM inventory_transactions")[0]["m"]
+        found = {(r["warehouse_id"], r["product_id"]): r["expired"] for r in day.rows("""
+            SELECT t.warehouse_id, t.product_id, SUM(t.quantity) AS expired
+            FROM inventory_batches b JOIN inventory_transactions t ON t.inventory_batch_id = b.inventory_batch_id
+            WHERE b.expiry_date <= :d AND t.stock_status = 'SELLABLE' AND t.inventory_transaction_id <= :m
+            GROUP BY t.warehouse_id, t.product_id HAVING SUM(t.quantity) <> 0""", d=day.day, m=last)}
+        cache = refs["expired_stock"] = {"through": day.day, "last_id": last, "quantity": found}
+    quantity = cache["quantity"]
+    if cache["through"] < day.day:              # batches that expired since: their balance up to the last id seen
+        for row in day.rows("""
+                SELECT t.warehouse_id, t.product_id, SUM(t.quantity) AS expired
+                FROM inventory_batches b JOIN inventory_transactions t ON t.inventory_batch_id = b.inventory_batch_id
+                WHERE b.expiry_date > :since AND b.expiry_date <= :d AND t.stock_status = 'SELLABLE'
+                  AND t.inventory_transaction_id <= :m
+                GROUP BY t.warehouse_id, t.product_id""", since=cache["through"], d=day.day, m=cache["last_id"]):
+            key = (row["warehouse_id"], row["product_id"])
+            quantity[key] = quantity.get(key, Decimal(0)) + row["expired"]
         cache["through"] = day.day
-    return cache["quantity"]
+    rows = day.rows("""
+        SELECT t.inventory_transaction_id, t.warehouse_id, t.product_id, t.quantity
+        FROM inventory_transactions t JOIN inventory_batches b ON b.inventory_batch_id = t.inventory_batch_id
+        WHERE t.inventory_transaction_id > :m AND t.stock_status = 'SELLABLE' AND b.expiry_date <= :d""",
+        m=cache["last_id"], d=day.day)
+    for row in rows:                            # new movements of batches already expired
+        key = (row["warehouse_id"], row["product_id"])
+        quantity[key] = quantity.get(key, Decimal(0)) + row["quantity"]
+    newest = day.rows("SELECT COALESCE(MAX(inventory_transaction_id), 0) AS m FROM inventory_transactions")[0]["m"]
+    cache["last_id"] = max(cache["last_id"], newest)
+    for key in [k for k, q in quantity.items() if q == 0]:
+        del quantity[key]
+    return quantity
 
 
 class Stock:

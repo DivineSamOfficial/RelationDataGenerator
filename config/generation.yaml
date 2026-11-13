@@ -66,11 +66,11 @@ setup:
 # is the target; central departments get the remainder by weight.
 organisation:
   job_levels:                                # monthly gross salary range and approval limit (rupees)
-    EXECUTIVE: {salary: [600000, 900000], approval_limit: 50000000}
-    HEAD:      {salary: [250000, 450000], approval_limit: 5000000}
-    MANAGER:   {salary: [90000, 180000],  approval_limit: 1000000}
-    LEAD:      {salary: [45000, 80000],   approval_limit: 200000}
-    STAFF:     {salary: [18000, 40000],   approval_limit: 0}
+    EXECUTIVE: {salary: [300000, 500000], approval_limit: 50000000}
+    HEAD:      {salary: [150000, 280000], approval_limit: 5000000}
+    MANAGER:   {salary: [70000, 140000],  approval_limit: 1000000}
+    LEAD:      {salary: [35000, 60000],   approval_limit: 200000}
+    STAFF:     {salary: [15000, 30000],   approval_limit: 0}
   warehouse_staff_share: 0.60                # of employees beyond the fixed roles: DC and store staff
   departments:                               # central departments: weight of the remaining staff, titles
     PUR: {weight: 0.12, head: Head of Procurement, manager: Purchase Manager, staff: Buyer}
@@ -139,10 +139,18 @@ opening_balances:
   fixed_assets: {"15100": 18000000, "15200": 12000000}         # account code: original cost
   accumulated_depreciation_share: 0.35                         # of fixed-asset cost, already depreciated
   store_assortment_share: 0.40                                 # stores stock this share of consumer products
+  opening_stock_share: 0.35                                    # opening stock = this share of the default policy
+  perishable_opening_share: 0.15                               # … and this share for products that expire
 
 # Procure-to-pay (1C §3.0 timing and scenario defaults). Probabilities are per document unless noted.
 procurement:
   direct_reorder_max_value: 500000      # direct PO to the preferred supplier below this value (D30); else RFQ
+  # Demand-driven replenishment (step 3.14c fix): targets in days of recent demand, not the master-data levels.
+  demand_window_days: 30                # demand rate = units out of the DC (sales, transfers) over this window
+  reorder_cover_days: 21                # reorder when the position falls to this many days of demand
+  target_cover_days: 45                 # order up to this many days of demand
+  perishable_cover_days: 30             # at most this (and a third of the shelf life) for products that expire
+  new_product_stock_share: 0.10         # a launch's first order: this share of the default reorder policy
   rfq_max_lines: 8
   rfq_suppliers: [2, 5]                 # invited per RFQ (preferred supplier always included)
   rfq_response_days: [3, 7]
@@ -291,6 +299,8 @@ returns:
 # Inventory housekeeping (1C §5, 1G §2.2 step 9; Phase 3 step 3.12).
 inventory:
   rebalancing_day: 5                    # DC rebalancing: first working day on or after this day of the month
+  store_reorder_cover_days: 7           # stores reorder at this many days of their own demand …
+  store_target_cover_days: 21           # … and are refilled to this many
   transfer_max_lines: 60                # lines per transfer document (more products: several transfers)
   min_shelf_days: 30                    # batches sent to another warehouse keep this much shelf life on arrival
   transfer_dispatch_hours: [19, 21]     # transfers leave in the evening, after the day's picking
@@ -299,7 +309,7 @@ inventory:
   transit_loss_share: 0.001             # transfer lines with units that never arrive (written off)
   cycle_count_day: 25                   # monthly counts: first working day on or after this day
   abc_shares: [0.20, 0.30]              # A = top 20% of stocked lines by value (monthly), B = next 30% (quarterly), C = rest (twice a year)
-  count_difference_share: 0.03          # counted lines whose count differs from the book
+  count_difference_share: 0.02          # counted lines whose count differs from the book
   found_share: 0.15                     # of those differences, found stock (the rest is shrinkage)
   max_difference_share: 0.02            # a difference is 1 unit up to this share of the book quantity
   handling_damage_per_month: {DISTRIBUTION_CENTRE: 3, RETAIL_STORE: 1}   # breakages per warehouse per month
@@ -310,6 +320,7 @@ inventory:
 # Expenses and payroll (1E §2, D56, D57; Phase 3 step 3.13). Amounts are rupees per month unless noted.
 expenses:
   approval_days: [1, 5]                 # Finance approves this many days after a bill reaches Accounts
+  reference_orders_per_day: 70          # amounts below are for this volume (Medium); they scale with the preset's orders_per_day
   rejection_share: 0.03                 # ad-hoc bills and claims rejected (nothing posted)
   payment_weekday: 3                    # weekly expense payment run (0 = Monday), 16:30
   payment_failure_share: 0.01
@@ -319,7 +330,7 @@ expenses:
   annual_escalation: 0.05               # recurring amounts rise every April
   billed_in_advance: [RENT]             # billed on the 1st for the month itself
   site_costs:                           # per warehouse, base amount drawn once per site
-    RENT: {DISTRIBUTION_CENTRE: [350000, 650000], RETAIL_STORE: [120000, 260000]}
+    RENT: {DISTRIBUTION_CENTRE: [250000, 450000], RETAIL_STORE: [100000, 200000]}
     ELECTRICITY: {DISTRIBUTION_CENTRE: [60000, 130000], RETAIL_STORE: [25000, 55000]}
     WATER: {DISTRIBUTION_CENTRE: [6000, 14000], RETAIL_STORE: [2000, 5000]}
     SECURITY: {DISTRIBUTION_CENTRE: [60000, 95000], RETAIL_STORE: [20000, 35000]}
@@ -427,3 +438,7 @@ gst:
   late_share: 0.03                      # returns filed late (FILED_LATE), a legitimate business event
   late_days: 4                          # by up to this many days (GSTR-1 stays before GSTR-3B)
   filing_hour: 16
+
+# Period end (1E §3, §6 P23, D54; Phase 3 step 3.14c).
+period_end:
+  depreciation_rates: {"15100": 0.10, "15200": 0.3333}   # yearly straight-line rate on cost, per fixed-asset account

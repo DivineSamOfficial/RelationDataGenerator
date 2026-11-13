@@ -18,6 +18,7 @@ from scmgen.generation.engine.collections import collections_step
 from scmgen.generation.engine.expenses import expenses_step
 from scmgen.generation.engine.fulfilment import fulfilment_step
 from scmgen.generation.engine.gst_returns import gst_step
+from scmgen.generation.engine.period_end import close_period_balances, period_end_step
 from scmgen.generation.engine.inventory import housekeeping_step, morning_stock_step
 from scmgen.generation.engine.returns import returns_step
 from scmgen.generation.engine.sales import sales_step
@@ -76,6 +77,7 @@ def periods_step(day: DayContext) -> None:
                            "WHERE period_status = 'OPEN' AND end_date < :d ORDER BY start_date", d=day.day):
         if day.day >= _close_date(day, period["end_date"]):
             closed = day.at(18)
+            close_period_balances(day, period["accounting_period_id"], closed)   # gl_period_balances (3.14c, D54)
             day.execute("UPDATE accounting_periods SET period_status = 'CLOSED', closed_at = :t, "
                         "closed_by_employee_id = :e, updated_at = :t WHERE accounting_period_id = :p",
                         {"t": closed, "e": day.world.finance_closer, "p": period["accounting_period_id"]})
@@ -178,4 +180,5 @@ DAY_STEPS = (
     ("expenses", expenses_step),                     # 3.13 bills, claims, petty cash, payroll, payments
     ("gst", gst_step),                               # 3.14b GSTR-1 and GSTR-3B with set-off and payment (P22)
     ("bank", bank_step),                             # 3.14a statements, settlements, floats, reconciliation
+    ("period_end", period_end_step),                 # 3.14c month-end depreciation (P23)
 )

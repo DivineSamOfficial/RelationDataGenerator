@@ -123,6 +123,11 @@ def opening_stock(day: DayContext, book) -> None:
             if not is_dc:
                 level, reorder = max(1, level // 4), max(1, reorder // 4)
             qty = quantity(level + rng.randint(1, reorder))
+            # The default policy is value-based, not a forecast: open with a share of it (less for products that
+            # expire, so the opening stock sells before its batches do; step 3.14c fix).
+            opening = day.world.config.opening_balances
+            share = opening.perishable_opening_share if product["shelf_life_days"] else opening.opening_stock_share
+            qty = max(quantity(1), quantity(qty * Decimal(str(share))).to_integral_value())
             position, movement = StockPosition().receive(qty, product["reference_unit_cost"])
             total += movement.value_change
             line_id = day.ids.next("stock_adjustment_line_items")
