@@ -1,8 +1,8 @@
 """Inventory rules (1C §8, V-IN-*). Each check returns the violating rows.
 
 Implemented: ★ V-IN-01, V-IN-02, V-IN-04 (opening stock, 3.6b); V-IN-05, V-IN-10 (receipts, 3.7b); ★ V-IN-03
-(reservations, 3.8b); V-IN-09 and the sales issues of V-IN-05 (dispatch and handover, 3.9a). The others need
-the documents of later steps (transfers).
+(reservations, 3.8b); V-IN-09 and the sales issues of V-IN-05 (dispatch and handover, 3.9a); V-IN-07 and
+★ V-IN-08 with the transfer sources of V-IN-05 (3.12a).
 """
 
 from __future__ import annotations
@@ -102,6 +102,27 @@ LEDGER_SOURCES = [
                sl.quantity_shipped AS qty
         FROM shipment_line_items sl JOIN shipments s ON s.shipment_id = sl.shipment_id
         WHERE s.shipment_status = 'RETURNED_TO_SENDER'""", True),
+    # Customer returns (3.11): the received quantity comes in once; each inspection moves its quantity out of
+    # QUARANTINE (net zero per inspection, one or two rows per bucket; detail: V-RT-03).
+    ("RETURN_RECEIPT", "sales_return_line_item_id", """
+        SELECT rl.sales_return_line_item_id AS source_id, DATE(rl.received_at) AS business_date,
+               rl.quantity_received AS qty
+        FROM sales_return_line_items rl WHERE rl.quantity_received > 0""", True),
+    ("RETURN_DISPOSITION", "return_inspection_id", """
+        SELECT return_inspection_id AS source_id, DATE(inspected_at) AS business_date, 0 AS qty
+        FROM return_inspections WHERE quantity_sellable + quantity_defective > 0""", False),
+    # Transfers (3.12a): one TRANSFER_OUT per dispatched line (lines are per batch); TRANSFER_IN rows for what
+    # arrived (good to SELLABLE, damaged to DEFECTIVE: one or two rows); lost units have none (detail: V-IN-08).
+    ("TRANSFER_OUT", "stock_transfer_line_item_id", """
+        SELECT l.stock_transfer_line_item_id AS source_id, DATE(t.dispatched_at) AS business_date,
+               -l.quantity_shipped AS qty
+        FROM stock_transfer_line_items l JOIN stock_transfers t ON t.stock_transfer_id = l.stock_transfer_id
+        WHERE t.dispatched_at IS NOT NULL AND l.quantity_shipped > 0""", True),
+    ("TRANSFER_IN", "stock_transfer_line_item_id", """
+        SELECT l.stock_transfer_line_item_id AS source_id, DATE(t.received_at) AS business_date,
+               l.quantity_received_good + l.quantity_received_damaged AS qty
+        FROM stock_transfer_line_items l JOIN stock_transfers t ON t.stock_transfer_id = l.stock_transfer_id
+        WHERE t.transfer_status = 'RECEIVED' AND l.quantity_received_good + l.quantity_received_damaged > 0""", False),
     # Store handover: the invoice line is the source, one row per batch picked.
     ("SALES_ISSUE", "invoice_line_item_id", """
         SELECT il.invoice_line_item_id AS source_id, i.invoice_date AS business_date,
@@ -253,4 +274,92 @@ def reversals_mirror_their_original(ctx: ValidationContext) -> Rows:
     found += [{**r, "problem": "original reversed more than once"} for r in ctx.rows("""
         SELECT reversal_of_inventory_transaction_id AS original_id, COUNT(*) AS reversals FROM inventory_transactions
         WHERE reversal_of_inventory_transaction_id IS NOT NULL GROUP BY 1 HAVING COUNT(*) > 1""")]
+    return found
+
+
+@check("V-IN-07")
+def transfer_tax_treatment(ctx: ValidationContext) -> Rows:
+    """Transfers: ``is_inter_gstin`` matches the warehouses' GSTINs; an inter-GSTIN transfer has a tax invoice
+    number and IGST at the product's rate on the dispatch date on every line; a same-GSTIN transfer has neither;
+    header taxable value and IGST = Σ lines."""
+    found = [{**r, "problem": "is_inter_gstin doesn't match the warehouses' GSTINs or the tax invoice number"}
+             for r in ctx.rows("""
+        SELECT t.stock_transfer_id, t.is_inter_gstin, t.tax_invoice_number FROM stock_transfers t
+        JOIN warehouses s ON s.warehouse_id = t.source_warehouse_id
+        JOIN warehouses d ON d.warehouse_id = t.destination_warehouse_id
+        WHERE t.is_inter_gstin <> (s.company_gst_registration_id <> d.company_gst_registration_id)
+           OR (t.dispatched_at IS NOT NULL AND t.is_inter_gstin <> (t.tax_invoice_number IS NOT NULL))""")]
+    found += [{**r, "problem": "line GST rate isn't the product's rate on the dispatch date (0 when same GSTIN)"}
+              for r in ctx.rows("""
+        SELECT l.stock_transfer_line_item_id, l.gst_rate, r.gst_rate AS product_rate, t.is_inter_gstin
+        FROM stock_transfer_line_items l JOIN stock_transfers t ON t.stock_transfer_id = l.stock_transfer_id
+        LEFT JOIN product_tax_rates r ON r.product_id = l.product_id AND r.effective_from <= DATE(t.dispatched_at)
+             AND (r.effective_to IS NULL OR r.effective_to >= DATE(t.dispatched_at))
+        WHERE t.dispatched_at IS NOT NULL
+          AND ((t.is_inter_gstin AND NOT (l.gst_rate <=> r.gst_rate))
+               OR (NOT t.is_inter_gstin AND (l.gst_rate <> 0 OR l.igst_amount <> 0)))""")]
+    found += [{**r, "problem": "header taxable value or IGST differs from its lines"} for r in ctx.rows("""
+        SELECT t.stock_transfer_id, t.taxable_amount, t.igst_amount, SUM(l.transfer_value) AS line_value,
+               SUM(l.igst_amount) AS line_igst
+        FROM stock_transfers t JOIN stock_transfer_line_items l ON l.stock_transfer_id = t.stock_transfer_id
+        GROUP BY t.stock_transfer_id, t.taxable_amount, t.igst_amount, t.is_inter_gstin
+        HAVING t.igst_amount <> SUM(l.igst_amount)
+            OR t.taxable_amount <> IF(t.is_inter_gstin, SUM(l.transfer_value), 0)""")]
+    return found
+
+
+@check("V-IN-08")
+def transfers_reconcile(ctx: ValidationContext) -> Rows:
+    """★ Received transfers: good + damaged + lost = shipped per line; the TRANSFER_OUT row is −shipped at the
+    source and the TRANSFER_IN rows are +good (SELLABLE) and +damaged (DEFECTIVE) at the destination, with values
+    that with the lost value add up to the transfer value; damaged units have their ``defective_stock`` entry;
+    GL Inventory in Transit = the value of transfers still in transit (1E V-INV-GL)."""
+    found = [{**r, "problem": "received quantities or ledger rows don't add up to what was shipped"}
+             for r in ctx.rows("""
+        SELECT l.stock_transfer_line_item_id, l.quantity_shipped, l.quantity_received_good,
+               l.quantity_received_damaged, l.quantity_lost, o.qty AS out_qty, g.qty AS good_qty, d.qty AS damaged_qty
+        FROM stock_transfer_line_items l JOIN stock_transfers t ON t.stock_transfer_id = l.stock_transfer_id
+        LEFT JOIN (SELECT stock_transfer_line_item_id, SUM(quantity) AS qty, MIN(warehouse_id) AS w FROM inventory_transactions
+                   WHERE transaction_type = 'TRANSFER_OUT' GROUP BY 1) o
+               ON o.stock_transfer_line_item_id = l.stock_transfer_line_item_id
+        LEFT JOIN (SELECT stock_transfer_line_item_id, SUM(quantity) AS qty, MIN(warehouse_id) AS w FROM inventory_transactions
+                   WHERE transaction_type = 'TRANSFER_IN' AND stock_status = 'SELLABLE' GROUP BY 1) g
+               ON g.stock_transfer_line_item_id = l.stock_transfer_line_item_id
+        LEFT JOIN (SELECT stock_transfer_line_item_id, SUM(quantity) AS qty, MIN(warehouse_id) AS w FROM inventory_transactions
+                   WHERE transaction_type = 'TRANSFER_IN' AND stock_status = 'DEFECTIVE' GROUP BY 1) d
+               ON d.stock_transfer_line_item_id = l.stock_transfer_line_item_id
+        WHERE t.dispatched_at IS NOT NULL
+          AND (COALESCE(o.qty, 0) <> -l.quantity_shipped OR o.w <> t.source_warehouse_id
+               OR (t.transfer_status = 'RECEIVED'
+                   AND (l.quantity_received_good + l.quantity_received_damaged + l.quantity_lost <> l.quantity_shipped
+                        OR COALESCE(g.qty, 0) <> l.quantity_received_good
+                        OR COALESCE(d.qty, 0) <> l.quantity_received_damaged
+                        OR g.w <> t.destination_warehouse_id OR d.w <> t.destination_warehouse_id))
+               OR (t.transfer_status <> 'RECEIVED' AND (g.qty IS NOT NULL OR d.qty IS NOT NULL)))""")]
+    found += [{**r, "problem": "received values + lost value differ from the transfer value"} for r in ctx.rows("""
+        SELECT l.stock_transfer_line_item_id, l.transfer_value, COALESCE(SUM(i.value_change), 0) AS received_value
+        FROM stock_transfer_line_items l JOIN stock_transfers t ON t.stock_transfer_id = l.stock_transfer_id
+        LEFT JOIN inventory_transactions i ON i.stock_transfer_line_item_id = l.stock_transfer_line_item_id
+             AND i.transaction_type = 'TRANSFER_IN'
+        WHERE t.transfer_status = 'RECEIVED'
+        GROUP BY l.stock_transfer_line_item_id, l.transfer_value, l.quantity_lost
+        HAVING (l.quantity_lost = 0 AND received_value <> l.transfer_value)
+            OR (l.quantity_lost > 0 AND received_value > l.transfer_value)""")]
+    found += [{**r, "problem": "damaged units without exactly one TRANSIT_DAMAGE defective entry of that quantity"}
+              for r in ctx.rows("""
+        SELECT l.stock_transfer_line_item_id, l.quantity_received_damaged, s.quantity, s.defect_reason
+        FROM stock_transfer_line_items l
+        LEFT JOIN defective_stock s ON s.stock_transfer_line_item_id = l.stock_transfer_line_item_id
+        WHERE (l.quantity_received_damaged > 0 AND (s.defective_stock_id IS NULL OR s.quantity <> l.quantity_received_damaged
+                                                   OR s.defect_reason <> 'TRANSIT_DAMAGE'))
+           OR (l.quantity_received_damaged = 0 AND s.defective_stock_id IS NOT NULL)""")]
+    gl = ctx.scalar("""
+        SELECT COALESCE(SUM(l.debit_amount - l.credit_amount), 0) FROM journal_entry_lines l
+        JOIN chart_of_accounts a ON a.account_id = l.account_id WHERE a.system_role = 'INVENTORY_IN_TRANSIT'""")
+    open_value = ctx.scalar("""
+        SELECT COALESCE(SUM(l.transfer_value), 0) FROM stock_transfer_line_items l
+        JOIN stock_transfers t ON t.stock_transfer_id = l.stock_transfer_id WHERE t.transfer_status = 'IN_TRANSIT'""")
+    if Decimal(gl) != Decimal(open_value):
+        found.append({"gl_inventory_in_transit": gl, "open_transfer_value": open_value,
+                      "problem": "GL Inventory in Transit differs from the value of transfers in transit"})
     return found

@@ -703,6 +703,21 @@ Inter-warehouse transfer. For transfers between GSTINs it's also the tax invoice
 - **Constraints:** CHECK `quantity_requested > 0`; CHECK `quantity_shipped <= quantity_requested`; CHECK `quantity_received_good + quantity_received_damaged + quantity_lost <= quantity_shipped`; CHECK `quantity_shipped = 0 OR unit_cost IS NOT NULL`; CHECK all amounts `>= 0`.
 - **Rules:** Once the header is RECEIVED, good + damaged + lost = shipped (V-IN-08). The `TRANSFER_OUT` ledger row = −shipped at the source; the `TRANSFER_IN` rows = +good (SELLABLE) and +damaged (DEFECTIVE) at the destination; lost has no ledger row, because the goods already left the source, and is written off in the GL (1E). Header amounts = Σ lines.
 
+
+**Implementation notes (Phase 3 step 3.12a, `engine/inventory/transfers.py`):**
+
+| Topic | As built |
+|---|---|
+| Store replenishment | Weekly, each store on weekday `warehouse_id mod 6` (Mon = 0). Position = sellable − reserved − expired + inbound open transfers − backordered store-order quantity; below the reorder level → refill to the maximum from `replenishment_warehouse_id`, limited to the DC's unreserved, unexpired stock. Same GSTIN: no tax invoice, no tax rows, own vehicle (`shipping_carrier_id` NULL), arrival the next working day |
+| DC rebalancing | Monthly, first working day on or after `inventory.rebalancing_day` (5). A DC below its reorder level (available − expired, ignoring stock on order: rebalancing is the faster route) gets `min(max − available, donor excess)` from the DC with the largest excess above its maximum. Always inter-GSTIN (one DC per state): `tax_invoice_number` from the source GSTIN's T series, IGST at the product's rate on the dispatch date, two tax rows per line (OUTPUT B2B at the source with the destination GSTIN as buyer; INPUT ELIGIBLE at the destination). Surface LTL, or full truckload from `fulfilment.truckload_min_kg`; transit days by distance as for shipments; e-way bill above the threshold |
+| Status flow | Created, approved (Warehouse Operations / Logistics, by value) and dispatched the same evening: the row is written `IN_TRANSIT` (no status-history table exists for transfers, 1C §2.2 lists none) |
+| Dispatch timing | 19:00–21:59, and always after the last receipt or issue of each of its products at the source that day, so the moving-average replay (V-IN-09) sees the TRANSFER_OUT after them. Batches FEFO with at least `min_shelf_days` (30) left on arrival; a transfer never takes the whole on-hand quantity, so its value is exactly `ROUND(q × MAC, 2)` = `transfer_value` |
+| Receipt timing | Day step `transfer_receipts`, before procurement, 07:00–08:59 on the arrival day (non-working days wait). Every other stock movement of the day is executed after it and timestamped later (store sales from 10:00, picking from 09:45, dock receipts in the afternoon); D40 reversals and other receipts may carry earlier times, but receipts don't change each other's effect on the average |
+| Damage and loss | Per line: `transit_damage_share` (0.5%) → 1 … ¼ of the quantity to DEFECTIVE at the destination's defective (store) or quarantine (DC) location with a TRANSIT_DAMAGE `defective_stock` row; `transit_loss_share` (0.1%) → 1 … ⅒ never arrives (no ledger row). Bucket values at the transfer cost; the last non-empty bucket (damaged, else good, else lost) takes the rounding paise, so good + damaged + lost value = transfer value |
+| Journals | P16: Dr Inventory in Transit / Cr Inventory (source); inter-GSTIN also Dr Input IGST (destination GSTIN) / Cr Output IGST (source GSTIN) (D55). P17: Dr Inventory (destination) good + damaged value, Dr Inventory Write-offs (destination cost centre) lost value / Cr Inventory in Transit |
+| Procurement | Open inbound transfers count as stock on order in the DC replenishment check |
+| Rules | V-IN-07 (GSTIN match, tax invoice number, rate on the dispatch date, header = Σ lines), ★ V-IN-08 (quantities, ledger rows, values, defective entries, and GL Inventory in Transit = value in transit, the transfer part of 1E V-INV-GL); V-IN-05 and V-TX-01 extended (V-TX-01 now matches tax rows by source column **and** document type, since a transfer line has two) |
+
 ---
 
 ## 6. Relationship Summary

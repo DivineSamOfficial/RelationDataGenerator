@@ -51,8 +51,8 @@ class Issuer:
         products = sorted({p for _, p in pairs})
         in_w, in_p = ", ".join(map(str, warehouses)), ", ".join(map(str, products))
         for row in day.rows(f"""
-                SELECT i.inventory_id, i.warehouse_id, i.product_id, i.qty_sellable, i.qty_quarantine, i.qty_defective,
-                       i.stock_value, i.last_unit_cost, i.last_receipt_at, p.is_batch_tracked
+                SELECT i.inventory_id, i.warehouse_id, i.product_id, i.qty_sellable, i.qty_quarantine, i.qty_defective, i.qty_reserved,
+                       i.stock_value, i.last_unit_cost, i.last_receipt_at, i.last_issue_at, p.is_batch_tracked
                 FROM inventory i JOIN products p ON p.product_id = i.product_id
                 WHERE i.warehouse_id IN ({in_w}) AND i.product_id IN ({in_p})"""):
             key = (row["warehouse_id"], row["product_id"])
@@ -93,6 +93,14 @@ class Issuer:
         """When the latest receipt of the product reached the warehouse (stock can't leave before it arrived)."""
         return self.positions[(warehouse_id, product_id)]["last_receipt_at"]
 
+    def last_moved_at(self, warehouse_id: int, product_id: int) -> datetime | None:
+        """The latest receipt or issue of the product at the warehouse (a later issue must come after it)."""
+        state = self.positions[(warehouse_id, product_id)]
+        return max((t for t in (state["last_receipt_at"], state["last_issue_at"]) if t is not None), default=None)
+
+    def on_hand(self, warehouse_id: int, product_id: int) -> Decimal:
+        return self.positions[(warehouse_id, product_id)]["position"].quantity
+
     def pickable(self, warehouse_id: int, product_id: int, qty: Decimal, on: date) -> Decimal:
         """How much of ``qty`` can be picked today (less only when unexpired batches run short)."""
         usable = self._usable((warehouse_id, product_id), on)
@@ -100,13 +108,15 @@ class Issuer:
             return qty
         return min(qty, sum((b.quantity for b in usable), Decimal(0)))
 
-    def issue(self, warehouse_id: int, product_id: int, qty: Decimal, at: datetime) -> list[Piece]:
-        """Issue ``qty`` (already checked with ``pickable``): one piece per batch, at the current MAC."""
+    def issue(self, warehouse_id: int, product_id: int, qty: Decimal, at: datetime,
+              usable_on: date | None = None) -> list[Piece]:
+        """Issue ``qty`` (already checked with ``pickable``): one piece per batch, at the current MAC. Batches
+        must be unexpired on ``usable_on`` (default: the issue date; a transfer asks for shelf life on arrival)."""
         key = (warehouse_id, product_id)
         state = self.positions[key]
         locations = self.locations[warehouse_id]
         location = locations[product_id % len(locations)]
-        usable = self._usable(key, at.date())
+        usable = self._usable(key, usable_on or at.date())
         parts: list[tuple[_Batch | None, Decimal]] = []
         if usable is None:
             parts.append((None, qty))
@@ -131,16 +141,17 @@ class Issuer:
         done["at"] = max(done["at"], at)
         return pieces
 
-    def write(self) -> None:
-        """Sellable and reserved quantity fall by what was issued; value and MAC follow the position."""
+    def write(self, reserved: bool = True) -> None:
+        """Sellable (and, for a sale, reserved) quantity falls by what was issued; value and MAC follow the
+        position. A transfer issues unreserved stock (``reserved=False``)."""
         changes = []
         for key, done in sorted(self.issued.items()):
             state = self.positions[key]
             changes.append({"i": state["inventory_id"], "q": done["quantity"], "v": state["position"].value,
-                            "t": done["at"]})
+                            "t": done["at"], "r": done["quantity"] if reserved else Decimal(0)})
         if changes:
             self.day.execute("""
-                UPDATE inventory SET qty_sellable = qty_sellable - :q, qty_reserved = qty_reserved - :q,
+                UPDATE inventory SET qty_sellable = qty_sellable - :q, qty_reserved = qty_reserved - :r,
                        stock_value = :v, last_issue_at = :t, updated_at = GREATEST(updated_at, :t)
                 WHERE inventory_id = :i""", changes)
         self.issued.clear()

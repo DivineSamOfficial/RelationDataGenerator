@@ -216,14 +216,16 @@ def test_prepayments_clear_their_invoices(generated):
     assert all(open_amount <= 0 for _, open_amount, *_ in rows)              # never short-paid
     assert _one(conn, """SELECT COUNT(*) FROM invoices i JOIN orders o USING (order_id) JOIN payment_terms t
                          ON t.payment_term_id = o.payment_term_id JOIN accounts_receivable a ON a.invoice_id = i.invoice_id
-                         WHERE t.is_prepaid AND i.invoice_status = 'ISSUED' AND a.item_status <> 'SETTLED'""") == 0
+                         WHERE t.is_prepaid AND i.invoice_status = 'ISSUED' AND a.item_status <> 'SETTLED'
+                           AND NOT EXISTS (SELECT 1 FROM customer_payments p WHERE p.order_id = o.order_id
+                                             AND p.payment_status = 'REVERSED')""") == 0     # chargebacks reopen
 
 
 def test_counter_sales_paid_at_the_till(generated):
     _, conn = generated
     # Every counter sale is handed over at once: DELIVERED, paid in full, both AR items settled.
     assert _one(conn, """SELECT COUNT(*) FROM orders WHERE fulfilment_type = 'COUNTER_SALE'
-                         AND order_status NOT IN ('DELIVERED', 'CANCELLED')""") == 0
+                         AND order_status NOT IN ('DELIVERED', 'CLOSED', 'CANCELLED')""") == 0
     assert _one(conn, """SELECT COUNT(*) FROM invoices i JOIN orders o USING (order_id)
                          LEFT JOIN customer_payments p ON p.order_id = o.order_id AND p.payment_type = 'COUNTER_PAYMENT'
                          LEFT JOIN accounts_receivable a ON a.invoice_id = i.invoice_id
@@ -297,7 +299,7 @@ def test_carrier_journey(generated):
     assert _one(conn, """SELECT COUNT(*) FROM delivery_attempts a JOIN shipments s USING (shipment_id)
                          WHERE a.failure_reason = 'COD_CASH_NOT_READY' AND NOT s.is_cod""") == 0
     # Delivered orders reach DELIVERED; a split order is PARTIALLY_DELIVERED while one part is on the way.
-    assert _one(conn, "SELECT COUNT(*) FROM orders WHERE order_status = 'DELIVERED' AND fulfilment_type = 'SHIP'") > 1000
+    assert _one(conn, "SELECT COUNT(*) FROM orders WHERE order_status IN ('DELIVERED', 'CLOSED') AND fulfilment_type = 'SHIP'") > 1000
 
 
 def test_cod_collection(generated):
@@ -334,12 +336,12 @@ def test_returns_to_origin(generated):
                                     WHERE t.transaction_type = 'RTO_RECEIPT' GROUP BY sl.shipment_id) r
                               ON r.shipment_id = s.shipment_id
                          WHERE s.shipment_status = 'RETURNED_TO_SENDER' AND (j.journal_entry_id IS NULL OR j.total_debit <> r.value)""") == 0
-    # The RTO credit note clears an unpaid (COD) invoice; a prepaid one leaves the customer a credit (refund: 3.11).
+    # The RTO credit note clears an unpaid (COD) invoice; a prepaid one leaves the customer a credit, refunded (3.11).
     states = dict(_rows(conn, """SELECT s.is_cod, GROUP_CONCAT(DISTINCT a.item_status) FROM shipments s
                                  JOIN invoices i USING (shipment_id) JOIN credit_notes n ON n.invoice_id = i.invoice_id
                                  JOIN accounts_receivable a ON a.credit_note_id = n.credit_note_id
                                  WHERE s.shipment_status = 'RETURNED_TO_SENDER' GROUP BY s.is_cod"""))
-    assert states[1] == "SETTLED" and "OPEN" in states[0]
+    assert states[1] == "SETTLED" and "SETTLED" in states[0]
     # A fully returned order is CLOSED with its lines CLOSED.
     assert _one(conn, """SELECT COUNT(*) FROM orders o WHERE o.order_status = 'CLOSED'
                          AND EXISTS (SELECT 1 FROM order_line_items l WHERE l.order_id = o.order_id
@@ -388,7 +390,7 @@ _RTO_RECEIPT = _FIRST.format(key="inventory_transaction_id", table="inventory_tr
 _COD = _FIRST.format(key="customer_payment_id", table="customer_payments", where="payment_type = 'COD_COLLECTION'")
 _CDNUR = _FIRST.format(key="tax_transaction_id", table="tax_transactions", where="gstr1_section = 'CDNUR'")
 _MIRROR = _FIRST.format(key="tax_transaction_id", table="tax_transactions", where="is_cancellation")
-_CLOSED_LINE = _FIRST.format(key="order_line_item_id", table="order_line_items", where="line_status = 'CLOSED'")
+_CLOSED_LINE = _FIRST.format(key="order_line_item_id", table="order_line_items", where="line_status = 'CLOSED' AND quantity_delivered = 0")   # RTO
 _STOCK_REVERSAL = _FIRST.format(key="inventory_transaction_id", table="inventory_transactions",
                                 where="reversal_of_inventory_transaction_id IS NOT NULL")
 _REVERSED_ITEM = _FIRST.format(key="accounts_receivable_id", table="accounts_receivable", where="item_status = 'REVERSED'")

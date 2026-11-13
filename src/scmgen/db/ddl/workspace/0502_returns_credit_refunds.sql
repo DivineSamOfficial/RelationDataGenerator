@@ -168,7 +168,7 @@ CREATE TABLE credit_notes (
     CONSTRAINT ck_credit_notes_return_link CHECK ((reason = 'SALES_RETURN') = (sales_return_id IS NOT NULL)),
     CONSTRAINT ck_credit_notes_amounts CHECK (
         taxable_amount >= 0 AND cgst_amount >= 0 AND sgst_amount >= 0 AND igst_amount >= 0
-        AND cgst_amount = sgst_amount AND round_off_amount BETWEEN -0.50 AND 0.50
+        AND cgst_amount = sgst_amount AND round_off_amount BETWEEN -0.99 AND 0.50
         AND total_amount = taxable_amount + cgst_amount + sgst_amount + igst_amount + round_off_amount
         AND total_amount = ROUND(total_amount, 0)),
     CONSTRAINT ck_credit_notes_tax_mode CHECK ((is_inter_state AND cgst_amount = 0) OR (NOT is_inter_state AND igst_amount = 0)),

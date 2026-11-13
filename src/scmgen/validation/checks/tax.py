@@ -1,7 +1,7 @@
 """GST rules (1E §7, V-TX-*). Each check returns the violating rows.
 
 Step 3.7c implements V-TX-01 and V-TX-02 for supplier invoices (INPUT), step 3.9a adds sales invoices
-(OUTPUT); credit notes, expenses and transfers add their source lines as their steps arrive. V-TX-03 (returns) comes with GST filing (3.14).
+(OUTPUT), 3.9b credit notes, 3.12a inter-GSTIN transfers (two rows per line); expenses add theirs with 3.13. V-TX-03 (returns) comes with GST filing (3.14).
 """
 
 from __future__ import annotations
@@ -39,6 +39,28 @@ TAX_SOURCES = {
                IF(i.customer_gstin IS NULL, 'CDNUR', 'CDNR') AS gstr1_section
         FROM credit_note_line_items cl JOIN credit_notes n ON n.credit_note_id = cl.credit_note_id
         JOIN invoices i ON i.invoice_id = n.invoice_id WHERE n.credit_note_status = 'ISSUED'"""),
+    # Inter-GSTIN transfers (3.12a, D29): an OUTPUT row at the source GSTIN (B2B, the destination GSTIN as the
+    # buyer) and an INPUT row at the destination, IGST at the line's rate; same-GSTIN transfers have none.
+    "TRANSFER_OUT": ("stock_transfer_line_item_id", """
+        SELECT l.stock_transfer_line_item_id AS source_id, l.transfer_value AS taxable_amount, 0 AS cgst_amount,
+               0 AS sgst_amount, l.igst_amount, l.gst_rate, s.company_gst_registration_id,
+               DATE(t.dispatched_at) AS document_date, NULL AS supplier_id, NULL AS customer_id,
+               g.gstin AS counterparty_gstin, 'B2B' AS gstr1_section
+        FROM stock_transfer_line_items l JOIN stock_transfers t ON t.stock_transfer_id = l.stock_transfer_id
+        JOIN warehouses s ON s.warehouse_id = t.source_warehouse_id
+        JOIN warehouses d ON d.warehouse_id = t.destination_warehouse_id
+        JOIN company_gst_registrations g ON g.company_gst_registration_id = d.company_gst_registration_id
+        WHERE t.is_inter_gstin AND t.dispatched_at IS NOT NULL"""),
+    "TRANSFER_IN": ("stock_transfer_line_item_id", """
+        SELECT l.stock_transfer_line_item_id AS source_id, l.transfer_value AS taxable_amount, 0 AS cgst_amount,
+               0 AS sgst_amount, l.igst_amount, l.gst_rate, d.company_gst_registration_id,
+               DATE(t.dispatched_at) AS document_date, NULL AS supplier_id, NULL AS customer_id,
+               g.gstin AS counterparty_gstin, NULL AS gstr1_section
+        FROM stock_transfer_line_items l JOIN stock_transfers t ON t.stock_transfer_id = l.stock_transfer_id
+        JOIN warehouses s ON s.warehouse_id = t.source_warehouse_id
+        JOIN warehouses d ON d.warehouse_id = t.destination_warehouse_id
+        JOIN company_gst_registrations g ON g.company_gst_registration_id = s.company_gst_registration_id
+        WHERE t.is_inter_gstin AND t.dispatched_at IS NOT NULL"""),
 }
 DEFAULT_B2CL_THRESHOLD = 100000
 
@@ -64,6 +86,7 @@ def tax_rows_equal_their_source_lines(ctx: ValidationContext) -> Rows:
                         ELSE 'amounts, rate, GSTIN or date differ' END AS problem
             FROM ({lines}) s
             LEFT JOIN tax_transactions t ON t.{column} = s.source_id AND NOT t.is_cancellation
+                 AND t.document_type = '{kind}'
             WHERE t.tax_transaction_id IS NULL OR t.taxable_value <> s.taxable_amount OR t.cgst_amount <> s.cgst_amount
                OR t.sgst_amount <> s.sgst_amount OR t.igst_amount <> s.igst_amount OR t.gst_rate <> s.gst_rate
                OR t.company_gst_registration_id <> s.company_gst_registration_id OR t.document_date <> s.document_date

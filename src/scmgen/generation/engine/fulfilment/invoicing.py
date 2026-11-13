@@ -14,8 +14,9 @@ One call of ``Invoicer.bill`` is one business event, written together:
 * the AR **open item** (D49) and, for a prepaid order, the **allocation** of its prepayment to the invoice.
 
 Round-off: normally to the nearest rupee. When an invoice completes a prepaid order and the remaining prepayment
-is within ±0.50 of the exact total, the round-off makes the total equal to it, so the customer's payment clears
-the invoice exactly (the order estimate is rounded the same way, step 3.9a).
+is within −0.99…+0.50 of the exact total, the round-off makes the total equal to it, so the customer's payment
+clears the invoice exactly (the order estimate is rounded the same way, step 3.9a). The −0.99 covers a split order:
+its first invoice rounded up and the estimate rounded down leave the last invoice up to ₹0.99 above the rest.
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ from scmgen.generation.numbering import Registration
 
 SHIPPING_SAC = "996812"            # courier / delivery services (D42)
 MAX_ROUND_OFF = Decimal("0.50")
+MIN_COMPLETING_ROUND_OFF = Decimal("-0.99")   # an invoice that completes a prepaid order
 
 
 @dataclass
@@ -166,7 +168,7 @@ class Invoicer:
         exact = sums.taxable_amount + sums.cgst_amount + sums.sgst_amount + sums.igst_amount
         grand, round_off = sums.total_amount, sums.round_off_amount
         prepaid = self.remaining_prepayment(order["order_id"])
-        if completes_order and prepaid is not None and prepaid > 0 and abs(prepaid - exact) <= MAX_ROUND_OFF \
+        if completes_order and prepaid is not None and prepaid > 0 and MIN_COMPLETING_ROUND_OFF <= prepaid - exact <= MAX_ROUND_OFF \
                 and money(prepaid) == prepaid and prepaid == prepaid.to_integral_value():
             grand, round_off = prepaid, prepaid - exact
         term = self.terms[order["payment_term_id"]]

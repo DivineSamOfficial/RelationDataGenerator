@@ -15,6 +15,8 @@ from scmgen.generation.engine.opening import opening_step
 from scmgen.generation.engine.procurement import procurement_step
 from scmgen.generation.engine.collections import collections_step
 from scmgen.generation.engine.fulfilment import fulfilment_step
+from scmgen.generation.engine.inventory import housekeeping_step, transfer_receipts_step
+from scmgen.generation.engine.returns import returns_step
 from scmgen.generation.engine.sales import sales_step
 from scmgen.generation.engine.sales.customers import acquisition_step
 from scmgen.generation.master.catalogue import create_style
@@ -163,8 +165,11 @@ DAY_STEPS = (
     ("catalogue", catalogue_step),
     ("campaigns", campaigns_step),
     ("customers", acquisition_step),                 # 3.8b new customers over time
+    ("transfer_receipts", transfer_receipts_step),   # 3.12 transfers unloaded before the warehouse day
     ("procurement", procurement_step),               # 3.7 procure-to-pay
     ("sales", sales_step),                           # 3.8 demand: orders, prepayments, credit holds
     ("fulfilment", fulfilment_step),                 # 3.9 handovers, dispatch, invoices, carriers
     ("collections", collections_step),               # 3.10 B2B payments, cheques, chargebacks
+    ("returns", returns_step),                       # 3.11 return requests, inspections, credit notes
+    ("housekeeping", housekeeping_step),             # 3.12 store replenishment, DC rebalancing
 )

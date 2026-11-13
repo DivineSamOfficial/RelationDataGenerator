@@ -236,7 +236,8 @@ def _clear_cheques(day: DayContext, collector: _Collector, invoices, credits) ->
 
 
 def _chargebacks(day: DayContext, collector: _Collector) -> None:
-    """P09: a card payment charged back by the customer's bank; its allocations are undone (D49, D61)."""
+    """P09: a card payment charged back by the customer's bank; its allocations are undone (D49, D61). Never a
+    payment whose invoice has a credit note (the customer was refunded or credited: nothing to dispute)."""
     settings = day.world.config.collections
     low, high = settings.chargeback_days
     at = day.at(12)
@@ -247,6 +248,8 @@ def _chargebacks(day: DayContext, collector: _Collector) -> None:
             JOIN journal_entries j ON j.customer_payment_id = p.customer_payment_id AND j.journal_source = 'CUSTOMER_PAYMENT'
             JOIN accounts_receivable a ON a.customer_payment_id = p.customer_payment_id
             WHERE m.method_code = 'CARD' AND p.payment_status = 'SUCCESS' AND p.payment_date BETWEEN :a AND :b
+              AND NOT EXISTS (SELECT 1 FROM customer_payment_allocations x JOIN credit_notes n ON n.invoice_id = x.invoice_id
+                              WHERE x.customer_payment_id = p.customer_payment_id)
             ORDER BY p.customer_payment_id""", a=day.day - timedelta(days=high), b=day.day - timedelta(days=low)):
         rng = day.streams.stream(payment["payment_date"], f"collections.chargeback.{payment['customer_payment_id']}")
         if rng.random() >= settings.chargeback_share or \

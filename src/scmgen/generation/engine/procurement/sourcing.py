@@ -457,6 +457,9 @@ def replenishment(day: DayContext) -> None:
                 FROM rfq_line_items l JOIN rfq_headers h ON h.rfq_id = l.rfq_id
                 WHERE l.product_id IN ({products}) AND h.rfq_status IN ({statuses_rfq})"""):
             on_order[(row["warehouse_id"], row["product_id"])] += row["qty"]
+        from scmgen.generation.engine.inventory.transfers import inbound_transfers
+        for key, qty in inbound_transfers(day, sorted(dcs)).items():      # rebalancing on its way (3.12)
+            on_order[key] += qty
     below = []
     for row in candidates:
         key = (row["warehouse_id"], row["product_id"])

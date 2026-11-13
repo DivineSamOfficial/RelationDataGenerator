@@ -277,3 +277,23 @@ collections:
   partial_share: 0.08                   # payment runs that pay the last due invoice only in part
   chargeback_share: 0.003               # card payments charged back by the customer's bank
   chargeback_days: [15, 60]
+
+# Customer returns (1D §6; step 3.11). Return rates and the defective share come from the industry packs.
+returns:
+  non_returnable_attempt_factor: 0.10   # customers still ask to return non-returnable products (rejected)
+  partial_quantity_share: 0.30          # multi-unit lines returned only in part
+  late_request_share: 0.05              # requests after the category's return window (rejected)
+  further_inspection_share: 0.05        # first inspection undecided: a second one follows
+  refund_approval_days: [0, 3]          # Finance approves a refund this long after the credit note
+  refund_failure_share: 0.02            # refunds the bank rejects (retried as a new refund)
+  cancelled_refund_days: [1, 5]         # prepayments of orders cancelled before invoicing go back to source
+
+# Inventory housekeeping (1C §5, 1G §2.2 step 9; Phase 3 step 3.12).
+inventory:
+  rebalancing_day: 5                    # DC rebalancing: first working day on or after this day of the month
+  transfer_max_lines: 60                # lines per transfer document (more products: several transfers)
+  min_shelf_days: 30                    # batches sent to another warehouse keep this much shelf life on arrival
+  transfer_dispatch_hours: [19, 21]     # transfers leave in the evening, after the day's picking
+  transfer_receipt_hours: [7, 8]        # and are unloaded first thing, before the warehouse day starts
+  transit_damage_share: 0.005           # transfer lines that arrive partly damaged (to DEFECTIVE)
+  transit_loss_share: 0.001             # transfer lines with units that never arrive (written off)

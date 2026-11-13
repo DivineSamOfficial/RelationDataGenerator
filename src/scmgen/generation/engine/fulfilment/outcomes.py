@@ -20,6 +20,7 @@ from typing import Any
 
 from scmgen.domain.costing import StockPosition
 from scmgen.domain.journal import JournalBuilder
+from scmgen.generation.engine import returns
 from scmgen.generation.engine.accounting import post_journal, reverse_journal
 from scmgen.generation.engine.day import DayContext
 from scmgen.generation.engine.documents import approver, record_status
@@ -33,9 +34,12 @@ CANCEL_TEXT = {"CUSTOMER_REQUEST": "Cancelled at the customer's request before t
                "DUPLICATE_ORDER": "Duplicate order cancelled before transit"}
 
 
-def apply_outcomes(day: DayContext, invoicer: Invoicer, events: CarrierDay) -> None:
+def apply_outcomes(day: DayContext, invoicer: Invoicer, events: CarrierDay, with_returns: bool = False) -> None:
+    """``with_returns``: customer returns arriving today join the time-ordered stock pass (morning pass only)."""
+    arrivals = returns.receipts_due(day) if with_returns else []
     shipments = [s for s, _ in events.delivered] + [s for s, _ in events.returned] + [s for s, _, _ in events.cancelled]
     if not shipments:
+        _receive_returns(day, invoicer, arrivals)
         return
     order_ids = sorted({s["order_id"] for s in shipments})
     book = OrderBook.load(day, f"o.order_id IN ({', '.join(map(str, order_ids))})")
@@ -49,15 +53,23 @@ def apply_outcomes(day: DayContext, invoicer: Invoicer, events: CarrierDay) -> N
     stock_events = [(at, "RTO", s, None) for s, at in events.returned] + \
                    [(at, "CANCEL", s, reason) for s, at, reason in events.cancelled]
     if not stock_events:
+        _receive_returns(day, invoicer, arrivals)
         return
     invoices = load_invoices(day, [s["invoice_id"] for _, _, s, _ in stock_events])
+    return_lines = returns.receipt_lines(day, [r["sales_return_id"] for _, r in arrivals])
     stock = _Positions(day, {(s["warehouse_id"], l["product_id"]) for _, _, s, _ in stock_events
-                             for l in lines[s["shipment_id"]]})
+                             for l in lines[s["shipment_id"]]}
+                       | {(r["return_warehouse_id"], l["product_id"]) for _, r in arrivals
+                          for l in return_lines[r["sales_return_id"]]})
+    stock_events += [(at, "RETURN", r, None) for at, r in arrivals]
     approvals = {s["shipment_id"]: approver(day, invoices[s["invoice_id"]]["total_amount"], ("FIN",), day.day)
                  for _, kind, s, _ in stock_events if kind == "RTO"}
     reservations = _reservations(day, [s for _, kind, s, _ in stock_events if kind == "CANCEL"])
-    for at, kind, shipment, reason in sorted(stock_events, key=lambda e: (e[0], e[2]["shipment_id"])):
-        if kind == "RTO":
+    for at, kind, shipment, reason in sorted(stock_events, key=lambda e: (e[0], e[1], e[2].get("shipment_id", 0),
+                                                                          e[2].get("sales_return_id", 0))):
+        if kind == "RETURN":
+            returns.receive(day, invoicer, stock, shipment, return_lines[shipment["sales_return_id"]], at)
+        elif kind == "RTO":
             _return_to_origin(day, invoicer, book, stock, shipment, lines[shipment["shipment_id"]],
                               invoices[shipment["invoice_id"]], at, approvals[shipment["shipment_id"]])
         else:
@@ -65,6 +77,18 @@ def apply_outcomes(day: DayContext, invoicer: Invoicer, events: CarrierDay) -> N
                                    invoices[shipment["invoice_id"]], reservations, book, at, reason)
     stock.write()
     book.write_orders("CARRIER", "Returned to origin")
+
+
+def _receive_returns(day: DayContext, invoicer: Invoicer, arrivals: list[tuple[datetime, dict[str, Any]]]) -> None:
+    """Return receipts on a day without other stock events (still in time order)."""
+    if not arrivals:
+        return
+    return_lines = returns.receipt_lines(day, [r["sales_return_id"] for _, r in arrivals])
+    stock = _Positions(day, {(r["return_warehouse_id"], l["product_id"]) for _, r in arrivals
+                             for l in return_lines[r["sales_return_id"]]})
+    for at, ret in sorted(arrivals, key=lambda e: (e[0], e[1]["sales_return_id"])):
+        returns.receive(day, invoicer, stock, ret, return_lines[ret["sales_return_id"]], at)
+    stock.write()
 
 
 def _shipment_lines(day: DayContext, shipment_ids: list[int]) -> dict[int, list[dict[str, Any]]]:
@@ -110,14 +134,42 @@ class _Positions:
                     WHERE (warehouse_id, product_id) IN ({", ".join(f"({w}, {p})" for w, p in sorted(pairs))})"""):
                 self.positions[(row["warehouse_id"], row["product_id"])] = {
                     **row, "position": StockPosition(row["on_hand"], row["stock_value"], row["last_unit_cost"])}
+            missing = sorted(pairs - self.positions.keys())
+            if missing:
+                self._open_rows(missing)
+
+    def _open_rows(self, missing: list[tuple[int, int]]) -> None:
+        """A customer return can bring a product to a DC that has never stocked it (its order shipped that line
+        from another DC): the DC opens an inventory row with the product's reorder policy, as its first
+        purchase receipt would (procurement then manages it like any stocked product)."""
+        policies = {r["product_id"]: r for r in self.day.rows(f"""
+            SELECT product_id, reorder_level, reorder_quantity FROM products
+            WHERE product_id IN ({", ".join(sorted({str(p) for _, p in missing}))})""")}
+        opened = self.day.at(0)
+        for warehouse_id, product_id in missing:
+            policy = policies[product_id]
+            inventory_id = self.day.ids.next("inventory")
+            self.day.writer.insert("inventory", {
+                "inventory_id": inventory_id, "warehouse_id": warehouse_id, "product_id": product_id,
+                "qty_sellable": Decimal(0), "qty_quarantine": Decimal(0), "qty_defective": Decimal(0),
+                "qty_reserved": Decimal(0), "stock_value": Decimal(0), "last_unit_cost": None,
+                "reorder_level": policy["reorder_level"], "reorder_quantity": policy["reorder_quantity"],
+                "max_stock_level": policy["reorder_level"] + policy["reorder_quantity"], "is_stocked": True,
+                "last_receipt_at": None, "last_issue_at": None, "last_counted_at": None,
+                "created_at": opened, "updated_at": opened,
+            })
+            self.positions[(warehouse_id, product_id)] = {
+                "inventory_id": inventory_id, "warehouse_id": warehouse_id, "product_id": product_id,
+                "on_hand": Decimal(0), "stock_value": Decimal(0), "last_unit_cost": None, "position": StockPosition()}
 
     def back_in(self, warehouse_id: int, product_id: int, qty: Decimal, value: Decimal, at: datetime,
-                receipt: bool) -> None:
+                receipt: bool, bucket: str = "qty_sellable") -> None:
         state = self.positions[(warehouse_id, product_id)]
         old: StockPosition = state["position"]
         state["position"] = StockPosition(old.quantity + qty, old.value + value, old.last_unit_cost)
-        change = self.changed.setdefault((warehouse_id, product_id), {"q": Decimal(0), "at": at, "receipt": None})
-        change["q"] += qty
+        change = self.changed.setdefault((warehouse_id, product_id), {"q": Decimal(0), "quarantine": Decimal(0),
+                                                                     "at": at, "receipt": None})
+        change["quarantine" if bucket == "qty_quarantine" else "q"] += qty
         change["at"] = max(change["at"], at)
         if receipt or change["receipt"]:
             change["receipt"] = at       # stock that arrived: today's later dispatches start after it
@@ -126,11 +178,12 @@ class _Positions:
         rows = []
         for key, change in sorted(self.changed.items()):
             state = self.positions[key]
-            rows.append({"i": state["inventory_id"], "q": change["q"], "v": state["position"].value,
-                         "t": change["at"], "r": change["at"]})
+            rows.append({"i": state["inventory_id"], "q": change["q"], "k": change["quarantine"],
+                         "v": state["position"].value, "t": change["at"], "r": change["at"]})
         if rows:
             self.day.execute("""
-                UPDATE inventory SET qty_sellable = qty_sellable + :q, stock_value = :v,
+                UPDATE inventory SET qty_sellable = qty_sellable + :q, qty_quarantine = qty_quarantine + :k,
+                       stock_value = :v,
                        last_receipt_at = GREATEST(COALESCE(last_receipt_at, :r), :r),
                        updated_at = GREATEST(updated_at, :t) WHERE inventory_id = :i""", rows)
 

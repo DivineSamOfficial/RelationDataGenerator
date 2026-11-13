@@ -139,7 +139,7 @@ def test_payments_on_account_are_applied(generated):
 def test_chargebacks_reverse_the_receipt(generated):
     _, conn = generated
     reversed_ = _rows(conn, """SELECT p.customer_payment_id, p.reversed_at, p.payment_date FROM customer_payments p
-                               WHERE p.payment_status = 'REVERSED'""")
+                               WHERE p.payment_status = 'REVERSED' AND p.reversal_reason = 'Card chargeback'""")
     assert reversed_
     ids = ", ".join(str(r[0]) for r in reversed_)
     assert all(15 <= (r[1].date() - r[2]).days <= 60 for r in reversed_)

@@ -236,8 +236,6 @@ def release_backorders(day: DayContext, stock: Stock, backordered: dict[int, dic
         if waited >= settings.backorder_cancel_days:
             waiting = line_ids                # waited too long: the customer gives up on the missing lines
         else:
-            if order["fulfilment_type"] != "SHIP":
-                continue                      # store stock is refilled by transfers (inventory step, 3.12)
             warehouses = sources(day, order["fulfilment_type"], order["store_warehouse_id"], order["shipping_city"])
             waiting = allocate_lines(stock, warehouses, order["lines"], at)
             reserved = [line for line in line_ids if line not in waiting]

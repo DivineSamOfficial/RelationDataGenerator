@@ -355,13 +355,17 @@ def credit_note_headers(ctx: ValidationContext) -> Rows:
 @check("V-IV-04")
 def credited_quantities(ctx: ValidationContext) -> Rows:
     """★ Per invoice line: Σ credited quantity ≤ invoiced quantity and Σ credited taxable ≤ its taxable value; a
-    credit line belongs to its credit note's invoice and carries the invoice line's rate. (Return credits =
-    received quantity: with returns, 3.11.)"""
+    credit line belongs to its credit note's invoice and carries the invoice line's rate; a return credit line
+    credits exactly the received quantity of its return line (D44)."""
     found = [{**r, "problem": "credit line of another invoice, or at another rate"} for r in ctx.rows("""
         SELECT cl.credit_note_line_item_id, n.invoice_id, il.invoice_id AS line_invoice, cl.gst_rate, il.gst_rate AS rate
         FROM credit_note_line_items cl JOIN credit_notes n ON n.credit_note_id = cl.credit_note_id
         JOIN invoice_line_items il ON il.invoice_line_item_id = cl.invoice_line_item_id
         WHERE il.invoice_id <> n.invoice_id OR cl.gst_rate <> il.gst_rate""")]
+    found += [{**r, "problem": "return credit quantity ≠ received quantity"} for r in ctx.rows("""
+        SELECT cl.credit_note_line_item_id, cl.quantity, rl.quantity_received FROM credit_note_line_items cl
+        JOIN sales_return_line_items rl ON rl.sales_return_line_item_id = cl.sales_return_line_item_id
+        WHERE cl.quantity <> rl.quantity_received""")]
     found += [{**r, "problem": "credited more than invoiced"} for r in ctx.rows("""
         SELECT il.invoice_line_item_id, il.quantity, SUM(cl.quantity) AS credited_quantity, il.taxable_amount,
                SUM(cl.taxable_amount) AS credited_taxable

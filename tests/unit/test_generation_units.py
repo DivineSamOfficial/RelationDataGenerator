@@ -205,6 +205,23 @@ def test_invalid_fulfilment_settings_are_refused(overrides, message):
         load_generation_config(today=TODAY, overrides=overrides)
 
 
+def test_inventory_settings_load():
+    inventory = load_generation_config(preset="small", today=TODAY).inventory
+    assert inventory.rebalancing_day == 5 and inventory.transfer_receipt_hours == (7, 8)
+    assert inventory.transfer_dispatch_hours == (19, 21) and inventory.min_shelf_days == 30
+
+
+@pytest.mark.parametrize("overrides, message", [
+    ({"inventory.rebalancing_day": 31}, "rebalancing_day"),
+    ({"inventory.transit_loss_share": 2}, "transit_loss_share"),
+    ({"inventory.transfer_receipt_hours": [9, 7]}, "transfer_receipt_hours"),
+    ({"inventory.unknown_knob": 1}, "unknown_knob"),
+])
+def test_invalid_inventory_settings_are_refused(overrides, message):
+    with pytest.raises(ConfigError, match=message):
+        load_generation_config(today=TODAY, overrides=overrides)
+
+
 def test_future_dates_need_allow_future():
     config = load_generation_config(today=TODAY, overrides={"history.end_date": "2026-12-31",
                                                             "history.allow_future": True})

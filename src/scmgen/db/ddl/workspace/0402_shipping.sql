@@ -31,6 +31,7 @@ CREATE TABLE shipments (
     UNIQUE KEY uq_shipments_id_order_warehouse (shipment_id, order_id, warehouse_id),
     KEY ix_shipments_status_planned (shipment_status, planned_dispatch_date),
     KEY ix_shipments_dispatched (dispatched_at),
+    KEY ix_shipments_status_delivered (shipment_status, delivered_at),    -- return candidates (3.11)
     CONSTRAINT fk_shipments_order FOREIGN KEY (order_id) REFERENCES orders (order_id),
     CONSTRAINT fk_shipments_warehouse FOREIGN KEY (warehouse_id) REFERENCES warehouses (warehouse_id),
     CONSTRAINT fk_shipments_address FOREIGN KEY (shipping_address_id) REFERENCES customer_addresses (customer_address_id),

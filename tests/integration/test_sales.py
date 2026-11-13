@@ -142,7 +142,7 @@ def test_prepaid_checkout_posts_receipts(generated):
         WHERE p.payment_status = 'SUCCESS'""")[0]
     assert successes > 0 and successes == journals == items
     assert _one(conn, """SELECT COUNT(*) FROM journal_entries j JOIN customer_payments p USING (customer_payment_id)
-                         WHERE p.payment_status <> 'SUCCESS'""") == 0
+                         WHERE p.payment_status NOT IN ('SUCCESS', 'REVERSED')""") == 0   # refunds, chargebacks: P09
     # V-CLR: Payment Clearing = successful gateway and COD receipts not yet settled by the bank (settlement: 3.14).
     clearing = _one(conn, """SELECT SUM(l.debit_amount - l.credit_amount) FROM journal_entry_lines l
                              JOIN chart_of_accounts a USING (account_id) WHERE a.system_role = 'PAYMENT_CLEARING'""")

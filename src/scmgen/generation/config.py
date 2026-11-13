@@ -85,6 +85,10 @@ _FULFILMENT_KEYS = {"dispatch_cutoff_hour", "pick_start_hour", "carrier_pickup_h
                     "cod_remittance_days"}
 _COLLECTIONS_KEYS = {"profiles", "cheque_payer_share", "cheque_bounce_share", "advance_payer_share", "advance_share",
                      "partial_share", "chargeback_share", "chargeback_days"}
+_RETURNS_KEYS = {"non_returnable_attempt_factor", "partial_quantity_share", "late_request_share",
+                 "further_inspection_share", "refund_approval_days", "refund_failure_share", "cancelled_refund_days"}
+_INVENTORY_KEYS = {"rebalancing_day", "transfer_max_lines", "min_shelf_days", "transfer_dispatch_hours",
+                   "transfer_receipt_hours", "transit_damage_share", "transit_loss_share"}
 PAYMENT_PROFILES = ("ON_TIME", "SLIGHTLY_LATE", "CHRONIC_LATE")
 FAILURE_REASONS = ("CUSTOMER_UNAVAILABLE", "ADDRESS_NOT_FOUND", "PREMISES_CLOSED", "WEATHER_DELAY", "COD_CASH_NOT_READY")
 CARRIER_TYPES = ("EXPRESS_COURIER", "SURFACE_LTL", "FULL_TRUCKLOAD", "HYPERLOCAL")
@@ -293,6 +297,28 @@ class CollectionsSettings:
 
 
 @dataclass(frozen=True)
+class ReturnsSettings:
+    non_returnable_attempt_factor: float
+    partial_quantity_share: float
+    late_request_share: float
+    further_inspection_share: float
+    refund_approval_days: tuple[int, int]
+    refund_failure_share: float
+    cancelled_refund_days: tuple[int, int]
+
+
+@dataclass(frozen=True)
+class InventorySettings:
+    rebalancing_day: int
+    transfer_max_lines: int
+    min_shelf_days: int
+    transfer_dispatch_hours: tuple[int, int]
+    transfer_receipt_hours: tuple[int, int]
+    transit_damage_share: float
+    transit_loss_share: float
+
+
+@dataclass(frozen=True)
 class Organisation:
     job_levels: dict[str, JobLevel]
     warehouse_staff_share: float
@@ -320,6 +346,8 @@ class GenerationConfig:
     sales: SalesSettings | None = None
     fulfilment: FulfilmentSettings | None = None
     collections: CollectionsSettings | None = None
+    returns: ReturnsSettings | None = None
+    inventory: InventorySettings | None = None
 
     @property
     def days(self) -> int:
@@ -421,7 +449,8 @@ def load_generation_config(
     """
     raw = _read(config_dir / GENERATION_FILE)
     _reject_unknown(raw, {"defaults", "presets", "setup", "organisation", "master_data", "daily", "opening_balances",
-                          "procurement", "sales", "fulfilment", "collections"}, GENERATION_FILE)
+                          "procurement", "sales", "fulfilment", "collections", "returns",
+                          "inventory"}, GENERATION_FILE)
     defaults, presets = raw.get("defaults"), raw.get("presets")
     if not isinstance(defaults, dict) or not isinstance(presets, dict) or not presets:
         raise ConfigError(f"{GENERATION_FILE} needs a 'defaults' mapping and at least one preset under 'presets'")
@@ -457,6 +486,8 @@ def load_generation_config(
         "sales": copy.deepcopy(raw.get("sales") or {}),
         "fulfilment": copy.deepcopy(raw.get("fulfilment") or {}),
         "collections": copy.deepcopy(raw.get("collections") or {}),
+        "returns": copy.deepcopy(raw.get("returns") or {}),
+        "inventory": copy.deepcopy(raw.get("inventory") or {}),
     }
     for dotted, value in (overrides or {}).items():
         _apply_override(effective, dotted, _parse_override_value(value) if isinstance(value, str) else value)
@@ -492,7 +523,11 @@ def load_generation_config(
     sales = _parse_sales(effective["sales"])
     fulfilment = _parse_fulfilment(effective["fulfilment"])
     collections = _parse_collections(effective["collections"])
+    returns = _parse_returns(effective["returns"])
+    inventory = _parse_inventory(effective["inventory"])
     return GenerationConfig(
+        returns=returns,
+        inventory=inventory,
         collections=collections,
         procurement=procurement,
         sales=sales,
@@ -870,6 +905,34 @@ def _parse_collections(raw: dict[str, Any]) -> CollectionsSettings:
         chargeback_share=_share(raw["chargeback_share"], "collections.chargeback_share", 0.1),
         chargeback_days=_pair(raw["chargeback_days"], "collections.chargeback_days", 1, 180),
     )
+
+
+def _parse_returns(raw: dict[str, Any]) -> ReturnsSettings:
+    _reject_unknown(raw, _RETURNS_KEYS, "returns")
+    missing = sorted(_RETURNS_KEYS - set(raw))
+    if missing:
+        raise ConfigError(f"returns is missing: {', '.join(missing)}")
+    shares = ("non_returnable_attempt_factor", "partial_quantity_share", "late_request_share",
+              "further_inspection_share", "refund_failure_share")
+    return ReturnsSettings(
+        **{key: _share(raw[key], f"returns.{key}") for key in shares},
+        refund_approval_days=_pair(raw["refund_approval_days"], "returns.refund_approval_days", 0, 60),
+        cancelled_refund_days=_pair(raw["cancelled_refund_days"], "returns.cancelled_refund_days", 0, 60))
+
+
+def _parse_inventory(raw: dict[str, Any]) -> InventorySettings:
+    _reject_unknown(raw, _INVENTORY_KEYS, "inventory")
+    missing = sorted(_INVENTORY_KEYS - set(raw))
+    if missing:
+        raise ConfigError(f"inventory is missing: {', '.join(missing)}")
+    return InventorySettings(
+        rebalancing_day=_int(raw["rebalancing_day"], "inventory.rebalancing_day", 1, 28),
+        transfer_max_lines=_int(raw["transfer_max_lines"], "inventory.transfer_max_lines", 1, 500),
+        min_shelf_days=_int(raw["min_shelf_days"], "inventory.min_shelf_days", 0, 365),
+        transfer_dispatch_hours=_pair(raw["transfer_dispatch_hours"], "inventory.transfer_dispatch_hours", 0, 22),
+        transfer_receipt_hours=_pair(raw["transfer_receipt_hours"], "inventory.transfer_receipt_hours", 0, 22),
+        transit_damage_share=_share(raw["transit_damage_share"], "inventory.transit_damage_share"),
+        transit_loss_share=_share(raw["transit_loss_share"], "inventory.transit_loss_share"))
 
 
 def _by_payment(value: Any, name: str) -> dict[str, float]:
