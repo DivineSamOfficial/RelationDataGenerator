@@ -97,6 +97,7 @@ _EXPENSES_KEYS = {"approval_days", "rejection_share", "payment_weekday", "paymen
                   "ad_hoc", "travel_claims_per_month", "travel_claim_amount", "petty_cash_per_month",
                   "petty_cash_amount", "petty_cash_items", "campaign_spend_share", "cost_centres", "sac_codes"}
 WAREHOUSE_TYPES = ("DISTRIBUTION_CENTRE", "RETAIL_STORE")
+_GST_KEYS = {"gstr1_due_day", "gstr3b_due_day", "early_days", "late_share", "late_days", "filing_hour"}
 _BANK_KEYS = {"statement_hour", "monthly_charges", "interest_rate", "petty_float", "reconciliation_working_day",
               "payments_buffer", "collections_minimum"}
 PAYMENT_PROFILES = ("ON_TIME", "SLIGHTLY_LATE", "CHRONIC_LATE")
@@ -366,6 +367,16 @@ class ExpensesSettings:
 
 
 @dataclass(frozen=True)
+class GstSettings:
+    gstr1_due_day: int
+    gstr3b_due_day: int
+    early_days: int
+    late_share: float
+    late_days: int
+    filing_hour: int
+
+
+@dataclass(frozen=True)
 class BankSettings:
     statement_hour: int
     monthly_charges: dict[str, tuple[int, int]]
@@ -408,6 +419,7 @@ class GenerationConfig:
     inventory: InventorySettings | None = None
     expenses: ExpensesSettings | None = None
     bank: BankSettings | None = None
+    gst: GstSettings | None = None
 
     @property
     def days(self) -> int:
@@ -510,7 +522,7 @@ def load_generation_config(
     raw = _read(config_dir / GENERATION_FILE)
     _reject_unknown(raw, {"defaults", "presets", "setup", "organisation", "master_data", "daily", "opening_balances",
                           "procurement", "sales", "fulfilment", "collections", "returns",
-                          "inventory", "expenses", "bank"}, GENERATION_FILE)
+                          "inventory", "expenses", "bank", "gst"}, GENERATION_FILE)
     defaults, presets = raw.get("defaults"), raw.get("presets")
     if not isinstance(defaults, dict) or not isinstance(presets, dict) or not presets:
         raise ConfigError(f"{GENERATION_FILE} needs a 'defaults' mapping and at least one preset under 'presets'")
@@ -550,6 +562,7 @@ def load_generation_config(
         "inventory": copy.deepcopy(raw.get("inventory") or {}),
         "expenses": copy.deepcopy(raw.get("expenses") or {}),
         "bank": copy.deepcopy(raw.get("bank") or {}),
+        "gst": copy.deepcopy(raw.get("gst") or {}),
     }
     for dotted, value in (overrides or {}).items():
         _apply_override(effective, dotted, _parse_override_value(value) if isinstance(value, str) else value)
@@ -589,7 +602,9 @@ def load_generation_config(
     inventory = _parse_inventory(effective["inventory"])
     expenses = _parse_expenses(effective["expenses"])
     bank = _parse_bank(effective["bank"])
+    gst = _parse_gst(effective["gst"])
     return GenerationConfig(
+        gst=gst,
         bank=bank,
         expenses=expenses,
         returns=returns,
@@ -1009,6 +1024,25 @@ def _parse_inventory(raw: dict[str, Any]) -> InventorySettings:
         disposition_weekday=_int(raw["disposition_weekday"], "inventory.disposition_weekday", 0, 6),
         disposition_min_days=_int(raw["disposition_min_days"], "inventory.disposition_min_days", 1, 60),
         repair_cost_share=_share_pair(raw["repair_cost_share"], "inventory.repair_cost_share", ordered=True))
+
+
+def _parse_gst(raw: dict[str, Any]) -> GstSettings:
+    _reject_unknown(raw, _GST_KEYS, "gst")
+    missing = sorted(_GST_KEYS - set(raw))
+    if missing:
+        raise ConfigError(f"gst is missing: {', '.join(missing)}")
+    settings = GstSettings(
+        gstr1_due_day=_int(raw["gstr1_due_day"], "gst.gstr1_due_day", 1, 28),
+        gstr3b_due_day=_int(raw["gstr3b_due_day"], "gst.gstr3b_due_day", 1, 28),
+        early_days=_int(raw["early_days"], "gst.early_days", 0, 10),
+        late_share=_share(raw["late_share"], "gst.late_share"),
+        late_days=_int(raw["late_days"], "gst.late_days", 1, 10),
+        filing_hour=_int(raw["filing_hour"], "gst.filing_hour", 0, 20))
+    # Sundays move a late filing a day later and an early one a day earlier.
+    if settings.gstr1_due_day + settings.late_days + 1 > settings.gstr3b_due_day - settings.early_days - 1:
+        raise ConfigError("gst: a late GSTR-1 must still come before the earliest GSTR-3B "
+                          "(gstr1_due_day + late_days + 1 ≤ gstr3b_due_day - early_days - 1)")
+    return settings
 
 
 def _parse_bank(raw: dict[str, Any]) -> BankSettings:

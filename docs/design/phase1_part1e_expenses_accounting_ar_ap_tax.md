@@ -567,6 +567,16 @@ The allocation (payment → invoice) posts nothing. It sets both AR items' `open
 
 ---
 
+### Implementation notes (Phase 3 step 3.14b: GST returns, `engine/gst_returns.py`)
+
+| Topic | As built |
+|---|---|
+| Day step | `gst` before `bank` (so the bank step writes the 3B payment line the same day). Each GSTIN's returns of last month are filed on a working day drawn per return: up to `early_days` before the due date (11th / 20th), or `late_share` of them up to `late_days` after it (FILED_LATE). The config guarantees a late GSTR-1 still precedes the earliest GSTR-3B |
+| GSTR-1 | Every OUTPUT row of the period **or earlier** not yet in a return (a late correction goes into the next return), lines per section × rate (B2CL / B2CS also per place of supply) and the HSN summary per HSN × rate; the rows get `gst_return_id` |
+| GSTR-3B | 3.1A = the output of that period's GSTR-1; 4A5 = INPUT rows (period or earlier, not yet claimed) with ELIGIBLE credit, 4B = the ineligible ones; credit available = all credit claimed in this and earlier 3Bs − what earlier 3Bs used (carry-forward read from the returns, D66); set-off in the legal order (`set_off`: IGST credit → IGST, CGST, SGST; CGST credit → CGST, IGST; SGST credit → SGST, IGST), 6.1 lines per credit type × head and cash per head; the INPUT rows get `gst_return_id`. A negative head (credit notes above invoices) is a zero liability |
+| Posting and payment | P22 (`GST_SETTLEMENT`): Dr Output GST per head by the liability, Cr Input GST per credit type used, Cr Bank (PAYMENTS) by the cash; the bank step writes the GST_PAYMENT line on the filing day (V-BK-01 includes it). Unused credit stays on the Input GST accounts |
+| Rule | ★ V-TX-03: GSTR-1 sections = Σ included rows, 3B amounts = its rows, the set-off recomputed in the legal order from the carried-forward credit, 6.1 identity per head, P22 and the payment line |
+
 ### Implementation notes (Phase 3 step 3.14a: bank, `engine/bank.py`)
 
 | Topic | As built |

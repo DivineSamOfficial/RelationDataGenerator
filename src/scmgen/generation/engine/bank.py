@@ -193,6 +193,13 @@ def _document_lines(day: DayContext, today: _Day) -> None:
         today.line(row["bank_account_id"], "EXPENSE_PAYMENT", f"DR {row['payment_number']}", row["amount"], inflow=False,
                    reference=row["bank_reference"], expense_payment_id=row["expense_payment_id"])
     for row in day.rows("""
+            SELECT r.gst_return_id, r.challan_reference, r.bank_account_id, g.gstin,
+                   r.cash_paid_cgst + r.cash_paid_sgst + r.cash_paid_igst AS amount
+            FROM gst_returns r JOIN company_gst_registrations g USING (company_gst_registration_id)
+            WHERE r.payment_date = :d ORDER BY r.gst_return_id""", d=day.day):
+        today.line(row["bank_account_id"], "GST_PAYMENT", f"GST CHALLAN {row['challan_reference']} {row['gstin']}",
+                   row["amount"], inflow=False, reference=row["challan_reference"], gst_return_id=row["gst_return_id"])
+    for row in day.rows("""
             SELECT r.refund_id, r.refund_number, r.bank_account_id, r.refund_amount, r.bank_reference
             FROM refunds r WHERE r.refund_status = 'COMPLETED' AND DATE(r.processed_at) = :d ORDER BY r.refund_id""",
             d=day.day):

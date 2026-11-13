@@ -418,3 +418,12 @@ bank:
   reconciliation_working_day: 3         # bank reconciliation on this working day of the next month
   payments_buffer: 2500000              # funding the PAYMENTS account leaves this much after the payment
   collections_minimum: 1000000          # COLLECTIONS keeps this much; below it the cash-credit line is drawn
+
+# GST returns (1E §5, D58; Phase 3 step 3.14b).
+gst:
+  gstr1_due_day: 11                     # GSTR-1 of a month is due on this day of the next
+  gstr3b_due_day: 20                    # GSTR-3B (and the tax payment) on this day
+  early_days: 3                         # returns are filed up to this many days before the due date
+  late_share: 0.03                      # returns filed late (FILED_LATE), a legitimate business event
+  late_days: 4                          # by up to this many days (GSTR-1 stays before GSTR-3B)
+  filing_hour: 16

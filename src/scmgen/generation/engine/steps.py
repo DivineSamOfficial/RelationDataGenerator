@@ -17,6 +17,7 @@ from scmgen.generation.engine.bank import bank_step
 from scmgen.generation.engine.collections import collections_step
 from scmgen.generation.engine.expenses import expenses_step
 from scmgen.generation.engine.fulfilment import fulfilment_step
+from scmgen.generation.engine.gst_returns import gst_step
 from scmgen.generation.engine.inventory import housekeeping_step, morning_stock_step
 from scmgen.generation.engine.returns import returns_step
 from scmgen.generation.engine.sales import sales_step
@@ -175,5 +176,6 @@ DAY_STEPS = (
     ("returns", returns_step),                       # 3.11 return requests, inspections, credit notes
     ("housekeeping", housekeeping_step),             # 3.12 store replenishment, DC rebalancing
     ("expenses", expenses_step),                     # 3.13 bills, claims, petty cash, payroll, payments
+    ("gst", gst_step),                               # 3.14b GSTR-1 and GSTR-3B with set-off and payment (P22)
     ("bank", bank_step),                             # 3.14a statements, settlements, floats, reconciliation
 )

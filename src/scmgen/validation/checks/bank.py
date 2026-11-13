@@ -16,6 +16,9 @@ DOCUMENT_LINES = [
         SELECT expense_payment_id AS id, bank_account_id, amount FROM expense_payments WHERE payment_status = 'COMPLETED'"""),
     ("REFUND", "refund_id", """
         SELECT refund_id AS id, bank_account_id, refund_amount AS amount FROM refunds WHERE refund_status = 'COMPLETED'"""),
+    ("GST_PAYMENT", "gst_return_id", """
+        SELECT gst_return_id AS id, bank_account_id, cash_paid_cgst + cash_paid_sgst + cash_paid_igst AS amount
+        FROM gst_returns WHERE payment_date IS NOT NULL"""),
     ("CUSTOMER_RECEIPT", "customer_payment_id", """
         SELECT p.customer_payment_id AS id, p.bank_account_id, p.amount FROM customer_payments p
         JOIN payment_methods m ON m.payment_method_id = p.payment_method_id
@@ -37,7 +40,8 @@ def bank_lines(ctx: ValidationContext) -> Rows:
     in (statement date, id) order from the account's opening balance."""
     found: Rows = []
     for kind, column, documents in DOCUMENT_LINES:
-        amount_column = "debit_amount" if kind in ("SUPPLIER_PAYMENT", "EXPENSE_PAYMENT", "REFUND") else "credit_amount"
+        amount_column = ("debit_amount" if kind in ("SUPPLIER_PAYMENT", "EXPENSE_PAYMENT", "REFUND", "GST_PAYMENT")
+                         else "credit_amount")
         found += [{**r, "transaction_type": kind} for r in ctx.rows(f"""
             SELECT d.id, d.amount, COUNT(t.bank_transaction_id) AS lines_, MIN(t.{amount_column}) AS line_amount,
                    'document without exactly one statement line of its amount and account' AS problem

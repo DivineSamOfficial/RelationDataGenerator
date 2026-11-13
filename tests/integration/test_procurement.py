@@ -28,7 +28,8 @@ from scmgen.validation.framework import ValidationContext, run_checks
 pytestmark = pytest.mark.integration
 
 CATALOGUE = load_catalogue()
-RULES = sorted(r for r in framework.registered_checks() if r.startswith(("V-PR", "V-AP", "V-TX")) or r == "V-MD-06")
+RULES = sorted(r for r in framework.registered_checks()
+               if (r.startswith(("V-PR", "V-AP", "V-TX")) or r == "V-MD-06") and r != "V-TX-03")   # GST returns: test_gst_returns.py
 INVENTORY_RULES = ("V-IN-01", "V-IN-02", "V-IN-04", "V-IN-05", "V-IN-10", "V-AC-05", "V-AC-11")
 WINDOW = {"history.start_date": "2025-08-01", "history.end_date": "2025-11-30"}
 

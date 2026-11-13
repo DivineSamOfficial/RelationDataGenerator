@@ -242,6 +242,7 @@ def test_invalid_expense_settings_are_refused(overrides, message):
     ({"bank.petty_float.RETAIL_STORE": {"min": 50000, "top_up_to": 40000}}, "min < top_up_to"),
     ({"bank.monthly_charges": {"SAVINGS": [1, 2]}}, "per account type"),
     ({"bank.reconciliation_working_day": 0}, "reconciliation_working_day"),
+    ({"gst.late_days": 9}, "late GSTR-1 must still come before"),
 ])
 def test_invalid_bank_settings_are_refused(overrides, message):
     with pytest.raises(ConfigError, match=message):
