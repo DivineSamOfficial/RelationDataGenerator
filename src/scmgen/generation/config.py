@@ -83,6 +83,9 @@ _FULFILMENT_KEYS = {"dispatch_cutoff_hour", "pick_start_hour", "carrier_pickup_h
                     "b2cl_threshold", "linehaul_hours", "late_share", "late_days", "feed_lag_minutes",
                     "first_attempt_failure", "repeat_attempt_failure", "refusal_share", "failure_reasons",
                     "cod_remittance_days"}
+_COLLECTIONS_KEYS = {"profiles", "cheque_payer_share", "cheque_bounce_share", "advance_payer_share", "advance_share",
+                     "partial_share", "chargeback_share", "chargeback_days"}
+PAYMENT_PROFILES = ("ON_TIME", "SLIGHTLY_LATE", "CHRONIC_LATE")
 FAILURE_REASONS = ("CUSTOMER_UNAVAILABLE", "ADDRESS_NOT_FOUND", "PREMISES_CLOSED", "WEATHER_DELAY", "COD_CASH_NOT_READY")
 CARRIER_TYPES = ("EXPRESS_COURIER", "SURFACE_LTL", "FULL_TRUCKLOAD", "HYPERLOCAL")
 B2B_SEGMENTS = ("RETAILER", "WHOLESALER", "CORPORATE", "INSTITUTION", "WORKSHOP")
@@ -278,6 +281,18 @@ class FulfilmentSettings:
 
 
 @dataclass(frozen=True)
+class CollectionsSettings:
+    profiles: dict[str, dict[str, Any]]            # profile → {share, delay_days (min, max)}
+    cheque_payer_share: float
+    cheque_bounce_share: float
+    advance_payer_share: float
+    advance_share: float
+    partial_share: float
+    chargeback_share: float
+    chargeback_days: tuple[int, int]
+
+
+@dataclass(frozen=True)
 class Organisation:
     job_levels: dict[str, JobLevel]
     warehouse_staff_share: float
@@ -304,6 +319,7 @@ class GenerationConfig:
     procurement: ProcurementSettings | None = None
     sales: SalesSettings | None = None
     fulfilment: FulfilmentSettings | None = None
+    collections: CollectionsSettings | None = None
 
     @property
     def days(self) -> int:
@@ -405,7 +421,7 @@ def load_generation_config(
     """
     raw = _read(config_dir / GENERATION_FILE)
     _reject_unknown(raw, {"defaults", "presets", "setup", "organisation", "master_data", "daily", "opening_balances",
-                          "procurement", "sales", "fulfilment"}, GENERATION_FILE)
+                          "procurement", "sales", "fulfilment", "collections"}, GENERATION_FILE)
     defaults, presets = raw.get("defaults"), raw.get("presets")
     if not isinstance(defaults, dict) or not isinstance(presets, dict) or not presets:
         raise ConfigError(f"{GENERATION_FILE} needs a 'defaults' mapping and at least one preset under 'presets'")
@@ -440,6 +456,7 @@ def load_generation_config(
         "procurement": copy.deepcopy(raw.get("procurement") or {}),
         "sales": copy.deepcopy(raw.get("sales") or {}),
         "fulfilment": copy.deepcopy(raw.get("fulfilment") or {}),
+        "collections": copy.deepcopy(raw.get("collections") or {}),
     }
     for dotted, value in (overrides or {}).items():
         _apply_override(effective, dotted, _parse_override_value(value) if isinstance(value, str) else value)
@@ -474,7 +491,9 @@ def load_generation_config(
     procurement = _parse_procurement(effective["procurement"])
     sales = _parse_sales(effective["sales"])
     fulfilment = _parse_fulfilment(effective["fulfilment"])
+    collections = _parse_collections(effective["collections"])
     return GenerationConfig(
+        collections=collections,
         procurement=procurement,
         sales=sales,
         fulfilment=fulfilment,
@@ -822,6 +841,34 @@ def _parse_fulfilment(raw: dict[str, Any]) -> FulfilmentSettings:
         refusal_share=_by_payment(raw["refusal_share"], "fulfilment.refusal_share"),
         failure_reasons=_mix(raw["failure_reasons"], "fulfilment.failure_reasons", FAILURE_REASONS),
         cod_remittance_days=_int(raw["cod_remittance_days"], "fulfilment.cod_remittance_days", 0, 60),
+    )
+
+
+def _parse_collections(raw: dict[str, Any]) -> CollectionsSettings:
+    _reject_unknown(raw, _COLLECTIONS_KEYS, "collections")
+    missing = sorted(_COLLECTIONS_KEYS - set(raw))
+    if missing:
+        raise ConfigError(f"collections is missing: {', '.join(missing)}")
+    profiles = raw["profiles"]
+    if not isinstance(profiles, dict) or set(profiles) != set(PAYMENT_PROFILES):
+        raise ConfigError(f"collections.profiles needs exactly {', '.join(PAYMENT_PROFILES)}")
+    parsed = {}
+    for name, entry in profiles.items():
+        if not isinstance(entry, dict) or set(entry) != {"share", "delay_days"}:
+            raise ConfigError(f"collections.profiles.{name} needs share and delay_days")
+        parsed[name] = {"share": _share(entry["share"], f"collections.profiles.{name}.share"),
+                        "delay_days": _pair(entry["delay_days"], f"collections.profiles.{name}.delay_days", -30, 365)}
+    if abs(sum(p["share"] for p in parsed.values()) - 1) > 1e-6:
+        raise ConfigError("collections.profiles: shares must add up to 1")
+    return CollectionsSettings(
+        profiles=parsed,
+        cheque_payer_share=_share(raw["cheque_payer_share"], "collections.cheque_payer_share"),
+        cheque_bounce_share=_share(raw["cheque_bounce_share"], "collections.cheque_bounce_share", 0.5),
+        advance_payer_share=_share(raw["advance_payer_share"], "collections.advance_payer_share"),
+        advance_share=_share(raw["advance_share"], "collections.advance_share"),
+        partial_share=_share(raw["partial_share"], "collections.partial_share"),
+        chargeback_share=_share(raw["chargeback_share"], "collections.chargeback_share", 0.1),
+        chargeback_days=_pair(raw["chargeback_days"], "collections.chargeback_days", 1, 180),
     )
 
 

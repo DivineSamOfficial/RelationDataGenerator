@@ -263,3 +263,17 @@ fulfilment:
   refusal_share: {COD: 0.35, PREPAID: 0.05}   # of failures: the customer refuses → straight back to origin
   failure_reasons: {CUSTOMER_UNAVAILABLE: 0.40, ADDRESS_NOT_FOUND: 0.15, PREMISES_CLOSED: 0.20, WEATHER_DELAY: 0.10, COD_CASH_NOT_READY: 0.15}
   cod_remittance_days: 7                # carrier pays collected cash to the company after this (D43)
+
+# Collections (1D §3 customer_payments; 1E §5; step 3.10): how B2B customers pay their invoices.
+collections:
+  profiles:                             # per customer, stable; planned payment = due date + these days, paid on
+    ON_TIME: {share: 0.55, delay_days: [-12, -2]}       # the customer's next weekly payment day
+    SLIGHTLY_LATE: {share: 0.30, delay_days: [3, 20]}
+    CHRONIC_LATE: {share: 0.15, delay_days: [25, 70]}
+  cheque_payer_share: 0.20              # customers who pay by cheque (clears after the method's lag)
+  cheque_bounce_share: 0.02
+  advance_payer_share: 0.05             # customers who sometimes pay a round sum on account
+  advance_share: 0.50                   # chance on their payment day in the first week of a month
+  partial_share: 0.08                   # payment runs that pay the last due invoice only in part
+  chargeback_share: 0.003               # card payments charged back by the customer's bank
+  chargeback_days: [15, 60]

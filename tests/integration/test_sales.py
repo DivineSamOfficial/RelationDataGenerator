@@ -31,7 +31,7 @@ from scmgen.validation.framework import ValidationContext, run_checks
 pytestmark = pytest.mark.integration
 
 CATALOGUE = load_catalogue()
-FULFILMENT_RULES = ("V-SO-03", "V-SO-04")          # tests/integration/test_fulfilment.py
+FULFILMENT_RULES = ("V-SO-03", "V-SO-04", "V-PY-01")   # test_fulfilment.py, test_collections.py
 RULES = sorted(r for r in framework.registered_checks()
                if (r.startswith(("V-SO", "V-PY", "V-AR")) or r == "V-IN-03") and r not in FULFILMENT_RULES)
 WINDOW = {"history.start_date": "2025-08-01", "history.end_date": "2025-11-30", "sales.backorder_cancel_days": 7}
@@ -154,9 +154,9 @@ def test_prepaid_checkout_posts_receipts(generated):
     # Gateway fee = amount × the method's fee %, settlement date = payment date + the method's lag.
     assert _one(conn, """SELECT COUNT(*) FROM customer_payments p JOIN payment_methods m USING (payment_method_id)
                          WHERE p.gateway_fee_amount <> ROUND(p.amount * COALESCE(m.gateway_fee_percent, 0) / 100, 2)
-                            OR (p.payment_status = 'SUCCESS' AND p.payment_type <> 'COD_COLLECTION'
+                            OR (p.payment_status = 'SUCCESS' AND p.payment_type IN ('ORDER_PREPAYMENT', 'COUNTER_PAYMENT')
                                 AND p.settlement_date <> DATE_ADD(p.payment_date, INTERVAL m.settlement_lag_days DAY))""") == 0
-    # (COD settles at the carrier's remittance: tests/integration/test_fulfilment.py.)
+    # (COD settles at the carrier's remittance: test_fulfilment.py; cheques when cleared: test_collections.py.)
 
 
 def test_payment_terms_follow_the_checkout(generated):

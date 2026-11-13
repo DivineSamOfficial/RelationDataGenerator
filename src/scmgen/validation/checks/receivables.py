@@ -1,7 +1,9 @@
-"""Accounts receivable rules (1E §7, V-AR-*). Each check returns the violating rows.
+"""Accounts receivable rules (1E §7, V-AR-*) and invoices vs payments (1D §9, V-PY-01). Each check returns the
+violating rows.
 
 Step 3.8a brings the first AR items (successful prepayments); the checks already cover every item type, so
-invoices (3.9), credit notes and refunds (3.11) are checked as soon as they exist.
+invoices (3.9), credit notes and refunds (3.11) are checked as soon as they exist. V-PY-01 arrives with
+collections (3.10).
 """
 
 from __future__ import annotations
@@ -90,4 +92,25 @@ def open_amounts_follow_allocations(ctx: ValidationContext) -> Rows:
            OR COALESCE(p.customer_id, c.customer_id) <> COALESCE(i.customer_id, rc.customer_id)
            OR x.allocation_date < COALESCE(p.payment_date, c.credit_note_date)
            OR x.allocation_date < COALESCE(i.invoice_date, DATE(r.processed_at), x.allocation_date)""")]
+    return found
+
+
+@check("V-PY-01")
+def invoices_against_payments(ctx: ValidationContext) -> Rows:
+    """★ Invoices vs payments: Σ ACTIVE allocations (payments and credit notes) per invoice ≤ its total; an issued
+    invoice's outstanding (its AR item's open amount) = total − Σ allocations; a cancelled invoice keeps no
+    active allocation; only SUCCESS payments are allocated (D5)."""
+    found = [{**r, "problem": "allocations exceed the invoice, or outstanding ≠ total − allocations"} for r in ctx.rows("""
+        SELECT i.invoice_id, i.invoice_status, i.total_amount, a.open_amount, COALESCE(x.allocated, 0) AS allocated
+        FROM invoices i JOIN accounts_receivable a ON a.invoice_id = i.invoice_id
+        LEFT JOIN (SELECT invoice_id, SUM(allocated_amount) AS allocated FROM customer_payment_allocations
+                   WHERE allocation_status = 'ACTIVE' AND invoice_id IS NOT NULL GROUP BY invoice_id) x
+               ON x.invoice_id = i.invoice_id
+        WHERE COALESCE(x.allocated, 0) > i.total_amount
+           OR (i.invoice_status = 'ISSUED' AND a.open_amount <> i.total_amount - COALESCE(x.allocated, 0))
+           OR (i.invoice_status = 'CANCELLED' AND COALESCE(x.allocated, 0) <> 0)""")]
+    found += [{**r, "problem": "active allocation of a payment that isn't SUCCESS"} for r in ctx.rows("""
+        SELECT x.customer_payment_allocation_id, p.payment_status FROM customer_payment_allocations x
+        JOIN customer_payments p ON p.customer_payment_id = x.customer_payment_id
+        WHERE x.allocation_status = 'ACTIVE' AND p.payment_status <> 'SUCCESS'""")]
     return found

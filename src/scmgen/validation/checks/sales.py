@@ -188,14 +188,15 @@ def order_statuses(ctx: ValidationContext) -> Rows:
 def credit_holds(ctx: ValidationContext) -> Rows:
     """D47: a B2B order on credit is confirmed only while open AR (as of that moment) + the order's value is
     within the credit limit, unless Finance overrode the hold (by an approver whose limit covers the order).
-    Open AR at a moment = Σ AR items recorded by then (allocations only move amounts between the customer's
-    own items); a reversed item counts until it was reversed. Credit limits are kept without history (like
+    Credit control checks against the AR position at the start of the business day (the overnight snapshot):
+    Σ AR items recorded before that day (allocations only move amounts between the customer's own items); a
+    reversed item counts until it was reversed. Credit limits are kept without history (like
     prices, D37), so only confirmations made since the customer row last changed are judged."""
     found = [{**r, "problem": "confirmed above the credit limit"} for r in ctx.rows(f"""
         SELECT o.order_id, h.changed_at, k.credit_limit, o.order_total_estimate,
                COALESCE((SELECT SUM(a.original_amount) FROM accounts_receivable a
-                         WHERE a.customer_id = o.customer_id AND a.created_at <= h.changed_at
-                           AND (a.item_status <> 'REVERSED' OR a.updated_at > h.changed_at)), 0) AS open_ar
+                         WHERE a.customer_id = o.customer_id AND a.created_at < DATE(h.changed_at)
+                           AND (a.item_status <> 'REVERSED' OR a.updated_at >= DATE(h.changed_at))), 0) AS open_ar
         FROM orders o JOIN customers k ON k.customer_id = o.customer_id
         JOIN order_status_history h ON h.order_id = o.order_id AND h.to_status = 'CONFIRMED'
              AND h.from_status IN ('PENDING_CREDIT_CHECK', 'ON_HOLD')

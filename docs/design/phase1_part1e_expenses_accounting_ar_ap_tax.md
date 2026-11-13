@@ -567,6 +567,19 @@ The allocation (payment → invoice) posts nothing. It sets both AR items' `open
 
 ---
 
+### Implementation notes (Phase 3 step 3.10: collections)
+
+No tables or columns change. Settings: `collections:` in `config/generation.yaml`.
+
+| Topic | Implementation |
+|---|---|
+| Payment profile | Not stored: like the demand traits, each B2B customer's profile comes from a stream keyed by the customer (D65): `ON_TIME` 55% (planned payment 2–12 days before the due date), `SLIGHTLY_LATE` 30% (3–20 days after), `CHRONIC_LATE` 15% (25–70 days after); a weekly payment day; 20% pay by cheque; 5% sometimes pay a round sum on account (`ADVANCE`). Each invoice's planned date is drawn from a stream keyed by the invoice. Trial: 58% of B2B invoices paid after the due date, 6% more than 30 days late |
+| Payment run | On its payment day a customer pays every invoice whose planned date has come, less its credit on account and uncleared cheques; ~8% of runs pay the last invoice only in part. NEFT / IMPS (≤ ₹5 lakh) / RTGS (≥ ₹2 lakh) succeed the same day: P08 Dr Bank (collections account) / Cr AR, settlement date = payment date (the bank line comes with 3.14). Only items recorded before the day are paid (an invoice issued this afternoon waits for the next run) |
+| Cheques | Received as `INITIATED`, cleared after the method's lag on a working day (P08 at clearance, D53 note) or bounced ~2% (`FAILED` / `CHEQUE_BOUNCED`, nothing posted; the invoices stay open and are paid on a later run) |
+| Allocation (D49) | On every payment day and at cheque clearance, the customer's open credits (payments, advances, credit notes) are applied to its open invoices, oldest due date first; no journal. B2C credits are order-specific (refunds: 3.11) and are not applied across orders |
+| Chargebacks (P09) | ~0.3% of card receipts (prepaid orders, counter sales) are charged back 15–60 days later: the payment becomes `REVERSED`, its P08 is reversed (D61), its AR item is REVERSED, its allocations are undone and the invoices are open again |
+| Credit control | The credit check (D47) uses the AR position at the start of the business day (V-SO-06 judges the same): with collections, held B2B orders are mostly released by payments (credit-hold expiries in the Small trial: 5 in four months, were 20+ without collections) |
+
 ## 7. Reconciliations the Design Guarantees
 
 These are the master-prompt reconciliations (§10, §15E) for this part. Each is a validation in Phase 3 and must pass in clean mode.

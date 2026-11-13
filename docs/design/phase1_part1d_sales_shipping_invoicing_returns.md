@@ -660,7 +660,7 @@ All FKs `RESTRICT` (D15). Forward references to 1E are marked.
 | ★ V-SO-03 | Order-line counters = Σ shipment lines (shipped), delivered shipments (delivered), invoice lines of ISSUED invoices (invoiced), RTO shipments (rto), approved return lines (return requested) |
 | ★ V-SO-04 | Orders vs invoices: every shipped or handed-over quantity is invoiced exactly once (net of cancelled invoices); no invoice without a dispatch or handover |
 | V-SO-05 | Order status agrees with line statuses and quantities; status-history chains are valid |
-| V-SO-06 | Credit hold: no B2B order is CONFIRMED while open AR + order value exceeds the credit limit, unless released by an override recorded in history (credit limits have no history, so confirmations made since the customer row last changed are judged) |
+| V-SO-06 | Credit hold: no B2B order is CONFIRMED while open AR (as of the start of its business day) + order value exceeds the credit limit, unless released by an override recorded in history (credit limits have no history, so confirmations made since the customer row last changed are judged) |
 | ★ V-PY-01 | Invoices vs payments: Σ allocated SUCCESS payments + credit notes ≤ invoice total; outstanding = total − allocations − credits (1E) |
 | V-PY-02 | Prepaid orders are confirmed only after a SUCCESS payment ≥ the order estimate; COD payments exist exactly for delivered COD shipments, with amount = `cod_amount` |
 | V-SH-01 | Shipment timestamps follow the status order; dispatch after order confirmation; delivery after dispatch |
