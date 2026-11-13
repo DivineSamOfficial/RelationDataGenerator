@@ -1,0 +1,121 @@
+# Example queries for the Table guide (owner request O1). They run as written against the MySQL OLTP schema and,
+# with the `raw.` prefix, against the DuckDB replica. Tables without curated examples get a generated join example.
+examples:
+  orders:
+    - title: Orders and net sales by month and channel
+      sql: |
+        SELECT DATE_FORMAT(o.order_date, '%Y-%m') AS month, c.channel_name,
+               COUNT(*) AS orders, SUM(o.order_total_estimate) AS order_value
+        FROM orders o JOIN sales_channels c ON c.sales_channel_id = o.sales_channel_id
+        WHERE o.order_status <> 'CANCELLED'
+        GROUP BY 1, 2 ORDER BY 1, 2;
+    - title: Order status funnel
+      sql: |
+        SELECT order_status, COUNT(*) AS orders FROM orders GROUP BY 1 ORDER BY 2 DESC;
+  order_line_items:
+    - title: Fill rate per business unit (shipped vs ordered quantity)
+      sql: |
+        SELECT b.business_unit_name, SUM(l.quantity_ordered) AS ordered, SUM(l.quantity_shipped) AS shipped,
+               ROUND(SUM(l.quantity_shipped) / SUM(l.quantity_ordered), 3) AS fill_rate
+        FROM order_line_items l JOIN products p ON p.product_id = l.product_id
+        JOIN business_units b ON b.business_unit_id = p.business_unit_id
+        GROUP BY 1;
+  invoices:
+    - title: Revenue and GST by month and GSTIN
+      sql: |
+        SELECT DATE_FORMAT(i.invoice_date, '%Y-%m') AS month, g.gstin, SUM(i.taxable_amount) AS taxable,
+               SUM(i.cgst_amount + i.sgst_amount + i.igst_amount) AS gst
+        FROM invoices i JOIN company_gst_registrations g ON g.company_gst_registration_id = i.company_gst_registration_id
+        WHERE i.invoice_status = 'ISSUED' GROUP BY 1, 2 ORDER BY 1, 2;
+  accounts_receivable:
+    - title: Receivables ageing (open invoices by days past due)
+      sql: |
+        SELECT CASE WHEN DATEDIFF(CURDATE(), due_date) <= 0 THEN 'not due'
+                    WHEN DATEDIFF(CURDATE(), due_date) <= 30 THEN '1-30'
+                    WHEN DATEDIFF(CURDATE(), due_date) <= 60 THEN '31-60'
+                    WHEN DATEDIFF(CURDATE(), due_date) <= 90 THEN '61-90' ELSE '90+' END AS bucket,
+               COUNT(*) AS items, SUM(open_amount) AS open_amount
+        FROM accounts_receivable WHERE item_type = 'INVOICE' AND item_status IN ('OPEN', 'PARTIALLY_SETTLED')
+        GROUP BY 1;
+  accounts_payable:
+    - title: Payables due in the next 30 days per supplier
+      sql: |
+        SELECT s.supplier_name, SUM(a.open_amount) AS open_amount, MIN(a.due_date) AS first_due
+        FROM accounts_payable a JOIN suppliers s ON s.supplier_id = a.supplier_id
+        WHERE a.item_status IN ('OPEN', 'PARTIALLY_SETTLED') GROUP BY 1 ORDER BY 2 DESC LIMIT 20;
+  inventory:
+    - title: Stock value and moving-average cost per warehouse
+      sql: |
+        SELECT w.warehouse_code, COUNT(*) AS products, SUM(i.qty_sellable) AS sellable_units,
+               SUM(i.stock_value) AS stock_value
+        FROM inventory i JOIN warehouses w ON w.warehouse_id = i.warehouse_id GROUP BY 1 ORDER BY 1;
+  inventory_transactions:
+    - title: Stock movements by type and month (quantity and value)
+      sql: |
+        SELECT DATE_FORMAT(transaction_at, '%Y-%m') AS month, transaction_type,
+               SUM(quantity) AS quantity, SUM(value_change) AS value
+        FROM inventory_transactions GROUP BY 1, 2 ORDER BY 1, 2;
+    - title: Rebuild one product's stock card (running balance)
+      sql: |
+        SELECT transaction_at, transaction_type, stock_status, quantity, unit_cost, value_change,
+               SUM(quantity) OVER (ORDER BY transaction_at, inventory_transaction_id) AS running_qty
+        FROM inventory_transactions WHERE warehouse_id = 1 AND product_id = 1 ORDER BY transaction_at;
+  journal_entry_lines:
+    - title: Trial balance (all periods to date)
+      sql: |
+        SELECT a.account_code, a.account_name, SUM(l.debit_amount) AS debit, SUM(l.credit_amount) AS credit,
+               SUM(l.debit_amount - l.credit_amount) AS balance
+        FROM journal_entry_lines l JOIN chart_of_accounts a ON a.account_id = l.account_id
+        GROUP BY 1, 2 ORDER BY 1;
+  gl_period_balances:
+    - title: Monthly P&L from the period balances
+      sql: |
+        SELECT p.period_code, t.account_type_code, SUM(b.period_debit - b.period_credit) AS movement
+        FROM gl_period_balances b JOIN accounting_periods p ON p.accounting_period_id = b.accounting_period_id
+        JOIN chart_of_accounts a ON a.account_id = b.account_id
+        JOIN account_types t ON t.account_type_id = a.account_type_id
+        WHERE t.financial_statement = 'PROFIT_AND_LOSS' GROUP BY 1, 2 ORDER BY 1, 2;
+  shipments:
+    - title: On-time delivery rate per carrier
+      sql: |
+        SELECT c.carrier_name, COUNT(*) AS delivered,
+               ROUND(AVG(DATE(s.delivered_at) <= s.expected_delivery_date), 3) AS on_time_rate
+        FROM shipments s JOIN shipping_carriers c ON c.shipping_carrier_id = s.shipping_carrier_id
+        WHERE s.shipment_status = 'DELIVERED' GROUP BY 1;
+  purchase_order_headers:
+    - title: Supplier delivery performance (late receipts)
+      sql: |
+        SELECT s.supplier_name, COUNT(DISTINCT h.purchase_order_id) AS pos,
+               SUM(g.receipt_date > h.expected_delivery_date) AS late_receipts
+        FROM purchase_order_headers h JOIN suppliers s ON s.supplier_id = h.supplier_id
+        JOIN goods_receipts g ON g.purchase_order_id = h.purchase_order_id
+        GROUP BY 1 ORDER BY 3 DESC LIMIT 20;
+  sales_returns:
+    - title: Return reasons and outcomes
+      sql: |
+        SELECT rl.return_reason, r.return_status, COUNT(*) AS line_count, SUM(rl.quantity_received) AS units
+        FROM sales_returns r JOIN sales_return_line_items rl ON rl.sales_return_id = r.sales_return_id
+        GROUP BY 1, 2 ORDER BY 3 DESC;
+  expenses:
+    - title: Operating expenses by category and month
+      sql: |
+        SELECT DATE_FORMAT(e.expense_date, '%Y-%m') AS month, c.category_name, SUM(l.taxable_amount) AS amount
+        FROM expenses e JOIN expense_line_items l ON l.expense_id = e.expense_id
+        JOIN expense_categories c ON c.expense_category_id = l.expense_category_id
+        WHERE e.expense_status = 'APPROVED' GROUP BY 1, 2 ORDER BY 1, 3 DESC;
+  bank_transactions:
+    - title: Bank statement with running balance (one account)
+      sql: |
+        SELECT statement_date, transaction_type, narration, credit_amount, debit_amount, balance_after
+        FROM bank_transactions WHERE bank_account_id = 1 ORDER BY statement_date, bank_transaction_id LIMIT 100;
+  tax_transactions:
+    - title: Output vs input GST per GSTIN and return period
+      sql: |
+        SELECT company_gst_registration_id, return_period, tax_direction,
+               SUM(cgst_amount + sgst_amount + igst_amount) AS gst
+        FROM tax_transactions GROUP BY 1, 2, 3 ORDER BY 1, 2, 3;
+  customer_payments:
+    - title: Payment success rate by method
+      sql: |
+        SELECT m.method_code, COUNT(*) AS attempts, ROUND(AVG(p.payment_status = 'SUCCESS'), 3) AS success_rate
+        FROM customer_payments p JOIN payment_methods m ON m.payment_method_id = p.payment_method_id GROUP BY 1;

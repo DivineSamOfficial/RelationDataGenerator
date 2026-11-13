@@ -36,9 +36,13 @@ app = typer.Typer(help="Synthetic supply-chain OLTP generator.", no_args_is_help
 db_app = typer.Typer(help="MySQL server and schema commands.", no_args_is_help=True)
 workspace_app = typer.Typer(help="Create, list, inspect and delete company workspaces.", no_args_is_help=True)
 generate_app = typer.Typer(help="Data generation (Phase 3).", no_args_is_help=True)
+report_app = typer.Typer(help="Reports over a generated workspace.", no_args_is_help=True)
+load_app = typer.Typer(help="Load the DuckDB analytics replica (Phase 4).")
 app.add_typer(db_app, name="db")
 app.add_typer(workspace_app, name="workspace")
 app.add_typer(generate_app, name="generate")
+app.add_typer(report_app, name="report")
+app.add_typer(load_app, name="load")
 
 log = logging.getLogger("scmgen.cli")
 
@@ -366,17 +370,25 @@ def generate_history_command(
     preset: Annotated[str | None, typer.Option("--preset", help="small, medium or large (default from config).")] = None,
     days: Annotated[int | None, typer.Option("--days", help="Simulate only this many days.")] = None,
     sets: Annotated[list[str], typer.Option("--set", help="Override a setting (repeatable).")] = [],
+    scenario: Annotated[str | None, typer.Option(
+        "--scenario", help="A scenario profile of config/scenarios.yaml, e.g. stress (applied before --set).")] = None,
     force: Annotated[bool, typer.Option("--force", help="Run although the last validation failed.")] = False,
 ) -> None:
     """Generate master data (if missing) and simulate day by day up to the configured end date."""
     from scmgen.generation.engine import generate_history
+    from scmgen.generation.scenarios import profile_overrides
 
     settings = _bootstrap()
     try:
-        config = load_generation_config(preset=preset, overrides=_parse_sets(sets))
+        overrides = {**profile_overrides(scenario), **_parse_sets(sets)}
+        config = load_generation_config(preset=preset, overrides=overrides)
         result = generate_history(settings, code, config, days=days, force=force)
     except ScmgenError as exc:
         _fail(exc, "generate.history.error")
+    _print_history(result)
+
+
+def _print_history(result) -> None:
     if result.master_data_rows:
         typer.echo(f"Master data: {result.master_data_rows:,} rows on day 0")
     if result.status == "NOTHING_TO_DO":
@@ -425,3 +437,184 @@ def generate_packs(
 
 if __name__ == "__main__":  # pragma: no cover
     app()
+
+
+@report_app.command("scenarios")
+def report_scenarios(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+) -> None:
+    """How often each master-prompt business scenario occurs in the workspace, against config/scenarios.yaml."""
+    from scmgen.db.connection import create_mysql_engine
+    from scmgen.db.workspaces import get_workspace
+    from scmgen.generation.scenarios import load_scenarios
+    from scmgen.reports.scenarios import measure
+
+    settings = _bootstrap()
+    try:
+        workspace = get_workspace(settings, code)
+        scenarios = load_scenarios()["scenarios"]
+        engine = create_mysql_engine(settings, role="app", database=workspace.oltp_schema)
+        with engine.connect() as conn:
+            rows = measure(conn, scenarios)
+        engine.dispose()
+    except ScmgenError as exc:
+        _fail(exc, "report.scenarios.error")
+    typer.echo(f"{'Scenario':<38}{'Measured':>12}  {'Band':<18}{'Status':<8}Count")
+    off = 0
+    for row in rows:
+        shown = "-" if row.value is None else (f"{row.value:.1f}/month" if row.unit == "per_month" else f"{row.value:.1%}")
+        band = (f"{row.band[0]:g}-{row.band[1]:g}/month" if row.unit == "per_month"
+                else f"{row.band[0]:.0%}-{row.band[1]:.0%}")
+        colour = {"OK": typer.colors.GREEN, "NO_DATA": typer.colors.YELLOW}.get(row.status, typer.colors.RED)
+        typer.echo(f"{row.scenario:<38}{shown:>12}  {band:<18}", nl=False)
+        typer.secho(f"{row.status:<8}", fg=colour, nl=False)
+        typer.echo(f"{row.numerator:,.0f} of {row.denominator:,.0f}")
+        if row.status in ("LOW", "HIGH"):
+            off += 1
+            typer.echo(f"{'':<40}tune: {', '.join(row.knobs)}")
+    typer.echo(f"{len(rows) - off} of {len(rows)} scenarios within their band.")
+
+
+@generate_app.command("continue")
+def generate_continue(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+    days: Annotated[int | None, typer.Option("--days", help="Simulate this many more days (default: up to yesterday).")] = None,
+    allow_future: Annotated[bool, typer.Option("--allow-future", help="Allow simulating today or later (D68).")] = False,
+    force: Annotated[bool, typer.Option("--force", help="Run although the last validation failed (D76).")] = False,
+) -> None:
+    """Continue the workspace's history with the same settings as its last run (D14, D68)."""
+    from scmgen.generation.actions import continue_workspace
+
+    settings = _bootstrap()
+    try:
+        result = continue_workspace(settings, code, days=days, allow_future=allow_future, force=force)
+    except ScmgenError as exc:
+        _fail(exc, "generate.continue.error")
+    _print_history(result)
+
+
+@generate_app.command("rebuild")
+def generate_rebuild(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+    confirm: Annotated[str, typer.Option("--confirm", help="Type the workspace code again: every row is dropped.")],
+) -> None:
+    """Drop and regenerate the workspace's history with the same seed and settings (same data, D14, V-SY-04)."""
+    from scmgen.generation.actions import rebuild_workspace
+
+    settings = _bootstrap()
+    try:
+        result = rebuild_workspace(settings, code, confirm)
+    except ScmgenError as exc:
+        _fail(exc, "generate.rebuild.error")
+    _print_history(result)
+
+
+@generate_app.command("plan")
+def generate_plan(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+    days: Annotated[int | None, typer.Option("--days", help="As `continue --days`.")] = None,
+    allow_future: Annotated[bool, typer.Option("--allow-future", help="As `continue --allow-future`.")] = False,
+) -> None:
+    """Show what `generate continue` would simulate, without writing anything."""
+    from scmgen.generation.actions import plan
+
+    settings = _bootstrap()
+    try:
+        result = plan(settings, code, days=days, allow_future=allow_future)
+    except ScmgenError as exc:
+        _fail(exc, "generate.plan.error")
+    typer.echo(f"Workspace {result.code} ({result.status}), preset {result.preset}")
+    if result.overrides:
+        typer.echo("Overrides: " + ", ".join(f"{k}={v}" for k, v in sorted(result.overrides.items())))
+    if result.days:
+        typer.echo(f"Continue would simulate {result.days} day(s): {result.first_day} .. {result.last_day}")
+    else:
+        typer.echo("Nothing to simulate: the workspace is already up to date.")
+    if result.blocked:
+        typer.secho(f"Blocked: {result.blocked}", fg=typer.colors.RED)
+
+
+@load_app.callback(invoke_without_command=True)
+def load_command(
+    ctx: typer.Context,
+    code: Annotated[str | None, typer.Option("--workspace", "-w", help="Workspace code.")] = None,
+    full: Annotated[bool, typer.Option("--full", help="Reload every table (or the --table ones) in full.")] = False,
+    tables: Annotated[list[str], typer.Option("--table", help="Load only this table (repeatable); implies a reload.")] = [],
+    force: Annotated[bool, typer.Option("--force", help="Load although the last validation failed (D76).")] = False,
+    source: Annotated[str, typer.Option("--source", help="oltp (clean data) or sim (Phase 7 staging copies).")] = "oltp",
+) -> None:
+    """Load the workspace's MySQL data into its DuckDB replica: full, incremental or per table (1G §6)."""
+    if ctx.invoked_subcommand is not None:
+        return
+    if not code:
+        typer.secho("Missing option '--workspace' / '-w'.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
+    from scmgen.loader.run import load_workspace
+
+    settings = _bootstrap()
+    try:
+        result = load_workspace(settings, code, full=full, tables=tables or None, force=force, source=source)
+    except ScmgenError as exc:
+        _fail(exc, "load.error")
+    typer.echo(f"Replica {result.duckdb_path} (load {result.load_batch_id}, high-water mark {result.high_water_mark})")
+    if result.full_reason:
+        typer.echo(f"Full load: {result.full_reason}")
+    for kind in ("FULL", "TABLE_RELOAD", "INCREMENTAL_APPEND", "INCREMENTAL_MERGE"):
+        group = [t for t in result.tables if t.load_type == kind]
+        if group:
+            typer.echo(f"  {kind:<20}{len(group):>3} tables  {sum(t.rows_extracted for t in group):>10,} rows read  "
+                       f"{sum(t.rows_inserted for t in group):>10,} inserted  {sum(t.rows_updated for t in group):>9,} updated")
+    for table in result.tables:
+        if table.status != "SUCCESS" or table.reconciliation == "FAILED":
+            typer.secho(f"  {table.table}: {table.status}, reconciliation {table.reconciliation} {table.message or ''}",
+                        fg=typer.colors.RED)
+    colour = typer.colors.GREEN if result.status in ("SUCCESS", "NOTHING_TO_DO") and result.reconciled else typer.colors.RED
+    typer.secho(f"Load {result.status}; reconciliation {'PASSED' if result.reconciled else 'FAILED'}", fg=colour)
+    if result.status not in ("SUCCESS", "NOTHING_TO_DO") or not result.reconciled:
+        raise typer.Exit(1)
+
+
+@load_app.command("status")
+def load_status_command(
+    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+    source: Annotated[str, typer.Option("--source", help="oltp or sim.")] = "oltp",
+) -> None:
+    """Watermarks, the last load of each table and recent loader errors."""
+    from scmgen.loader.run import load_status
+
+    settings = _bootstrap()
+    try:
+        status = load_status(settings, code, source=source)
+    except ScmgenError as exc:
+        _fail(exc, "load.status.error")
+    typer.echo(f"Replica {status['path']}: source build {'matches' if status['build_matches'] else 'CHANGED (next load is full)'}, "
+               f"high-water mark {status['info'].get('high_water_mark')}")
+    typer.echo(f"{'Table':<32}{'Strategy':<9}{'Rows':>10}  {'Watermark':<28}{'Last load':<20}{'Status':<9}Recon")
+    for table, strategy, ts, pk, rows, kind, state, recon, finished in status["tables"]:
+        mark = f"{ts:%Y-%m-%d %H:%M:%S} #{pk}" if ts else "-"
+        typer.echo(f"{table:<32}{strategy:<9}{rows or 0:>10,}  {mark:<28}{(kind or '-'):<20}{(state or '-'):<9}{recon or '-'}")
+    if status["errors"]:
+        typer.echo("Recent errors:")
+        for occurred, table, stage, kind, message in status["errors"][:10]:
+            typer.echo(f"  {occurred:%Y-%m-%d %H:%M:%S} {table} {stage}/{kind}: {message}")
+
+
+# --- ui ---------------------------------------------------------------------------------------
+
+@app.command("ui")
+def ui_command(
+    port: Annotated[int, typer.Option("--port", help="Port of the control panel.")] = 8501,
+) -> None:
+    """Start the Streamlit control panel (D12) on http://localhost:<port>. Stop it with Ctrl+C."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    import scmgen.ui
+
+    app_path = Path(scmgen.ui.__file__).with_name("app.py")
+    typer.echo(f"Control panel: http://localhost:{port}  (Ctrl+C to stop)")
+    raise typer.Exit(subprocess.call([sys.executable, "-m", "streamlit", "run", str(app_path),
+                                      "--server.port", str(port), "--server.address", "localhost",
+                                      "--server.headless", "true", "--browser.gatherUsageStats", "false"]))
+

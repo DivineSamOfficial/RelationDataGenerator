@@ -37,7 +37,15 @@ PLANNED_STEPS = {
     "MD": "3.5", "SY": "3.6", "PR": "3.7", "IN": "3.7", "SO": "3.8", "SH": "3.9", "IV": "3.9", "PY": "3.10",
     "AR": "3.10", "RT": "3.11", "EX": "3.13", "AP": "3.13", "BK": "3.14", "TX": "3.14", "AC": "3.14", "LD": "Phase 4",
 }
-PLANNED_OVERRIDES = {"V-SY-04": "3.16 (double-build test)", **{f"V-PR-{n:02d}": "3.7c" for n in (12, 13, 14)}}
+PLANNED_OVERRIDES = {**{f"V-PR-{n:02d}": "3.7c" for n in (12, 13, 14)}}
+# Rules that compare two builds can't run inside one workspace's validation: a test proves them (NOT_APPLICABLE
+# in a workspace report, with the test named).
+PROVEN_BY_TESTS = {"V-SY-04": "tests/integration/test_actions.py (a rebuild reproduces every table's checksum; "
+                              "a run split in two equals one run: tests/integration/test_engine.py)"}
+
+
+class NotApplicable(Exception):
+    """Raised by a check that can't apply to this workspace yet (e.g. no DuckDB replica); its message says why."""
 
 
 class ValidationError(RuntimeError):
@@ -180,7 +188,9 @@ def run_checks(ctx: ValidationContext, catalogue: Mapping[str, Rule], rule_ids: 
     for rule in _select(catalogue, rule_ids, modules):
         result = CheckResult(rule.rule_id, rule.module, rule.text, rule.reconciliation, "PENDING")
         registered = checks.get(rule.rule_id)
-        if registered is None:
+        if registered is None and rule.rule_id in PROVEN_BY_TESTS:
+            result.status, result.message = "NOT_APPLICABLE", f"proven by {PROVEN_BY_TESTS[rule.rule_id]}"
+        elif registered is None:
             step = PLANNED_OVERRIDES.get(rule.rule_id) or PLANNED_STEPS.get(rule.module, "later")
             result.message = f"not implemented yet (planned: step {step})"
         elif registered.requires_master_data and not ctx.has_master_data:
@@ -188,7 +198,12 @@ def run_checks(ctx: ValidationContext, catalogue: Mapping[str, Rule], rule_ids: 
         else:
             clock = time.perf_counter()
             try:
-                violations = registered.function(ctx)
+                try:
+                    violations = registered.function(ctx)
+                except NotApplicable as reason:
+                    result.status, result.message = "NOT_APPLICABLE", str(reason)
+                    results.append(result)
+                    continue
                 result.status = "FAILED" if violations else "PASSED"
                 result.violations = len(violations)
                 result.sample = violations[:SAMPLE_SIZE]

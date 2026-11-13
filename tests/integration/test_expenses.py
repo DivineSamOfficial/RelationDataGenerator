@@ -140,6 +140,17 @@ def test_payroll(generated):
     assert payable == payroll[-1][2]
 
 
+def test_scenario_report_measures_every_scenario(generated):
+    from scmgen.generation.scenarios import load_scenarios
+    from scmgen.reports.scenarios import measure
+    _, conn = generated
+    rows = measure(conn, load_scenarios()["scenarios"])
+    assert len(rows) == 20
+    # Four months of Small data already show nearly every scenario (refunds and late-month ones may be missing).
+    assert sum(r.status == "NO_DATA" for r in rows) <= 3
+    assert all(r.value is None or r.value >= 0 for r in rows)
+
+
 _FIRST = "(SELECT {key} FROM (SELECT MIN({key}) AS {key} FROM {table} WHERE {where}) x)"
 _PETTY_LINE = _FIRST.format(key="expense_line_item_id", table="expense_line_items",
                             where="expense_id IN (SELECT expense_id FROM expenses WHERE expense_type = 'PETTY_CASH')")

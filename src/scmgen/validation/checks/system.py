@@ -11,11 +11,16 @@ import re
 from collections import defaultdict
 from typing import Any
 
+from sqlalchemy import text
+
 from scmgen.validation.framework import ValidationContext, check
 
 Rows = list[dict[str, Any]]
 
-SYSTEM_TABLES = frozenset({"document_sequences", "generation_runs", "generation_run_steps"})
+SYSTEM_TABLES = frozenset({"document_sequences", "generation_runs", "generation_run_steps",
+                           # scm_<code>_sim control tables (wall clock, Phase 7): the suite also runs on sim copies
+                           "change_event_log", "cdc_capture_watermarks", "sim_copy_info", "anomaly_scenarios",
+                           "anomaly_registry"})
 TAX_SERIES = frozenset({"TAX_INVOICE", "CREDIT_NOTE", "TRANSFER_INVOICE"})
 
 # Where each series' numbers are stored: (document type, table, column).
@@ -108,8 +113,9 @@ def runs_contiguous(ctx: ValidationContext) -> Rows:
 
 @check("V-SY-03")
 def audit_timestamps_within_committed_time(ctx: ValidationContext) -> Rows:
-    """Business rows are recorded no later than the last committed simulated time (D67), and rows a run
-    wrote (ledger movements, journals) are not stamped before that run's first simulated day."""
+    """Business rows are recorded no later than the last committed simulated time (D67), never updated before
+    they were created, and rows a run wrote (ledger movements, journals) are not stamped before that run's first
+    simulated day."""
     found: Rows = []
     limit = ctx.scalar("SELECT MAX(committed_through) FROM generation_runs")
     tables = [t for (t,) in ctx.conn.exec_driver_sql(
@@ -121,10 +127,14 @@ def audit_timestamps_within_committed_time(ctx: ValidationContext) -> Rows:
             if rows:
                 found.append({"table": table, "rows": rows, "problem": "data exists but no run committed any day"})
             continue
-        late = ctx.scalar(f"SELECT COUNT(*) FROM {table} WHERE updated_at > :limit", limit=limit)
+        late, reversed_ = ctx.conn.execute(text(
+            f"SELECT COALESCE(SUM(updated_at > :limit), 0), COALESCE(SUM(updated_at < created_at), 0) FROM {table}"),
+            {"limit": limit}).fetchone()
         if late:
-            found.append({"table": table, "rows": late, "committed_through": limit,
+            found.append({"table": table, "rows": int(late), "committed_through": limit,
                           "problem": "updated_at after the last committed simulated time"})
+        if reversed_:   # the DDL CHECK ck_<table>_audit prevents it in _oltp; copies without constraints need this
+            found.append({"table": table, "rows": int(reversed_), "problem": "updated_at before created_at"})
     for table in ("inventory_transactions", "journal_entries"):
         early = ctx.scalar(f"""
             SELECT COUNT(*) FROM {table} t JOIN generation_runs g ON g.generation_run_id = t.generation_run_id

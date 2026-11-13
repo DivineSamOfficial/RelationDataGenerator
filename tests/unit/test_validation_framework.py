@@ -66,7 +66,7 @@ def test_runner_statuses_and_report(registry):
     assert by_id["V-SY-01"].status == "ERROR" and "ZeroDivisionError" in by_id["V-SY-01"].message
     assert by_id["V-MD-01"].status == "PENDING" and "3.5" in by_id["V-MD-01"].message     # fake registry
     assert by_id["V-MD-06"].message.endswith("(planned: step 3.5)")                     # fake registry
-    assert by_id["V-SY-04"].message.endswith("(planned: step 3.16 (double-build test))")
+    assert by_id["V-SY-04"].status == "NOT_APPLICABLE" and "test_actions.py" in by_id["V-SY-04"].message
     assert not report.passed
     body = json.loads(report.to_json())
     assert body["status"] == "FAILED" and body["counts"]["FAILED"] == 1 and len(body["results"]) == 26

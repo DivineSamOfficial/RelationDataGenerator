@@ -521,15 +521,15 @@ def _record(day: DayContext, ref: _Reference, draft: _Draft, rng: random.Random)
     if draft.expense_type != "PAYROLL" and rng.random() < settings.attachment_share:
         for index, kind in enumerate(draft.attachments[:rng.randint(1, len(draft.attachments))], 1):
             uri = f"s3://docs.example/expenses/{draft.received_date:%Y/%m}/{number.replace('/', '-')}-{index}.pdf"
+            uploaded = submitted_at - timedelta(minutes=rng.randint(1, 30))
             day.writer.insert("expense_attachments_metadata", {
                 "expense_attachment_id": day.ids.next("expense_attachments_metadata"), "expense_id": expense_id,
                 "document_type": kind, "file_name": uri.rsplit("/", 1)[1],
                 "mime_type": "application/pdf" if kind != "RECEIPT" else rng.choice(("image/jpeg", "image/png")),
                 "file_size_bytes": rng.randint(40_000, 2_500_000), "storage_uri": uri,
                 "sha256_checksum": hashlib.sha256(uri.encode()).hexdigest(),
-                "uploaded_at": submitted_at - timedelta(minutes=rng.randint(1, 30)), "uploaded_by_employee_id": submitter,
-                "created_at": submitted_at - timedelta(minutes=rng.randint(1, 30)),
-                "updated_at": submitted_at,
+                "uploaded_at": uploaded, "uploaded_by_employee_id": submitter,
+                "created_at": uploaded, "updated_at": uploaded,   # insert-only (APPEND in the loader, V-LD-02)
             })
     return expense_id
 
@@ -755,7 +755,8 @@ def payroll(day: DayContext) -> None:
             "line_number": number_, "expense_category_id": category["expense_category_id"], "cost_center_id": centre,
             "marketing_campaign_id": None, "description": f"Salaries {day.day:%b %Y}", "sac_code": None,
             "taxable_amount": value, "gst_rate": ZERO, "cgst_amount": ZERO, "sgst_amount": ZERO, "igst_amount": ZERO,
-            "is_itc_eligible": False, "line_total": value, "created_at": at - timedelta(hours=2), "updated_at": at,
+            "is_itc_eligible": False, "line_total": value, "created_at": at - timedelta(hours=2),
+            "updated_at": at - timedelta(hours=2),                # insert-only (APPEND in the loader, V-LD-02)
         })
         builder.debit(category["account_id"], value, cost_center_id=centre)
     book = account_book(day)

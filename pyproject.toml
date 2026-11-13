@@ -15,6 +15,9 @@ dependencies = [
     "python-dotenv>=1.0,<2",
     "typer>=0.12,<1",
     "Faker==40.40.0",            # exact pin: same seed must give the same names in every install (D65)
+    "duckdb>=1.1,<2",            # the analytics replica (Phase 4, D70)
+    "pyarrow>=17",               # MySQL → Arrow → DuckDB batches (D71)
+    "streamlit>=1.38,<2",        # control panel (Phase 5, D12)
 ]
 
 [project.optional-dependencies]

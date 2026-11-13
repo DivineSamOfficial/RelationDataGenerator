@@ -406,7 +406,9 @@ def _direct_orders(day: DayContext, rng: random.Random, warehouse: dict[str, Any
     for product_id, qty in needs:
         preferred = next((a for a in approvals.get(product_id, []) if a["is_preferred"]), None)
         if preferred is not None:
-            per_supplier[preferred["supplier_id"]].append((product_id, _round_up(qty, preferred["minimum_order_quantity"]), preferred))
+            broken = (warehouse["warehouse_id"], product_id) in day.notes.get("broken_case", set())
+            ordered = qty if broken else _round_up(qty, preferred["minimum_order_quantity"])
+            per_supplier[preferred["supplier_id"]].append((product_id, ordered, preferred))
     for supplier_id, items in sorted(per_supplier.items()):
         for start in range(0, len(items), 20):
             chunk = items[start:start + 20]
@@ -488,14 +490,14 @@ def replenishment(day: DayContext) -> None:
         if need <= 0:
             continue
         if row["shelf_life_days"]:
-            # A perishable whose smallest supplier lot can't sell within ~60% of its shelf life isn't bought: the
-            # lot would mostly expire (a buyer lets such a slow line go out of stock; its backorders then wait or
-            # are cancelled). MOQ rounding had bought twice what sold of slow consumer goods.
+            # A perishable whose smallest supplier lot can't sell within ~60% of its shelf life is bought as a
+            # broken case (just the need, not rounded up to the lot): rounding to the MOQ had bought twice what
+            # sold of slow consumer goods, and skipping such lines left 18% of consumer perishable lines short.
             lots = [a["minimum_order_quantity"] for a in approvals.get(row["product_id"], [])]
             sells = rates.get((row["warehouse_id"], row["product_id"]), Decimal(0)) * row["shelf_life_days"] \
                 * Decimal(str(settings.perishable_lot_sell_share))
             if lots and min(lots) > max(sells, need):
-                continue
+                day.notes.setdefault("broken_case", set()).add((row["warehouse_id"], row["product_id"]))
         preferred = next((a for a in approvals.get(row["product_id"], []) if a["is_preferred"]), None)
         if preferred and need * preferred["reference_unit_cost"] <= settings.direct_reorder_max_value:
             direct[row["warehouse_id"]].append((row["product_id"], need))
@@ -539,7 +541,8 @@ def _create_rfq(day: DayContext, rng: random.Random, warehouse: dict[str, Any], 
         candidates.update(a["supplier_id"] for a in options)
         day.writer.insert("rfq_line_items", {
             "rfq_line_item_id": day.ids.next("rfq_line_items"), "rfq_id": rfq_id, "line_number": number,
-            "product_id": product_id, "requested_quantity": _round_up(qty, best["minimum_order_quantity"]),
+            "product_id": product_id, "requested_quantity": qty if (warehouse["warehouse_id"], product_id) in day.notes.get(
+                "broken_case", set()) else _round_up(qty, best["minimum_order_quantity"]),
             "target_unit_price": unit_price(best["reference_unit_cost"]), "line_status": "OPEN",
             "created_at": created, "updated_at": created,
         })

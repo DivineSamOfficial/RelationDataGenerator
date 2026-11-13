@@ -12,7 +12,7 @@ from calendar import monthrange
 import hashlib
 import json
 import platform
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
 from importlib.metadata import version as package_version
 from pathlib import Path
@@ -440,6 +440,7 @@ class GenerationConfig:
     bank: BankSettings | None = None
     gst: GstSettings | None = None
     period_end: PeriodEndSettings | None = None
+    overrides: dict[str, Any] = field(default_factory=dict)   # the dotted-key overrides this config was built with
 
     @property
     def days(self) -> int:
@@ -649,6 +650,7 @@ def load_generation_config(
         batch_size=batch_size,
         volumes=volumes,
         gst_rate_revision=gst_rate_revision,
+        overrides={str(k): v for k, v in sorted((overrides or {}).items())},
     )
 
 

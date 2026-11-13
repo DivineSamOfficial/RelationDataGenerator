@@ -1,0 +1,110 @@
+# DuckDB loader: load strategy per source table (1G §6-7, D69). Every business table of the OLTP schema is listed
+# exactly once (a test checks the list against the schema). Reclassify a table here, without code changes.
+#
+#   FULL   — small, static or derived: reloaded every load (stage table, then swap)
+#   APPEND — insert-only: incremental on (created_at, primary key); a row updated after insert is flagged
+#            (STRATEGY_VIOLATION) by the safety net
+#   MERGE  — mutable: incremental on (updated_at, primary key), upsert by primary key
+
+defaults:
+  batch_size: 50000                     # rows per keyset batch (each batch commits with its watermark)
+  retries: 3                            # per batch, with backoff, before the table is marked FAILED
+  duckdb_threads: 4
+
+FULL:
+  - states
+  - account_types
+  - departments
+  - product_units_of_measure
+  - payment_methods
+  - payment_terms
+  - sales_channels
+  - marketing_channels
+  - companies
+  - company_gst_registrations
+  - business_units
+  - warehouses
+  - warehouse_locations
+  - expense_categories
+  - bank_accounts
+  - chart_of_accounts
+  - cost_centers
+  - tax_accounts
+  - shipping_carriers
+  - product_brands
+  - gl_period_balances
+  - document_sequences
+  - generation_runs
+  - generation_run_steps
+
+APPEND:
+  - goods_inspections
+  - supplier_invoice_line_items
+  - stock_adjustment_line_items
+  - inventory_batches
+  - inventory_transactions
+  - rfq_status_history
+  - quotation_status_history
+  - purchase_order_status_history
+  - order_status_history
+  - shipment_status_history
+  - shipment_line_items
+  - shipment_tracking
+  - delivery_attempts
+  - invoice_line_items
+  - credit_note_line_items
+  - return_inspections
+  - journal_entry_lines
+  - expense_line_items
+  - expense_attachments_metadata
+  - gst_return_line_items
+  - goods_receipt_line_items
+
+MERGE:
+  - customers
+  - customer_addresses
+  - suppliers
+  - supplier_addresses
+  - supplier_products
+  - product_categories
+  - products
+  - product_tax_rates
+  - employees
+  - marketing_campaigns
+  - accounting_periods
+  - rfq_headers
+  - rfq_line_items
+  - rfq_suppliers
+  - quotation_headers
+  - quotation_line_items
+  - purchase_order_headers
+  - purchase_order_line_items
+  - goods_receipts
+  - supplier_invoices
+  - supplier_payments
+  - inventory
+  - inventory_reservations
+  - stock_adjustments
+  - stock_transfers
+  - stock_transfer_line_items
+  - orders
+  - order_line_items
+  - customer_payments
+  - shipments
+  - invoices
+  - credit_notes
+  - sales_returns
+  - sales_return_line_items
+  - refunds
+  - defective_stock
+  - expenses
+  - expense_payments
+  - journal_entries
+  - bank_transactions
+  - bank_reconciliations
+  - accounts_receivable
+  - customer_payment_allocations
+  - accounts_payable
+  - supplier_payment_allocations
+  - tax_transactions
+  - gst_returns

@@ -5,7 +5,8 @@ The master-data reorder policy (``products.reorder_level`` / ``reorder_quantity`
 fast-moving consumer goods, and the excess expired (found when the expiry sweep, 3.12b, started writing it off).
 Warehouses now plan like a replenishment planner does:
 
-* **Demand rate** per warehouse × product = units sold and sent to its stores (not rebalancing) over the last
+* **Demand rate** per warehouse × product = units sold and sent to its stores (not rebalancing), plus shipped-order
+  quantities cancelled for lack of stock at the DC nearest the customer (unmet demand), over the last
   ``procurement.demand_window_days``, per day of that window (also at the start of the history). Read from the ledger once per day.
 * **Reorder point** = rate × ``reorder_cover_days``; **order up to** rate × ``target_cover_days`` — for a product
   with a shelf life at most ``perishable_cover_days`` and a third of its shelf life, so stock sells before it
@@ -61,6 +62,23 @@ def daily_rates(day: DayContext, warehouse_ids: list[int]) -> dict[tuple[int, in
                 GROUP BY warehouse_id, product_id HAVING SUM(units) < 0""",
                 a=day.at(0) - timedelta(days=window), b=day.at(0)):
             rates[(row["warehouse_id"], row["product_id"])] = Decimal(row["units"]) / settings.demand_window_days
+        # Demand that went unmet is demand too: lines cancelled for lack of stock, at the DC nearest the customer.
+        # Without it a product that ran out stopped "selling", its rate fell to zero and it was never bought
+        # again while customers kept ordering it (shortages grew month by month).
+        from scmgen.generation.engine.sales.allocation import nearest_dcs
+        dcs = set(warehouse_ids)
+        for row in day.rows("""
+                SELECT a.city, l.product_id, SUM(l.quantity_cancelled) AS units
+                FROM order_line_items l JOIN orders o ON o.order_id = l.order_id
+                JOIN customer_addresses a ON a.customer_address_id = o.shipping_address_id
+                WHERE o.fulfilment_type = 'SHIP' AND l.quantity_cancelled > 0 AND l.updated_at >= :a AND l.updated_at < :b
+                  AND (o.cancellation_reason IS NULL OR o.cancellation_reason = 'OUT_OF_STOCK')
+                GROUP BY a.city, l.product_id ORDER BY a.city, l.product_id""",
+                a=day.at(0) - timedelta(days=window), b=day.at(0)):
+            nearest = nearest_dcs(day, row["city"] or "")
+            if nearest and nearest[0] in dcs:
+                k = (nearest[0], row["product_id"])
+                rates[k] = rates.get(k, ZERO) + Decimal(row["units"]) / settings.demand_window_days
     day.notes[key] = rates
     return rates
 

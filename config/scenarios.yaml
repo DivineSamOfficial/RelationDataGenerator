@@ -1,0 +1,48 @@
+# Business scenarios of the master prompt (§6) and how often each should occur (1G §2.3; Phase 3 step 3.15).
+#
+# The rates that *produce* the scenarios live in config/generation.yaml and the industry packs; each scenario here
+# names those knobs, the share the distribution report measures (src/scmgen/reports/scenarios.py) and the band a
+# realistic dataset stays within. `scmgen report scenarios -w CODE` measures a workspace against the bands.
+#
+# Profiles are named sets of overrides of generation.yaml (dotted keys, like --set): `generate history --scenario
+# stress` produces more failures, returns and delays while staying internally consistent.
+
+scenarios:
+  successful_deliveries:            {band: [0.85, 0.97], knobs: [sales.customer_cancel_share, sales.payment_failure_share]}
+  partial_deliveries:               {band: [0.05, 0.25], knobs: [procurement.reorder_cover_days, sales.backorder_cancel_days]}
+  cancelled_orders:                 {band: [0.03, 0.10], knobs: [sales.customer_cancel_share, sales.payment_failure_share, sales.hold_expiry_days]}
+  failed_payment_attempts:          {band: [0.02, 0.10], knobs: [sales.payment_failure_share, collections.cheque_bounce_share]}
+  partial_payments:                 {band: [0.01, 0.10], knobs: [collections.partial_share]}
+  overdue_invoices:                 {band: [0.10, 0.45], knobs: [collections.profiles]}
+  partial_customer_returns:         {band: [0.03, 0.30], knobs: [returns.partial_quantity_share]}
+  full_customer_returns:            {band: [0.70, 0.97], knobs: [returns.partial_quantity_share, "pack returns.b2c_return_rate"]}
+  refunds_pending_approval:         {band: [0.00, 0.05], knobs: [returns.refund_approval_days]}
+  refunds_completed:                {band: [0.85, 1.00], knobs: [returns.refund_failure_share]}
+  returns_passing_inspection:       {band: [0.45, 0.85], knobs: ["pack returns.defective_share"]}
+  defective_goods:                  {band: [0.15, 0.55], knobs: ["pack returns.defective_share"]}
+  supplier_quotations_rejected:     {band: [0.20, 0.60], knobs: [procurement.rfq_suppliers, procurement.award_price_ceiling]}
+  purchase_orders_partially_received: {band: [0.05, 0.30], knobs: [procurement.partial_delivery_share]}
+  purchase_orders_with_rejected_goods: {band: [0.01, 0.10], knobs: [procurement.rejection_share]}
+  delayed_supplier_deliveries:      {band: [0.08, 0.30], knobs: [procurement.late_share, procurement.late_days]}
+  stock_shortages:                  {band: [0.01, 0.08], knobs: [procurement.reorder_cover_days, procurement.target_cover_days]}
+  inventory_adjustments:            {band: [50, 3000], unit: per_month, knobs: [inventory.count_difference_share, inventory.handling_damage_per_month]}
+  supplier_payment_delays:          {band: [0.05, 0.30], knobs: [procurement.late_payment_share, procurement.late_payment_weeks]}
+  recurring_and_irregular_expenses: {band: [0.20, 0.70], knobs: [expenses.ad_hoc, expenses.petty_cash_per_month]}
+
+profiles:
+  default: {}
+  stress:                           # a rougher year: more failures, returns and delays (bands don't apply)
+    sales.customer_cancel_share: 0.06
+    sales.payment_failure_share: 0.15
+    collections.cheque_bounce_share: 0.06
+    collections.partial_share: 0.20
+    collections.chargeback_share: 0.01
+    returns.partial_quantity_share: 0.45
+    returns.refund_failure_share: 0.06
+    procurement.late_share: 0.25
+    procurement.rejection_share: 0.06
+    procurement.partial_delivery_share: 0.35
+    procurement.late_payment_share: 0.40
+    fulfilment.late_share: 0.30
+    expenses.rejection_share: 0.08
+    gst.late_share: 0.10

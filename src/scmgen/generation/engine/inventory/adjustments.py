@@ -220,7 +220,7 @@ def post_adjustment(day: DayContext, warehouse: dict[str, Any], kind: str, reaso
             "stock_status": line.status, "system_quantity": line.system_quantity,
             "counted_quantity": line.counted_quantity, "quantity_change": line.quantity_change,
             "unit_cost": line.unit_cost, "value_change": line.value_change, "reason_code": line.reason_code,
-            "created_at": created, "updated_at": at,
+            "created_at": at, "updated_at": at,          # insert-only (APPEND in the loader, V-LD-02)
         })
         day.writer.insert("inventory_transactions", {
             "inventory_transaction_id": day.ids.next("inventory_transactions"), "transaction_at": at,

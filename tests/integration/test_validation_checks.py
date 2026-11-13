@@ -138,7 +138,8 @@ def test_consistent_master_data_passes_every_implemented_rule(db):
     failing = {r.rule_id: (r.status, r.message, r.sample[:2]) for r in report.results if r.status in ("FAILED", "ERROR")}
     assert failing == {}
     assert {rid for rid, r in results.items() if r.status == "PASSED"} == set(IMPLEMENTED) | {"V-MD-06"}
-    assert {rid for rid, r in results.items() if r.status == "PENDING"} == {"V-SY-04"}
+    assert {rid for rid, r in results.items() if r.status == "PENDING"} == set()
+    assert results["V-SY-04"].status == "NOT_APPLICABLE"          # proven by the double-build test
     assert report.passed
 
 

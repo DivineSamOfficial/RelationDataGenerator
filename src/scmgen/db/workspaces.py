@@ -334,9 +334,10 @@ def get_workspace(settings: Settings, code: str) -> WorkspaceInfo:
         engine.dispose()
 
 
-def delete_workspace(settings: Settings, code: str, purge: bool = False) -> str:
+def delete_workspace(settings: Settings, code: str, purge: bool = False, keep_replicas: bool = False) -> str:
     """Drop the workspace's schemas and DuckDB files. The registry row is kept as ARCHIVED (history),
-    or removed entirely with purge=True so the code can be reused. Returns the final state."""
+    or removed entirely with purge=True so the code can be reused. ``keep_replicas`` leaves the DuckDB files
+    (Rebuild: the replica sees the new build id and reloads in full, A2). Returns the final state."""
     code = validate_code(code)
     names = workspace_names(settings, code)
     engine = create_mysql_engine(settings, role="app")
@@ -354,7 +355,7 @@ def delete_workspace(settings: Settings, code: str, purge: bool = False) -> str:
 
             for schema in (row["oltp_schema"], row["sim_schema"]):
                 execute_raw(conn, f"DROP DATABASE IF EXISTS `{schema}`")
-            for duck in (names.duckdb_path, names.duckdb_sim_path):
+            for duck in () if keep_replicas else (names.duckdb_path, names.duckdb_sim_path):
                 duck.unlink(missing_ok=True)
                 duck.with_name(duck.name + ".wal").unlink(missing_ok=True)  # DuckDB write-ahead log
 
