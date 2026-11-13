@@ -297,3 +297,12 @@ inventory:
   transfer_receipt_hours: [7, 8]        # and are unloaded first thing, before the warehouse day starts
   transit_damage_share: 0.005           # transfer lines that arrive partly damaged (to DEFECTIVE)
   transit_loss_share: 0.001             # transfer lines with units that never arrive (written off)
+  cycle_count_day: 25                   # monthly counts: first working day on or after this day
+  abc_shares: [0.20, 0.30]              # A = top 20% of stocked lines by value (monthly), B = next 30% (quarterly), C = rest (twice a year)
+  count_difference_share: 0.03          # counted lines whose count differs from the book
+  found_share: 0.15                     # of those differences, found stock (the rest is shrinkage)
+  max_difference_share: 0.02            # a difference is 1 unit up to this share of the book quantity
+  handling_damage_per_month: {DISTRIBUTION_CENTRE: 3, RETAIL_STORE: 1}   # breakages per warehouse per month
+  disposition_weekday: 2                # defective stock is decided weekly (0 = Monday)
+  disposition_min_days: 5               # an entry waits at least this long before its disposition
+  repair_cost_share: [0.05, 0.25]       # repair cost (memo, D60) as a share of the units' value

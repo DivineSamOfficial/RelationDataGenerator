@@ -1,7 +1,7 @@
 """Returns rules (1D §9: V-RT-01 … V-RT-05). Each check returns the violating rows.
 
 Step 3.11 implements V-RT-01, ★ V-RT-02, ★ V-RT-03, ★ V-RT-04 (refunds) and V-RT-05 (registration and pending
-dispositions; the disposition ledger part is exercised with dispositions, 3.12).
+dispositions; the disposition ledger, P18 and adjustment-sourced entries with 3.12b).
 V-RT-06 (returns to origin) lives with the carrier rules in ``fulfilment.py``.
 """
 
@@ -119,11 +119,40 @@ def defective_register(ctx: ValidationContext) -> Rows:
         JOIN sales_returns r ON r.sales_return_id = rl.sales_return_id
         JOIN invoice_line_items il ON il.invoice_line_item_id = rl.invoice_line_item_id
         WHERE d.warehouse_id <> r.return_warehouse_id OR d.product_id <> il.product_id""")]
-    found += [{**r, "problem": "completed disposition without its ledger rows"} for r in ctx.rows("""
-        SELECT d.defective_stock_id FROM defective_stock d
-        WHERE d.disposition_status = 'COMPLETED' AND NOT EXISTS (
-            SELECT 1 FROM inventory_transactions t WHERE t.defective_stock_id = d.defective_stock_id
-              AND t.transaction_type = 'DEFECTIVE_DISPOSITION')""")]
+    found += [{**r, "problem": "register row doesn't match its adjustment line (handling damage)"} for r in ctx.rows("""
+        SELECT d.defective_stock_id, d.quantity, l.quantity_change, l.stock_status, d.warehouse_id, a.warehouse_id AS adj_w
+        FROM defective_stock d JOIN stock_adjustment_line_items l
+             ON l.stock_adjustment_line_item_id = d.stock_adjustment_line_item_id
+        JOIN stock_adjustments a ON a.stock_adjustment_id = l.stock_adjustment_id
+        WHERE d.warehouse_id <> a.warehouse_id OR d.product_id <> l.product_id OR d.quantity <> l.quantity_change
+           OR l.stock_status <> 'DEFECTIVE' OR NOT (d.inventory_batch_id <=> l.inventory_batch_id)""")]
+    found += [{**r, "problem": "completed disposition's ledger rows don't match it"} for r in ctx.rows("""
+        SELECT d.defective_stock_id, d.disposition, d.quantity,
+               COALESCE(SUM(IF(t.stock_status = 'DEFECTIVE', t.quantity, 0)), 0) AS out_of_defective,
+               COALESCE(SUM(IF(t.stock_status = 'SELLABLE', t.quantity, 0)), 0) AS to_sellable,
+               COALESCE(SUM(t.value_change), 0) AS value, COUNT(t.inventory_transaction_id) AS rows_
+        FROM defective_stock d LEFT JOIN inventory_transactions t ON t.defective_stock_id = d.defective_stock_id
+             AND t.transaction_type = 'DEFECTIVE_DISPOSITION'
+        WHERE d.disposition_status = 'COMPLETED'
+        GROUP BY d.defective_stock_id, d.disposition, d.quantity
+        HAVING rows_ = 0 OR out_of_defective <> -d.quantity
+            OR (d.disposition = 'REPAIR' AND (to_sellable <> d.quantity OR value <> 0))
+            OR (d.disposition <> 'REPAIR' AND to_sellable <> 0)""")]
+    found += [{**r, "problem": "write-off disposition without its P18 journal of the written-off value"}
+              for r in ctx.rows("""
+        SELECT d.defective_stock_id, -SUM(t.value_change) AS value, j.total_debit
+        FROM defective_stock d JOIN inventory_transactions t ON t.defective_stock_id = d.defective_stock_id
+             AND t.transaction_type = 'DEFECTIVE_DISPOSITION'
+        LEFT JOIN journal_entries j ON j.defective_stock_id = d.defective_stock_id
+             AND j.journal_source = 'DEFECTIVE_DISPOSITION'
+        WHERE d.disposition IN ('SCRAP', 'RETURN_TO_SUPPLIER')
+        GROUP BY d.defective_stock_id, j.total_debit
+        HAVING -SUM(t.value_change) > 0 AND NOT (j.total_debit <=> -SUM(t.value_change))""")]
+    found += [{**r, "problem": "returned to a supplier that isn't an approved supplier of the product"}
+              for r in ctx.rows("""
+        SELECT d.defective_stock_id, d.supplier_id FROM defective_stock d
+        LEFT JOIN supplier_products s ON s.supplier_id = d.supplier_id AND s.product_id = d.product_id
+        WHERE d.disposition = 'RETURN_TO_SUPPLIER' AND s.supplier_product_id IS NULL""")]
     found += [{**r, "problem": "pending defective stock exceeds qty_defective"} for r in ctx.rows("""
         SELECT d.warehouse_id, d.product_id, SUM(d.quantity) AS pending, i.qty_defective FROM defective_stock d
         LEFT JOIN inventory i ON i.warehouse_id = d.warehouse_id AND i.product_id = d.product_id

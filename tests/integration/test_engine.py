@@ -118,13 +118,17 @@ def test_history_runs_day_by_day_and_validates(settings, workspaces):
     opening = _query(settings, code, "SELECT journal_source, journal_type, COUNT(*), MIN(posting_date) FROM journal_entries "
                                      "GROUP BY 1, 2 ORDER BY 1")
     counts = {(r[0], r[1]): r[2] for r in opening}
-    assert counts[("OPENING_BALANCE", "OPENING")] == 1 and counts[("STOCK_ADJUSTMENT", "SYSTEM")] == 8
-    assert all(r[3] == date(2025, 8, 1) for r in opening if r[0] in ("OPENING_BALANCE", "STOCK_ADJUSTMENT"))
+    assert counts[("OPENING_BALANCE", "OPENING")] == 1
+    assert _query(settings, code, """SELECT COUNT(*) FROM journal_entries j JOIN stock_adjustments a USING (stock_adjustment_id)
+                                     WHERE a.adjustment_type = 'OPENING_STOCK'""")[0][0] == 8
+    assert all(r[3] == date(2025, 8, 1) for r in opening if r[0] == "OPENING_BALANCE")
     for source in ("GOODS_RECEIPT", "SUPPLIER_INVOICE", "SUPPLIER_PAYMENT"):       # procure-to-pay (3.7)
         assert counts[(source, "SYSTEM")] > 0
     adjustments = _query(settings, code, "SELECT COUNT(*), COUNT(DISTINCT warehouse_id), MIN(adjustment_type) "
-                                         "FROM stock_adjustments")[0]
+                                         "FROM stock_adjustments WHERE adjustment_type = 'OPENING_STOCK'")[0]
     assert adjustments == (8, 8, "OPENING_STOCK")
+    assert _query(settings, code, "SELECT MIN(adjustment_date) FROM stock_adjustments "
+                                  "WHERE adjustment_type = 'OPENING_STOCK'")[0][0] == date(2025, 8, 1)
     steps = dict(_query(settings, code, "SELECT step_name, step_status FROM generation_run_steps s JOIN generation_runs r "
                                         "USING (generation_run_id) WHERE r.run_number = 2"))
     assert steps["OPENING_BALANCES"] == "COMPLETED" and steps["DAILY_SIMULATION"] == "COMPLETED"

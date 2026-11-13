@@ -37,6 +37,7 @@ returns:
   b2b_return_rate: 0.01                # near-expiry and damaged-carton returns from shops
   defective_share: 0.60
   transit_damage_rate: 0.005
+  dispositions: {SCRAP: 0.85, RETURN_TO_SUPPLIER: 0.15, REPAIR: 0.00}   # defective stock, decided weekly (1D)
 
 suppliers:
   hubs: [Indore, Ahmedabad, Kolkata, Ludhiana, Hyderabad, Nagpur, Coimbatore]

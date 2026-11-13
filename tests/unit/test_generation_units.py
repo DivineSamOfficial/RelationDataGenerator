@@ -216,6 +216,10 @@ def test_inventory_settings_load():
     ({"inventory.transit_loss_share": 2}, "transit_loss_share"),
     ({"inventory.transfer_receipt_hours": [9, 7]}, "transfer_receipt_hours"),
     ({"inventory.unknown_knob": 1}, "unknown_knob"),
+    ({"inventory.abc_shares": [0.7, 0.5]}, "add up to more than"),
+    ({"inventory.repair_cost_share": [0.3, 0.1]}, "min is above max"),
+    ({"inventory.handling_damage_per_month": {"DISTRIBUTION_CENTRE": 3}}, "RETAIL_STORE"),
+    ({"inventory.disposition_weekday": 7}, "disposition_weekday"),
 ])
 def test_invalid_inventory_settings_are_refused(overrides, message):
     with pytest.raises(ConfigError, match=message):

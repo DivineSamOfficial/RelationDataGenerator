@@ -649,6 +649,16 @@ Sellable stock held for an order line at a warehouse.
 - **Constraints:** CHECK `quantity_change <> 0`; CHECK `quantity_change * value_change >= 0`; CHECK `(system_quantity IS NULL) = (counted_quantity IS NULL)`; CHECK `counted_quantity IS NULL OR quantity_change = counted_quantity − system_quantity`; CHECK lists.
 - **Rules:** A cycle-count line exists only where count ≠ book (a zero difference creates no line, but `inventory.last_counted_at` is still updated). A damage reclass is two lines (−SELLABLE, +DEFECTIVE) with net value 0, plus a `defective_stock` register entry (1D). Each posted line has exactly one ledger row (V-IN-05).
 
+
+**Implementation notes (Phase 3 step 3.12b, `engine/inventory/adjustments.py`):**
+
+| Topic | As built |
+|---|---|
+| Expiry sweep | Daily (every day) at 06:00–06:29 in day step `morning_stock`, before anything else moves. Sellable stock of batches whose expiry date has come (the incremental expired-stock view of 3.9a, which the sweep then reduces) → one `EXPIRY_WRITE_OFF` adjustment per warehouse, reason EXPIRED, at MAC, P15. Only the unreserved part is written off (`ck_inventory_quantities`: reserved ≤ sellable); an expired reserved remainder is released by the dispatch or the till and swept the next morning |
+| Cycle counts | First working day on or after `inventory.cycle_count_day` (25), 06:30–06:59. ABC per warehouse by stock value (`abc_shares` 20% / 30%): A monthly, B in quarter-end months, C in March and September. `count_difference_share` (3%) of counted rows differ: shrinkage (THEFT_OR_LOSS, never into reserved or expired stock) or `found_share` (15%) found stock (FOUND, at MAC, or the last / reference cost when empty), 1 unit up to `max_difference_share` (2%) of the book quantity; batch-tracked rows count their largest unexpired batch. One `CYCLE_COUNT` adjustment per warehouse with `system_quantity` / `counted_quantity`; every counted row gets `last_counted_at` |
+| Handling damage | `handling_damage_per_month` (DC 3, store 1) as a Poisson draw per working day, 18:00 or after the product's last movement: a `DAMAGE` adjustment of 1–3 unreserved units, two lines (−SELLABLE, +DEFECTIVE, reason DAMAGED, value 0) and a HANDLING_DAMAGE `defective_stock` entry on the DEFECTIVE line. No journal (zero value) |
+| Approvals and journals | Created by warehouse staff, approved by the cheapest sufficient approver in Warehouse Operations or Finance. P15 per adjustment: losses Dr Inventory Write-offs (warehouse cost centre) / Cr Inventory; gains Dr Inventory / Cr Inventory Adjustment Gains (warehouse cost centre); none at zero value |
+
 #### `stock_transfers`
 Inter-warehouse transfer. For transfers between GSTINs it's also the tax invoice (D29).
 

@@ -85,6 +85,8 @@ def _edit(config: Path, code: str, old: str, new: str) -> None:
     ("marketplace_commission_percent: 12\n", "", "missing section 'marketplace_commission_percent'"),
     ("{code: NIMBUZ, name: Nimbuz", "{code: AURALYN, name: Nimbuz", "brand code 'AURALYN' is used twice"),
     ("code: electronics ", "code: gadgets ", "must equal the file name"),
+    ("dispositions: {SCRAP: 0.20,", "dispositions: {SCRAP: 0.30,", "dispositions must add up to 1"),
+    ("RETURN_TO_SUPPLIER: 0.45, REPAIR", "RECYCLE: 0.45, REPAIR", "RECYCLE"),
 ])
 def test_pack_problems_are_reported(config, old, new, message):
     _edit(config, "electronics", old, new)

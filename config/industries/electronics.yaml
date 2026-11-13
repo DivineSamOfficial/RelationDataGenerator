@@ -40,6 +40,7 @@ returns:
   b2b_return_rate: 0.02
   defective_share: 0.35                # share of returned units failing inspection (warranty-driven)
   transit_damage_rate: 0.004           # share of shipped units damaged in transit
+  dispositions: {SCRAP: 0.20, RETURN_TO_SUPPLIER: 0.45, REPAIR: 0.35}   # defective stock, decided weekly (1D)
 
 suppliers:
   hubs: [Noida, Chennai, Pune, Bengaluru, Hosur]   # cities in config/seed/cities.yaml

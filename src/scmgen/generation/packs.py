@@ -121,6 +121,7 @@ class IndustryPack:
     seasonality: tuple[Decimal, ...]
     events: tuple[SaleEvent, ...]
     returns: Mapping[str, Decimal]
+    dispositions: Mapping[str, Decimal]                        # defective stock: SCRAP / RETURN_TO_SUPPLIER / REPAIR
     supplier_hubs: tuple[str, ...]
     supplier_name_suffixes: tuple[str, ...]
     supplier_cost_drift: Range
@@ -387,7 +388,13 @@ def load_pack(code: str, seed: SeedData, config_dir: Path = DEFAULT_CONFIG_DIR) 
     # Rates are shares of lines / units (capped at 50%); defective_share is a share *of returns* (up to 100%).
     returns = {key: check.decimal(returns_raw.get(key), f"returns.{key}", 0, 1 if key == "defective_share" else Decimal("0.5"))
                for key in ("b2c_return_rate", "b2b_return_rate", "defective_share", "transit_damage_rate")}
-    check.known(returns_raw, set(returns), "returns")
+    check.known(returns_raw, set(returns) | {"dispositions"}, "returns")
+    dispositions_raw = returns_raw.get("dispositions") if isinstance(returns_raw.get("dispositions"), dict) else {}
+    dispositions = {key: check.decimal(dispositions_raw.get(key), f"returns.dispositions.{key}", 0, 1)
+                    for key in ("SCRAP", "RETURN_TO_SUPPLIER", "REPAIR")}
+    check.known(dispositions_raw, set(dispositions), "returns.dispositions")
+    if abs(sum(dispositions.values()) - 1) > SHARE_TOLERANCE:
+        check.fail("returns.dispositions must add up to 1")
 
     suppliers = raw.get("suppliers") if isinstance(raw.get("suppliers"), dict) else {}
     city_names = {row["city"] for row in seed.cities}
@@ -436,7 +443,7 @@ def load_pack(code: str, seed: SeedData, config_dir: Path = DEFAULT_CONFIG_DIR) 
         credit_terms=credit, sales_channels=channels, marketing_channels=media,
         marketplace_commission_percent=check.decimal(raw.get("marketplace_commission_percent"),
                                                      "marketplace_commission_percent", 0, 100),
-        seasonality=check.curve(raw.get("seasonality"), "seasonality"), events=tuple(events), returns=returns,
+        seasonality=check.curve(raw.get("seasonality"), "seasonality"), events=tuple(events), returns=returns, dispositions=dispositions,
         supplier_hubs=hubs, supplier_name_suffixes=tuple(suppliers.get("name_suffixes") or []),
         supplier_cost_drift=drift, supplier_lead_time_days=(lead_low, lead_high),
         list_price_ratio=ratio, gross_margin=margin, brands=tuple(brands),

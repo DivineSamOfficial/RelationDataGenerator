@@ -230,7 +230,7 @@ def test_counter_sales_paid_at_the_till(generated):
                          LEFT JOIN customer_payments p ON p.order_id = o.order_id AND p.payment_type = 'COUNTER_PAYMENT'
                          LEFT JOIN accounts_receivable a ON a.invoice_id = i.invoice_id
                          LEFT JOIN accounts_receivable b ON b.customer_payment_id = p.customer_payment_id
-                         WHERE o.fulfilment_type = 'COUNTER_SALE'
+                         WHERE o.fulfilment_type = 'COUNTER_SALE' AND p.payment_status <> 'REVERSED'   -- chargebacks
                            AND (p.amount <> i.total_amount OR p.completed_at <> i.issued_at
                                 OR a.item_status <> 'SETTLED' OR b.item_status <> 'SETTLED')""") == 0
     # Cash goes to the store's float (P08 Dr petty cash), card and UPI to Payment Clearing (D53).

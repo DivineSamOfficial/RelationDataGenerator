@@ -37,6 +37,7 @@ returns:
   b2b_return_rate: 0.015
   defective_share: 0.45                # most returns are damage or finish defects
   transit_damage_rate: 0.02            # scratches, broken glass tops, crushed corners
+  dispositions: {SCRAP: 0.20, RETURN_TO_SUPPLIER: 0.30, REPAIR: 0.50}   # defective stock, decided weekly (1D)
 
 suppliers:
   hubs: [Jodhpur, Udaipur, New Delhi, Bengaluru, Kolkata, Kochi, Ahmedabad]

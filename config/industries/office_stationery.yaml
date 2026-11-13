@@ -37,6 +37,7 @@ returns:
   b2b_return_rate: 0.01
   defective_share: 0.30
   transit_damage_rate: 0.004
+  dispositions: {SCRAP: 0.60, RETURN_TO_SUPPLIER: 0.35, REPAIR: 0.05}   # defective stock, decided weekly (1D)
 
 suppliers:
   hubs: [New Delhi, Mumbai, Ahmedabad, Kolkata, Chennai, Vadodara]

@@ -36,6 +36,7 @@ returns:
   b2b_return_rate: 0.01
   defective_share: 0.25
   transit_damage_rate: 0.006           # leaking bottles, crushed packs
+  dispositions: {SCRAP: 0.70, RETURN_TO_SUPPLIER: 0.30, REPAIR: 0.00}   # defective stock, decided weekly (1D)
 
 suppliers:
   hubs: [Mumbai, Ahmedabad, Vadodara, Bhiwandi, Bengaluru, Kolkata]

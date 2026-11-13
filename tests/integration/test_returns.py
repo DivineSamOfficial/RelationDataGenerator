@@ -100,8 +100,7 @@ def test_received_goods_and_p12(generated):
                          WHERE r.received_at IS NOT NULL AND (j.journal_entry_id IS NULL OR j.total_debit <> v.value)""") == 0
     results = dict(_rows(conn, "SELECT inspection_result, COUNT(*) FROM return_inspections GROUP BY 1"))
     assert results.get("PASSED", 0) > 0 and results.get("DEFECTIVE", 0) > 0
-    assert _one(conn, "SELECT COUNT(*) FROM defective_stock WHERE disposition = 'PENDING' "
-                      "AND return_inspection_id IS NOT NULL") == results["DEFECTIVE"]
+    assert _one(conn, "SELECT COUNT(*) FROM defective_stock WHERE return_inspection_id IS NOT NULL") == results["DEFECTIVE"]
 
 
 def test_return_credit_notes(generated):

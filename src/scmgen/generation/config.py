@@ -88,7 +88,9 @@ _COLLECTIONS_KEYS = {"profiles", "cheque_payer_share", "cheque_bounce_share", "a
 _RETURNS_KEYS = {"non_returnable_attempt_factor", "partial_quantity_share", "late_request_share",
                  "further_inspection_share", "refund_approval_days", "refund_failure_share", "cancelled_refund_days"}
 _INVENTORY_KEYS = {"rebalancing_day", "transfer_max_lines", "min_shelf_days", "transfer_dispatch_hours",
-                   "transfer_receipt_hours", "transit_damage_share", "transit_loss_share"}
+                   "transfer_receipt_hours", "transit_damage_share", "transit_loss_share", "cycle_count_day",
+                   "abc_shares", "count_difference_share", "found_share", "max_difference_share",
+                   "handling_damage_per_month", "disposition_weekday", "disposition_min_days", "repair_cost_share"}
 PAYMENT_PROFILES = ("ON_TIME", "SLIGHTLY_LATE", "CHRONIC_LATE")
 FAILURE_REASONS = ("CUSTOMER_UNAVAILABLE", "ADDRESS_NOT_FOUND", "PREMISES_CLOSED", "WEATHER_DELAY", "COD_CASH_NOT_READY")
 CARRIER_TYPES = ("EXPRESS_COURIER", "SURFACE_LTL", "FULL_TRUCKLOAD", "HYPERLOCAL")
@@ -316,6 +318,15 @@ class InventorySettings:
     transfer_receipt_hours: tuple[int, int]
     transit_damage_share: float
     transit_loss_share: float
+    cycle_count_day: int
+    abc_shares: tuple[float, float]
+    count_difference_share: float
+    found_share: float
+    max_difference_share: float
+    handling_damage_per_month: dict[str, float]
+    disposition_weekday: int
+    disposition_min_days: int
+    repair_cost_share: tuple[float, float]
 
 
 @dataclass(frozen=True)
@@ -932,7 +943,35 @@ def _parse_inventory(raw: dict[str, Any]) -> InventorySettings:
         transfer_dispatch_hours=_pair(raw["transfer_dispatch_hours"], "inventory.transfer_dispatch_hours", 0, 22),
         transfer_receipt_hours=_pair(raw["transfer_receipt_hours"], "inventory.transfer_receipt_hours", 0, 22),
         transit_damage_share=_share(raw["transit_damage_share"], "inventory.transit_damage_share"),
-        transit_loss_share=_share(raw["transit_loss_share"], "inventory.transit_loss_share"))
+        transit_loss_share=_share(raw["transit_loss_share"], "inventory.transit_loss_share"),
+        cycle_count_day=_int(raw["cycle_count_day"], "inventory.cycle_count_day", 1, 28),
+        abc_shares=_share_pair(raw["abc_shares"], "inventory.abc_shares", total_max=1.0),
+        count_difference_share=_share(raw["count_difference_share"], "inventory.count_difference_share"),
+        found_share=_share(raw["found_share"], "inventory.found_share"),
+        max_difference_share=_share(raw["max_difference_share"], "inventory.max_difference_share"),
+        handling_damage_per_month=_per_warehouse_type(raw["handling_damage_per_month"],
+                                                      "inventory.handling_damage_per_month"),
+        disposition_weekday=_int(raw["disposition_weekday"], "inventory.disposition_weekday", 0, 6),
+        disposition_min_days=_int(raw["disposition_min_days"], "inventory.disposition_min_days", 1, 60),
+        repair_cost_share=_share_pair(raw["repair_cost_share"], "inventory.repair_cost_share", ordered=True))
+
+
+def _share_pair(value: Any, name: str, total_max: float | None = None, ordered: bool = False) -> tuple[float, float]:
+    if not isinstance(value, list) or len(value) != 2:
+        raise ConfigError(f"{name} must be [a, b]")
+    a, b = _share(value[0], f"{name}[0]"), _share(value[1], f"{name}[1]")
+    if total_max is not None and a + b > total_max:
+        raise ConfigError(f"{name}: the two shares add up to more than {total_max}")
+    if ordered and a > b:
+        raise ConfigError(f"{name}: min is above max")
+    return a, b
+
+
+def _per_warehouse_type(value: Any, name: str) -> dict[str, float]:
+    kinds = ("DISTRIBUTION_CENTRE", "RETAIL_STORE")
+    if not isinstance(value, dict) or set(value) != set(kinds):
+        raise ConfigError(f"{name} needs exactly DISTRIBUTION_CENTRE and RETAIL_STORE")
+    return {kind: _share(value[kind], f"{name}.{kind}", high=100.0) for kind in kinds}
 
 
 def _by_payment(value: Any, name: str) -> dict[str, float]:

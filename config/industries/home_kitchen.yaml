@@ -36,6 +36,7 @@ returns:
   b2b_return_rate: 0.02
   defective_share: 0.30
   transit_damage_rate: 0.012           # glass and ceramics break in transit
+  dispositions: {SCRAP: 0.30, RETURN_TO_SUPPLIER: 0.45, REPAIR: 0.25}   # defective stock, decided weekly (1D)
 
 suppliers:
   hubs: [Rajkot, Moradabad, Ludhiana, Mumbai, Coimbatore, Tiruppur, Jaipur]

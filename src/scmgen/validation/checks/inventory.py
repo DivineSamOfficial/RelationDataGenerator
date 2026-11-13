@@ -123,6 +123,12 @@ LEDGER_SOURCES = [
                l.quantity_received_good + l.quantity_received_damaged AS qty
         FROM stock_transfer_line_items l JOIN stock_transfers t ON t.stock_transfer_id = l.stock_transfer_id
         WHERE t.transfer_status = 'RECEIVED' AND l.quantity_received_good + l.quantity_received_damaged > 0""", False),
+    # Defective dispositions (3.12b): SCRAP / RETURN_TO_SUPPLIER write the units off (one row); REPAIR moves them
+    # back to SELLABLE (two rows, net zero; detail: V-RT-05).
+    ("DEFECTIVE_DISPOSITION", "defective_stock_id", """
+        SELECT defective_stock_id AS source_id, DATE(disposed_at) AS business_date,
+               IF(disposition = 'REPAIR', 0, -quantity) AS qty
+        FROM defective_stock WHERE disposition_status = 'COMPLETED'""", False),
     # Store handover: the invoice line is the source, one row per batch picked.
     ("SALES_ISSUE", "invoice_line_item_id", """
         SELECT il.invoice_line_item_id AS source_id, i.invoice_date AS business_date,

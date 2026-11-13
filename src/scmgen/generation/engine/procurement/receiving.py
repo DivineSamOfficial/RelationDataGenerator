@@ -290,7 +290,7 @@ class _Receiver:
                                            "max_stock_level": level + reorder, "created_at": inspected_at}
         net_price = unit_price(line["unit_price"] * (1 - line["discount_percent"] / 100))
         state["position"], movement = state["position"].receive(accepted, net_price)
-        state["received_at"] = inspected_at
+        state["received_at"] = max(state.get("received_at") or inspected_at, inspected_at)   # latest, not last processed
         storage = self.storage[warehouse["warehouse_id"]]
         day.writer.insert("inventory_transactions", {
             "inventory_transaction_id": day.ids.next("inventory_transactions"), "transaction_at": inspected_at,
