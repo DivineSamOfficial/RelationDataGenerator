@@ -141,6 +141,33 @@ def test_delete_archives_then_purge_frees_code(settings, code) -> None:
     assert create_workspace(settings, code, "Reborn Co", ["beauty"]).status == "READY"
 
 
+def test_workspace_left_generating_by_a_killed_run_can_be_deleted(settings, code) -> None:
+    from scmgen.db.workspaces import set_workspace_status
+    create_workspace(settings, code, "Crashed Run Co", ["beauty"])
+    set_workspace_status(settings, code, "GENERATING")        # the run died without resetting its status
+    engine = create_mysql_engine(settings, role="app")
+    with engine.connect() as holder, workspace_lock(holder, code):  # while a run is alive: refused
+        with pytest.raises(WorkspaceError, match="busy"):
+            delete_workspace(settings, code, purge=True)
+    engine.dispose()
+    assert delete_workspace(settings, code, purge=True) == "PURGED"   # lock free: the run is dead
+
+
+def test_cli_delete_needs_exactly_one_of_workspace_or_all() -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["workspace", "delete"]).exit_code == 2
+    assert runner.invoke(app, ["workspace", "delete", "-w", "abc", "--all"]).exit_code == 2
+
+
+def test_cli_delete_all_requires_typing_all(code) -> None:
+    runner = CliRunner()
+    assert runner.invoke(app, ["workspace", "create", "--code", code, "--company", "All Co",
+                               "--industries", "beauty"]).exit_code == 0
+    refused = runner.invoke(app, ["workspace", "delete", "--all", "--purge"], input="yes\n")
+    assert refused.exit_code == 1 and "Nothing was deleted" in refused.output
+    assert code in refused.output                              # the prompt lists what would go
+
+
 def test_list_includes_workspace_with_health(settings, code) -> None:
     create_workspace(settings, code, "Listed Co", ["beauty"])
     listed = {ws.code: ws for ws in list_workspaces(settings)}

@@ -18,6 +18,7 @@ All seven phases are implemented and awaiting the owner's testing. See [`docs/ro
 
 ## Documentation
 
+- **Start here:** [`docs/quick_guide.md`](docs/quick_guide.md) — create, generate, load, read, delete
 - Requirements: [`docs/master_prompt.md`](docs/master_prompt.md)
 - Design: [`docs/design/`](docs/design/) (Parts 1A–1H; ERD in Part 1F; generation, loader, CDC and anomalies in Part 1G)
 - Status and decisions log: [`docs/roadmap.md`](docs/roadmap.md), [`CLAUDE.md`](CLAUDE.md) (decision index D1–D92)
@@ -62,6 +63,7 @@ One workspace per fictional company: `scm_<code>_oltp` (clean data), `scm_<code>
 scmgen workspace list
 scmgen workspace show -w demo
 scmgen workspace delete -w demo              # asks you to type the code; --purge frees the code for reuse
+scmgen workspace delete --all --purge        # every workspace (type: all)
 ```
 
 ## Generation

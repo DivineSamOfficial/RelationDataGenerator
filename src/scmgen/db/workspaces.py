@@ -132,7 +132,8 @@ def workspace_lock(conn: Connection, code: str) -> Iterator[None]:
     name = f"scmgen:workspace:{code}"
     acquired = conn.execute(text("SELECT GET_LOCK(:name, 0)"), {"name": name}).scalar()
     if acquired != 1:
-        raise WorkspaceError(f"Workspace '{code}' is busy: another scmgen operation holds its lock")
+        raise WorkspaceError(f"Workspace '{code}' is busy: a generation run or another scmgen operation holds "
+                             "its lock (cancel the run in the Run monitor, or wait for it to finish)")
     try:
         yield
     finally:
@@ -348,8 +349,12 @@ def delete_workspace(settings: Settings, code: str, purge: bool = False, keep_re
             if row is None:
                 raise WorkspaceError(f"No workspace '{code}'. See `scmgen workspace list`")
             status = row["workspace_status"]
+            # A live run holds this same lock for its whole duration, so getting the lock here means no run
+            # is active: a GENERATING / REBUILDING status is left over from a killed process and the
+            # workspace can be dropped like any other.
             if status in ("GENERATING", "REBUILDING"):
-                raise WorkspaceError(f"Workspace '{code}' is {status}: wait for the run to finish or cancel it first")
+                log.warning("deleting a workspace left in a stale run state",
+                            extra={"event": "workspace.delete.stale", "workspace": code, "status": status})
             if status == "ARCHIVED" and not purge:
                 raise WorkspaceError(f"Workspace '{code}' is already archived. Use --purge to remove its registry entry")
 

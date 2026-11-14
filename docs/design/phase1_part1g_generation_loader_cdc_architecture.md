@@ -156,6 +156,8 @@ Because history comes from the same daily engine as Continue, there's no differe
 - **Delete workspace:** drops the schemas, removes the DuckDB files, marks the registry row ARCHIVED. Same confirmation as Rebuild.
 - **Implementation details (Phase 2 step 2.5):**
   - `workspace delete --purge` also removes the registry row so the code can be reused. Without it the ARCHIVED row stays as history and the code stays taken.
+  - `workspace delete --all` deletes every registered workspace (typed confirmation `all`; with `--purge` also the ARCHIVED ones).
+  - A live generation run holds the workspace's named lock for its whole duration, so delete refuses it as busy. If delete gets the lock while the status is GENERATING / REBUILDING, the run that set it is dead (killed process) and the workspace is deleted normally (step 6.2).
   - Codes `control`, `test`, `sys` and `mysql` are reserved.
   - `create` refuses an existing *unregistered* schema with the same name instead of overwriting it.
   - MySQL DDL can't be rolled back, so a failed `create` drops whatever it built and removes the registry row: no half-built workspace remains.

@@ -227,26 +227,48 @@ def workspace_show(
 
 @workspace_app.command("delete")
 def workspace_delete(
-    code: Annotated[str, typer.Option("--workspace", "-w", help="Workspace code.")],
+    code: Annotated[str | None, typer.Option("--workspace", "-w", help="Workspace code.")] = None,
+    delete_all: Annotated[bool, typer.Option("--all", help="Delete every workspace (confirm by typing 'all').")] = False,
     purge: Annotated[bool, typer.Option("--purge", help="Also remove the registry entry so the code can be reused.")] = False,
     yes: Annotated[bool, typer.Option("--yes", help="Skip the confirmation prompt (scripts / tests).")] = False,
 ) -> None:
-    """Drop a workspace's schemas and DuckDB files. Irreversible."""
+    """Drop a workspace's schemas and DuckDB files (or every workspace's, with --all). Irreversible."""
+    if (code is None) == (not delete_all):
+        typer.secho("Give either --workspace CODE or --all.", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
     settings = _bootstrap()
+    if delete_all:
+        try:
+            infos = list_workspaces(settings)
+        except ScmgenError as exc:
+            _fail(exc, "workspace.delete.error")
+        codes = [i.code for i in infos if purge or i.status != "ARCHIVED"]
+        if not codes:
+            typer.echo("No workspaces to delete.")
+            return
+        prompt_word, what = "all", f"{len(codes)} workspaces ({', '.join(codes)})"
+    else:
+        codes, prompt_word, what = [code], code, f"workspace '{code}'"
     if not yes:
-        typer.secho(
-            f"This permanently drops all data of workspace '{code}' (MySQL schemas and DuckDB files).",
-            fg=typer.colors.YELLOW,
-        )
-        typed = typer.prompt("Type the workspace code to confirm")
-        if typed.strip() != code:
+        typer.secho(f"This permanently drops all data of {what}: MySQL schemas and DuckDB files.",
+                    fg=typer.colors.YELLOW)
+        typed = typer.prompt(f"Type '{prompt_word}' to confirm")
+        if typed.strip() != prompt_word:
             typer.secho("Confirmation did not match. Nothing was deleted.", fg=typer.colors.RED, err=True)
             raise typer.Exit(1)
-    try:
-        outcome = delete_workspace(settings, code, purge=purge)
-    except ScmgenError as exc:
-        _fail(exc, "workspace.delete.error")
-    typer.secho(f"Workspace '{code}' deleted ({outcome}).", fg=typer.colors.GREEN)
+    failed = False
+    for one in codes:
+        try:
+            outcome = delete_workspace(settings, one, purge=purge)
+        except ScmgenError as exc:
+            if not delete_all:
+                _fail(exc, "workspace.delete.error")
+            typer.secho(f"Workspace '{one}' not deleted: {exc}", fg=typer.colors.RED, err=True)
+            failed = True
+            continue
+        typer.secho(f"Workspace '{one}' deleted ({outcome}).", fg=typer.colors.GREEN)
+    if failed:
+        raise typer.Exit(1)
 
 
 # --- validate ---------------------------------------------------------------------------------
