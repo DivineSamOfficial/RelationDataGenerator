@@ -18,7 +18,8 @@ All seven phases are implemented and awaiting the owner's testing. See [`docs/ro
 
 ## Documentation
 
-- **Start here:** [`docs/quick_guide.md`](docs/quick_guide.md) — create, generate, load, read, delete
+- **Start here:** [`docs/ui_guide.md`](docs/ui_guide.md) — test every feature in the control panel, step by step
+- Command-line version: [`docs/quick_guide.md`](docs/quick_guide.md) — create, generate, load, read, delete
 - Requirements: [`docs/master_prompt.md`](docs/master_prompt.md)
 - Design: [`docs/design/`](docs/design/) (Parts 1A–1H; ERD in Part 1F; generation, loader, CDC and anomalies in Part 1G)
 - Status and decisions log: [`docs/roadmap.md`](docs/roadmap.md), [`CLAUDE.md`](CLAUDE.md) (decision index D1–D92)
@@ -113,7 +114,7 @@ Strategies per table are in `config/loader/tables.yaml`. Each batch commits toge
 scmgen ui            # --port 8501
 ```
 
-Pages: Workspaces (create, generate, continue, rebuild), Run monitor (live progress, cancel), Data explorer, Validation, Scenarios, DuckDB load, Simulation, Table guide, Reset. Actions start the same CLI commands as background jobs (logs in `logs/ui_jobs/`), so closing the browser doesn't stop a run.
+Pages: Workspaces (create, generate, continue, rebuild), Run monitor (live progress, cancel), Data explorer, Validation, Scenarios, DuckDB load (incl. a read-only SQL box on the DuckDB replicas), Simulation, Table guide, Reset. Walkthrough: [`docs/ui_guide.md`](docs/ui_guide.md). Actions start the same CLI commands as background jobs (logs in `logs/ui_jobs/`), so closing the browser doesn't stop a run.
 
 ## CDC and anomaly simulation (Phase 7)
 

@@ -153,6 +153,17 @@ def test_workspace_left_generating_by_a_killed_run_can_be_deleted(settings, code
     assert delete_workspace(settings, code, purge=True) == "PURGED"   # lock free: the run is dead
 
 
+def test_purge_removes_the_workspace_reports(settings, code) -> None:
+    create_workspace(settings, code, "Reported Co", ["beauty"])
+    folder = settings.data_dir / "reports" / code
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "validation_x.json").write_text("{}")
+    assert delete_workspace(settings, code) == "ARCHIVED"
+    assert folder.exists()                                     # archived: history kept
+    assert delete_workspace(settings, code, purge=True) == "PURGED"
+    assert not folder.exists()                                 # code freed: no stale reports for the next company
+
+
 def test_cli_delete_needs_exactly_one_of_workspace_or_all() -> None:
     runner = CliRunner()
     assert runner.invoke(app, ["workspace", "delete"]).exit_code == 2

@@ -77,3 +77,37 @@ def test_background_job_runs_the_cli():
         time.sleep(0.5)
     assert job.exit_code == 0 and job.tail().strip() == __version__
     assert any(j.job_id == job.job_id for j in jobs.recent())
+
+
+def test_replica_query_reads_duckdb_read_only(workspace):
+    settings, code = workspace
+    from scmgen.loader.run import load_workspace
+    load_workspace(settings, code)
+    at = AppTest.from_file(APP, default_timeout=180)
+    at.run()
+    at.sidebar.selectbox[0].set_value(code)
+    at.sidebar.radio[0].set_value("DuckDB load")
+    at.run()
+    at.text_area(key="replica-sql").set_value("SELECT COUNT(*) AS n FROM raw.orders")
+    at.button(key="replica-run").click()
+    at.run()
+    assert not at.exception and not at.error, [e.value for e in at.exception] + [e.value for e in at.error]
+    assert int(at.dataframe[-1].value["n"][0]) > 0
+    at.text_area(key="replica-sql").set_value("DELETE FROM raw.orders")      # read-only: refused, shown as an error
+    at.button(key="replica-run").click()
+    at.run()
+    assert not at.exception and at.error
+
+
+def test_validation_page_ignores_detection_reports(workspace):
+    settings, code = workspace
+    folder = settings.data_dir / "reports" / code
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "sim_detection_29990101_000000.json").write_text('{"counts": {}, "anomalies": []}')   # newest file
+    at = AppTest.from_file(APP, default_timeout=180)
+    at.run()
+    at.sidebar.selectbox[0].set_value(code)
+    at.sidebar.radio[0].set_value("Validation")
+    at.run()
+    assert not at.exception, [e.value for e in at.exception]
+    assert at.metric[0].label == "Passed" and int(at.metric[0].value) > 0

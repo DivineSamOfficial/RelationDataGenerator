@@ -207,7 +207,10 @@ def page_explorer(selected) -> None:
 
 def _reports(code: str) -> list[Path]:
     folder = settings().data_dir / "reports" / code
-    return sorted(folder.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True) if folder.exists() else []
+    # Validation reports only (run_<n>_validation.json, validation_<time>.json); the simulation's
+    # sim_detection_*.json in the same folder has another format and is shown on the Simulation page.
+    found = [p for p in folder.glob("*validation*.json")] if folder.exists() else []
+    return sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
 
 
 def page_validation(selected) -> None:
@@ -271,7 +274,11 @@ def page_load(selected) -> None:
     try:
         status = load_status(settings(), selected.code)
     except Exception as exc:
-        st.info(str(exc))
+        if "No DuckDB replica yet" in str(exc):
+            st.info("No DuckDB replica yet. Click **Incremental load**: the first load is always a full copy.")
+        else:
+            st.info(str(exc))
+        replica_query(selected)
         job_panel(f"load -w {selected.code}")
         return
     st.caption(f"Replica {status['path']} — source build {'matches' if status['build_matches'] else 'CHANGED: next load is full'}"
@@ -283,7 +290,50 @@ def page_load(selected) -> None:
         st.subheader("Recent loader errors")
         st.dataframe(pd.DataFrame(status["errors"], columns=["when", "table", "stage", "type", "message"]),
                      hide_index=True, width="stretch")
+    replica_query(selected)
     job_panel(f"load -w {selected.code}")
+
+
+REPLICA_EXAMPLE = "SELECT order_status, COUNT(*) AS orders FROM raw.orders GROUP BY 1 ORDER BY 2 DESC"
+
+
+def replica_query(selected) -> None:
+    """Run SQL on a DuckDB replica, read-only (a load running at the same time keeps the file locked)."""
+    import duckdb
+    from scmgen.loader.run import replica_path
+    st.subheader("Query the DuckDB replica")
+    labels = {"oltp": f"Clean replica ({selected.code}.duckdb)", "sim": f"Simulation replica ({selected.code}_sim.duckdb)"}
+    source = st.radio("Replica", list(labels), format_func=labels.__getitem__, horizontal=True, key="replica-source")
+    path = replica_path(selected, source)
+    if not path.exists():
+        st.info(f"{path.name} doesn't exist yet: run a load first"
+                + (" (Simulation page → Load sim replica)." if source == "sim" else " (Incremental load above)."))
+        return
+    sql = st.text_area("SQL (read-only)", REPLICA_EXAMPLE, height=110, key="replica-sql")
+    show_tables = st.checkbox("List the replica's tables", key="replica-tables")
+    run = st.button("Run on DuckDB", key="replica-run")
+    if not (run or show_tables):
+        return
+    try:
+        con = duckdb.connect(str(path), read_only=True)
+    except duckdb.Error as exc:
+        st.warning(f"The replica is busy (probably a load is running): try again in a moment. ({exc})")
+        return
+    try:
+        if show_tables:
+            st.dataframe(con.sql("""SELECT table_schema AS schema, table_name AS "table" FROM information_schema.tables
+                                    ORDER BY 1, 2""").df(), hide_index=True, width="stretch", height=250)
+        if run:
+            relation = con.sql(sql.strip().rstrip(";"))
+            if relation is None:
+                st.success("Statement ran (it returns no rows).")
+            else:
+                st.dataframe(relation.limit(1000).df(), hide_index=True, width="stretch")
+                st.caption("At most 1,000 rows are shown.")
+    except duckdb.Error as exc:
+        st.error(f"DuckDB: {exc}")
+    finally:
+        con.close()
 
 
 @st.cache_data
@@ -462,6 +512,8 @@ def main() -> None:
     if selected is not None:
         st.sidebar.markdown(f"**{selected.company_name}**  \nstatus: `{selected.status}`  \n"
                             f"committed through: {selected.last_committed_through or '-'}")
+    if st.sidebar.button("Refresh", help="Re-read workspaces, jobs and reports (e.g. after a background job finished)"):
+        st.rerun()
     page = st.sidebar.radio("Page", PAGES)
     {"Workspaces": page_workspaces, "Run monitor": page_monitor, "Data explorer": page_explorer,
      "Validation": page_validation, "Scenarios": page_scenarios, "DuckDB load": page_load,

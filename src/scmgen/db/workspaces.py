@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import secrets
+import shutil
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -365,6 +366,9 @@ def delete_workspace(settings: Settings, code: str, purge: bool = False, keep_re
                 duck.with_name(duck.name + ".wal").unlink(missing_ok=True)  # DuckDB write-ahead log
 
             if purge:
+                # The code becomes free for a new company: its old reports must not show up as the new one's.
+                if not keep_replicas:
+                    shutil.rmtree(settings.data_dir / "reports" / code, ignore_errors=True)
                 conn.execute(text(f"DELETE FROM {_registry(settings)} WHERE workspace_code = :c"), {"c": code})
                 outcome = "PURGED"
             else:

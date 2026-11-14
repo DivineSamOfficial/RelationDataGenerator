@@ -155,7 +155,7 @@ Because history comes from the same daily engine as Continue, there's no differe
 - **Rebuild:** requires typed confirmation of the workspace code. Steps: set status REBUILDING → drop both schemas → recreate → new `build_id` → historical run. The DuckDB replica detects the new build id and full-reloads (A2).
 - **Delete workspace:** drops the schemas, removes the DuckDB files, marks the registry row ARCHIVED. Same confirmation as Rebuild.
 - **Implementation details (Phase 2 step 2.5):**
-  - `workspace delete --purge` also removes the registry row so the code can be reused. Without it the ARCHIVED row stays as history and the code stays taken.
+  - `workspace delete --purge` also removes the registry row so the code can be reused, and the workspace's reports folder `data/reports/<code>/` (a new company with that code must not inherit old reports). Without it the ARCHIVED row and the reports stay as history and the code stays taken.
   - `workspace delete --all` deletes every registered workspace (typed confirmation `all`; with `--purge` also the ARCHIVED ones).
   - A live generation run holds the workspace's named lock for its whole duration, so delete refuses it as busy. If delete gets the lock while the status is GENERATING / REBUILDING, the run that set it is dead (killed process) and the workspace is deleted normally (step 6.2).
   - Codes `control`, `test`, `sys` and `mysql` are reserved.

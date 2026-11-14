@@ -184,4 +184,4 @@ duckdb -readonly data/duckdb/acme.duckdb -c "SELECT COUNT(*) FROM raw.orders"   
 scmgen workspace delete -w acme --purge                     # remove it (type: acme)
 ```
 
-The control panel (`scmgen ui`, http://localhost:8501) runs the same commands with buttons. The longer walkthrough of every feature, including CDC and anomalies, is in [`owner_testing_guide.md`](owner_testing_guide.md).
+The control panel (`scmgen ui`, http://localhost:8501) runs the same commands with buttons. The same steps in the browser, with every feature explained, including CDC and anomalies: [`ui_guide.md`](ui_guide.md).
