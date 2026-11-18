@@ -147,6 +147,32 @@ def test_loader_rules_and_mutations(workspace):
     engine.dispose()
 
 
+def test_replica_held_by_another_program(workspace):
+    """A SQL client holding the replica (owner report 2026-11-18, DBeaver): validation skips the replica check
+    instead of flagging the clean data NEEDS_ATTENTION; a load stops with a clear message naming the holder."""
+    import subprocess
+    import sys
+    from scmgen.loader.replica import ReplicaLockedError
+    settings, code = workspace
+    path = get_workspace(settings, code).duckdb_path
+    hold = "import duckdb, sys, time; c = duckdb.connect(sys.argv[1]); print('held', flush=True); time.sleep(120)"
+    proc = subprocess.Popen([sys.executable, "-c", hold, str(path)], stdout=subprocess.PIPE, text=True)
+    try:
+        assert proc.stdout.readline().strip() == "held"
+        engine = create_mysql_engine(settings, role="app", database=f"scm_{code}_oltp")
+        with engine.connect() as conn:
+            report = run_checks(ValidationContext(conn, workspace_code=code), CATALOGUE, rule_ids=["V-LD-01"])
+        engine.dispose()
+        result = report.results[0]
+        assert result.status == "NOT_APPLICABLE" and "is open in" in result.message and report.passed
+        with pytest.raises(ReplicaLockedError, match="is open in"):
+            load_workspace(settings, code)
+    finally:
+        proc.kill()
+        proc.wait()
+    assert load_workspace(settings, code).reconciled                  # free again: loads normally
+
+
 def test_rebuild_triggers_a_full_reload(workspace):
     settings, code = workspace
     rebuild_workspace(settings, code, confirm=code)

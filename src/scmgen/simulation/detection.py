@@ -27,6 +27,7 @@ from sqlalchemy import text
 from scmgen.core.calendar import wall_clock
 from scmgen.core.settings import Settings
 from scmgen.db.workspaces import get_workspace
+from scmgen.loader.replica import connect_replica
 from scmgen.simulation import sim_schema
 from scmgen.simulation.dq import run_dq
 
@@ -183,7 +184,7 @@ def _has_sim_replica(workspace) -> bool:
     import duckdb
 
     from scmgen.loader.run import replica_path
-    con = duckdb.connect(str(replica_path(workspace, "sim")), read_only=True)
+    con = connect_replica(replica_path(workspace, "sim"), read_only=True)
     try:
         return bool(con.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'etl_meta' "
                                 "AND table_name = 'replica_info'").fetchone()[0])

@@ -514,3 +514,4 @@ If you **don't** tick the box, the data is still deleted, but the company stays 
 - **"busy":** another job for the same company is still running. Wait for it to finish (Run monitor), then try again.
 - **Continue says 0 days:** your history already reaches yesterday. Next time, end the history further in the past, or just wait a day.
 - **`NEEDS_ATTENTION` status:** validation failed after a run. Open *Validation* to see which rule failed, and send me the report.
+- **"… .duckdb is open in dbeaver …"** (or another SQL tool): DBeaver keeps the DuckDB file open, and while it does, the app can't load into it. In DBeaver, right-click the DuckDB connection → **Disconnect** before you click *Incremental load*, *Load sim replica* or *CDC apply*, and reconnect afterwards to query. Validation no longer fails because of this: the DuckDB comparison check is simply skipped (*Not applicable*) while the file is held.

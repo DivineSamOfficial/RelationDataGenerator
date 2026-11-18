@@ -29,7 +29,7 @@ def append_tables_are_insert_only(ctx: ValidationContext) -> Rows:
 def replica_matches_source(ctx: ValidationContext) -> Rows:
     """★ The DuckDB replica holds, for every incremental table, exactly the source rows created up to the
     replica's high-water mark, without duplicate keys (1G §6.6; the loader also compares sums after each load)."""
-    import duckdb
+    import duckdb  # noqa: F401  (duckdb.Error below)
     from scmgen.core.settings import load_settings
     from scmgen.db.workspaces import get_workspace
     from scmgen.loader.config import load_loader_config
@@ -39,7 +39,13 @@ def replica_matches_source(ctx: ValidationContext) -> Rows:
     path = Path(workspace.duckdb_path)
     if not path.exists():
         raise NotApplicable(f"no DuckDB replica yet ({path.name}): run `scmgen load`")
-    con = duckdb.connect(str(path), read_only=True)
+    from scmgen.loader.replica import ReplicaLockedError, connect_replica
+    try:
+        con = connect_replica(path, read_only=True)
+    except ReplicaLockedError as exc:
+        # The replica can't be read right now; the clean data isn't wrong, so this must not block the workspace
+        # (D76). Every load reconciles the replica anyway, and validation can be re-run once the file is free.
+        raise NotApplicable(f"replica not checked: {exc}") from exc
     try:
         high = con.execute("SELECT info_value FROM etl_meta.replica_info WHERE info_key = 'high_water_mark'").fetchone()
         if high is None:

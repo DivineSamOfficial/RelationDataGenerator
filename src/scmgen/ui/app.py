@@ -314,10 +314,11 @@ def replica_query(selected) -> None:
     run = st.button("Run on DuckDB", key="replica-run")
     if not (run or show_tables):
         return
+    from scmgen.loader.replica import ReplicaLockedError, connect_replica
     try:
-        con = duckdb.connect(str(path), read_only=True)
-    except duckdb.Error as exc:
-        st.warning(f"The replica is busy (probably a load is running): try again in a moment. ({exc})")
+        con = connect_replica(path, read_only=True)
+    except ReplicaLockedError as exc:
+        st.warning(f"{exc} (If no other program has it open, a load is running: try again in a moment.)")
         return
     try:
         if show_tables:

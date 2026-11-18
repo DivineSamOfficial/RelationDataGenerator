@@ -44,6 +44,7 @@ from scmgen.core.settings import Settings
 from scmgen.db.connection import create_mysql_engine
 from scmgen.db.workspaces import WorkspaceInfo, get_workspace
 from scmgen.loader.config import load_loader_config
+from scmgen.loader.replica import connect_replica
 from scmgen.loader.schema import TableSchema, discover, to_arrow
 from scmgen.simulation.config import load_simulation_config
 from scmgen.simulation.sim_schema import ensure_control
@@ -314,7 +315,7 @@ def apply(settings: Settings, code: str, batch_size: int = 20000) -> ApplyResult
     path = Path(workspace.duckdb_path).with_name(f"{workspace.code}_sim.duckdb")
     path.parent.mkdir(parents=True, exist_ok=True)
     source_engine, sim_engine = _engines(settings, workspace)
-    con = duckdb.connect(str(path))
+    con = connect_replica(path)
     try:
         for statement in _META:
             con.execute(statement)
@@ -455,7 +456,7 @@ def compare(settings: Settings, code: str) -> dict[str, str]:
     if not path.exists():
         raise CdcError(f"No CDC target yet: run `scmgen simulate cdc apply -w {code}`")
     source_engine, sim_engine = _engines(settings, workspace)
-    con = duckdb.connect(str(path), read_only=True)
+    con = connect_replica(path, read_only=True)
     outcome: dict[str, str] = {}
     try:
         with source_engine.connect() as source, sim_engine.connect() as sim:
@@ -496,7 +497,7 @@ def rejected_rows(settings: Settings, code: str) -> list[tuple[int, str, str, bo
     path = Path(workspace.duckdb_path).with_name(f"{workspace.code}_sim.duckdb")
     if not path.exists():
         return []
-    con = duckdb.connect(str(path), read_only=True)
+    con = connect_replica(path, read_only=True)
     try:
         return [(int(a), b, c, bool(d)) for a, b, c, d in con.execute(
             "SELECT change_event_id, source_table, reason, is_simulated_anomaly FROM etl_meta.cdc_rejected_events"

@@ -40,6 +40,7 @@ from scmgen.core.errors import ScmgenError
 from scmgen.core.settings import Settings
 from scmgen.db.sql_files import execute_raw
 from scmgen.db.workspaces import get_workspace
+from scmgen.loader.replica import connect_replica
 from scmgen.simulation import sim_schema
 from scmgen.simulation.config import Scenario, load_simulation_config
 
@@ -256,7 +257,7 @@ def _replica_mark(ctx: Context, table: str) -> datetime | None:
     path = replica_path(get_workspace(ctx.settings, ctx.code), "sim")
     if not path.exists():
         return None
-    con = duckdb.connect(str(path), read_only=True)
+    con = connect_replica(path, read_only=True)
     try:
         row = con.execute("SELECT last_watermark_ts FROM etl_meta.etl_table_watermarks WHERE source_table = ?",
                           [table]).fetchone()
@@ -324,7 +325,7 @@ def _replica_has(ctx: Context, table: str) -> bool:
     path = replica_path(get_workspace(ctx.settings, ctx.code), "sim")
     if not path.exists():
         return False
-    con = duckdb.connect(str(path), read_only=True)
+    con = connect_replica(path, read_only=True)
     try:
         return bool(con.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'raw' "
                                 "AND table_name = ?", [table]).fetchone()[0])

@@ -47,6 +47,7 @@ from scmgen.db.connection import create_mysql_engine
 from scmgen.db.workspaces import get_workspace
 from scmgen.loader import meta
 from scmgen.loader.config import LoaderConfig, load_loader_config
+from scmgen.loader.replica import connect_replica
 from scmgen.loader.schema import TableSchema, discover, to_arrow
 
 
@@ -130,7 +131,7 @@ class Loader:
             raise LoaderError(f"Unknown table(s) {unknown}: see config/loader/tables.yaml")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         engine = create_mysql_engine(self.settings, role="app", database=self.source_schema)
-        con = duckdb.connect(str(self.path))
+        con = connect_replica(self.path)
         try:
             con.execute(f"SET threads = {self.config.duckdb_threads}")
             meta.ensure(con)
@@ -391,7 +392,7 @@ def load_status(settings: Settings, code: str, source: str = "oltp") -> dict[str
     if not path.exists() or (source == "sim" and not _has_meta(path)):
         flag = "" if source == "oltp" else " --source sim"
         raise WorkspaceError(f"No DuckDB replica yet for '{code}' ({path}): run `scmgen load -w {code}{flag}`")
-    con = duckdb.connect(str(path), read_only=True)
+    con = connect_replica(path, read_only=True)
     try:
         info = dict(con.execute("SELECT info_key, info_value FROM etl_meta.replica_info").fetchall())
         marks = con.execute("""SELECT w.source_table, w.strategy, w.last_watermark_ts, w.last_watermark_pk,
@@ -410,7 +411,7 @@ def load_status(settings: Settings, code: str, source: str = "oltp") -> dict[str
 
 
 def _has_meta(path: Path) -> bool:
-    con = duckdb.connect(str(path), read_only=True)
+    con = connect_replica(path, read_only=True)
     try:
         return bool(con.execute("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'etl_meta' "
                                 "AND table_name = 'replica_info'").fetchone()[0])
